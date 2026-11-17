@@ -739,7 +739,7 @@ end
 local function pop() return require('desk.popout') end
 local function valid(view)
   if not view then return false end
-  if view.out then return not view.gone and pop().host.views[view.id] == view end
+  if view.out then return pop().holds(view) end
   return api.nvim_buf_is_valid(view.buf) and api.nvim_win_is_valid(view.win) and views[view.buf] == view
 end
 
@@ -1264,7 +1264,7 @@ function M.open(root, from)
   root = root or (here_view and here_view.root) or vim.fs.root(0, '.git') or vim.fn.getcwd()
   root = uv.fs_realpath(root) or root
   local P = package.loaded['desk.popout']
-  local out = not from and P and P.host.views.map
+  local out = not from and P and P.view_of('map')
   if out and out.out and not out.gone and out.root == root then
     P.back(out)
     for _, open in pairs(views) do if open.root == root and valid(open) then return open end end

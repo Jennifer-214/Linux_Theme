@@ -48,6 +48,7 @@ write(bin .. '/kitty', [[#!/bin/sh
 printf '%s\n' "$@" > "$POPOUT_TEST/kitty.argv"
 printf 'NVIM=%s TMUX=%s TMUX_PANE=%s NVIM_NOTTYFAST=%s\n' "${NVIM:-}" "${TMUX:-}" "${TMUX_PANE:-}" "${NVIM_NOTTYFAST:-}" > "$POPOUT_TEST/kitty.env"
 echo $$ > "$POPOUT_TEST/kitty.pid"
+echo $$ >> "$POPOUT_TEST/kitty.pids"
 : > "$POPOUT_TEST/pop.floating"; echo 1 > "$POPOUT_TEST/pop.workspace"
 n=$(( $(cat "$POPOUT_TEST/kitty.count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$POPOUT_TEST/kitty.count"
@@ -61,7 +62,9 @@ write(bin .. '/hyprctl', [[#!/bin/sh
 # hyprctl, for the test: logs every call; the screens and windows come from the test's files. With focus.fail in the
 # test's folder a focus fails (exit 17). The pop-out's window keeps its workspace and whether it floats as Hyprland
 # would: kitty's stub opens it floating (pop.floating), a move puts it on that workspace (pop.workspace), unsetting its
-# float tiles it; with unset.ignore there the next one is let go by, as a Hyprland that had not finished the move.
+# float tiles it; with unset.ignore there the next one is let go by, as a Hyprland that had not finished the move. The
+# kitty started last is that window (0xb2); one started before it and still listed is a tiled window of its own (0xc
+# and its pid), as several pop-outs are.
 printf '%s\n' "$*" >> "$POPOUT_TEST/hyprctl.log"
 if [ "$1" = dispatch ] && [ -f "$POPOUT_TEST/focus.fail" ]; then case "$2" in *focus*) exit 17 ;; esac; fi
 if [ "$1" = dispatch ]; then
@@ -77,7 +80,12 @@ case "$1 $2" in
     main=$(cat "$POPOUT_TEST/main.pid" 2>/dev/null || echo 0)
     floating=false; [ -f "$POPOUT_TEST/pop.floating" ] && floating=true
     workspace=$(cat "$POPOUT_TEST/pop.workspace" 2>/dev/null || echo 1)
-    printf '[{"address":"0xa1","pid":%s,"class":"kitty","floating":false,"workspace":{"id":1}},{"address":"0xb2","pid":%s,"class":"desk-popout","floating":%s,"workspace":{"id":%s}}]\n' "$main" "$pop" "$floating" "$workspace" ;;
+    others=
+    for earlier in $(cat "$POPOUT_TEST/kitty.pids" 2>/dev/null); do
+      [ "$earlier" = "$pop" ] && continue
+      others="$others,{\"address\":\"0xc$earlier\",\"pid\":$earlier,\"class\":\"desk-popout\",\"floating\":false,\"workspace\":{\"id\":5}}"
+    done
+    printf '[{"address":"0xa1","pid":%s,"class":"kitty","floating":false,"workspace":{"id":1}},{"address":"0xb2","pid":%s,"class":"desk-popout","floating":%s,"workspace":{"id":%s}}%s]\n' "$main" "$pop" "$floating" "$workspace" "$others" ;;
   "eval return 1") echo 1 ;;
   *) echo ok ;;
 esac
@@ -316,14 +324,14 @@ eq(door({ version = 1, type = 'act', view = 'graph', gen = gen, item = 1, action
 eq(act({ action = 'callgraph.go', deadline = later(-1000) }), { refused = 'this message came after its sender stopped waiting' },
   '… and one past it')
 eq(door({ version = 1, type = 'subscribe', chan = 1, pid = 1, width = 80, protocol = 1, deadline = later(5000) }),
-  { refused = 'this editor speaks pop-out protocol 3 and this pop-out 1: close it and open it again' }, 'a pop-out of another protocol is refused')
+  { refused = 'this editor speaks pop-out protocol 4 and this pop-out 1: close it and open it again' }, 'a pop-out of another protocol is refused')
 -- This test's own channel to the editor is not a pop-out's: it never named itself with nvim_set_client_info.
 local subscribed = host("return require('desk.popout').host.chan")
-eq(door({ version = 1, type = 'subscribe', chan = vim.rpcrequest(h, 'nvim_get_api_info')[1], pid = vim.fn.getpid(), width = 80, protocol = 3,
+eq(door({ version = 1, type = 'subscribe', chan = vim.rpcrequest(h, 'nvim_get_api_info')[1], pid = vim.fn.getpid(), width = 80, protocol = 4,
   deadline = later(5000) }), { refused = 'a pop-out subscribes on its own channel, named with nvim_set_client_info first' },
   'a subscribe on a channel that is no named pop-out is refused')
 eq(host("return require('desk.popout').host.chan"), subscribed, '… and the pop-out it has stays')
-eq(pop("return require('desk.bridge').receive(...)", { version = 1, type = 'subscribe', chan = 1, pid = 1, width = 80, protocol = 3, deadline = later(5000) }),
+eq(pop("return require('desk.bridge').receive(...)", { version = 1, type = 'subscribe', chan = 1, pid = 1, width = 80, protocol = 4, deadline = later(5000) }),
   { refused = 'this editor keeps no pop-out' }, 'a pop-out takes no pop-out of its own')
 eq(pop("return require('desk.popout').receive({ version = 1, type = 'view.set', id = 'old', gen = 1, lines = { 'x' } })"), false,
   '… and the pop-out takes nothing of another protocol')
@@ -1052,6 +1060,68 @@ do
   host("require('desk.popout').clear('rows')")
   ok(wait(3000, function() return state().tabs == 1 end), 'the rows taken off by their kind (as the review closing does), behind the graph')
   ok(wait(3000, function() return #(record().tabs or {}) == 1 end), '… and the record drops them: ' .. read(record_file()))
+end
+
+-- ─── several pop-outs: one state machine each ────────────────────────────────────────────────────────────────────
+-- The first is open with the graph (following). A second opens beside it; each is attached on a channel of its own,
+-- shows only its own views and acts only on them, and when one goes the other stays as it was.
+local first = p
+local function in_pop(chan, code, ...) return vim.rpcrequest(chan, 'nvim_exec_lua', code, { ... }) end
+local function state_of(chan)
+  local fine, value = pcall(in_pop, chan, "return require('desk.popout').client_state()")
+  return fine and value or {}
+end
+do
+  os.remove(dir .. '/kitty.listen')
+  host("vim.api.nvim_set_current_win(_G.popout_test.code_win); vim.api.nvim_win_set_cursor(0, { 3, 2 })")
+  eq(host("local P = require('desk.popout'); local id = P.new_pop(); P.show('rows', require('desk.actions').context(), { pop = id }); return id"), 2,
+    'a new pop-out for the rows: the second')
+  ok(wait(10000, function() return exists(dir .. '/kitty.listen') end), '… started in a kitty of its own')
+  ok(vim.tbl_contains(vim.split(read('kitty.argv'), '\n'), 'let g:desk_popout=2'), '… which knows it is the second: ' .. read('kitty.argv'))
+  local second = connect(vim.trim(read('kitty.listen')))
+  ok(second ~= nil, '… and its Neovim listens')
+  ok(wait(10000, function() return state_of(second).kind == 'rows' end), '… the rows arrive there')
+  eq(host("local P = require('desk.popout'); return { #P.pops, P.pops[1].chan ~= nil, P.pops[2].chan ~= nil, P.pops[1].chan ~= P.pops[2].chan, P.host == P.pops[1] }"),
+    { 2, true, true, true, true }, 'both attached, each on a channel of its own; the first is still the host the callers read')
+  eq({ state_of(first).views, state_of(second).views }, { { 'graph' }, { 'rows' } }, '… each shows only its own views')
+  -- A kind in two pop-outs: the graph sent to the second too is a view of its own there.
+  host("require('desk.popout').show('graph', require('desk.actions').context(), { pop = 2 })")
+  ok(wait(5000, function() return state_of(second).shown == 'graph.2' end), 'the graph in the second pop-out too: a view of its own, graph.2')
+  eq({ state_of(second).kind, state_of(first).shown }, { 'graph', 'graph' }, '… of kind graph, and the first keeps its own graph')
+  eq(host("local P = require('desk.popout'); return { P.pops[2].views['graph.2'].pop, P.pops[1].views.graph.pop, P.pops[2].views.graph == nil }"),
+    { 2, 1, true }, '… each view names its pop-out')
+  -- The default rule: a view shown with no pop-out named goes where that kind is, the first by default.
+  host("require('desk.popout').show('graph', require('desk.actions').context())")
+  ok(wait(3000, settled), '… shown again from the editor')
+  eq(host("local P = require('desk.popout'); return { P.pops[1].order, P.pops[2].order }"), { { 'graph' }, { 'rows', 'graph.2' } },
+    '… with no pop-out named it goes to the first, and no view moves or is added')
+  -- A key pressed in the second acts in the second only: its act names it.
+  -- The rows were to come forward once more as it attached (a drawing held back M.GAP_MS): the graph shown since then
+  -- stays in front (2026-11-17: the rows took the window back, and p pinned them).
+  vim.wait(300)
+  eq(state_of(second).shown, 'graph.2', '… and it stays in front there')
+  in_pop(second, "vim.api.nvim_input('p')")
+  ok(wait(3000, function() return (state_of(second).header or ''):find('graph · PINNED', 1, true) end), 'p in the second pop-out pins its graph: '
+    .. tostring(state_of(second).header))
+  eq(host("local P = require('desk.popout'); return { P.pops[2].views['graph.2'].pinned, P.pops[1].views.graph.pinned }"), { true, false },
+    '… and only that one')
+  ok(not (state().header or ''):find('PINNED', 1, true), "… the first's header says nothing of it: " .. tostring(state().header))
+  -- Each keeps its own history: the second's switch from the rows to its graph is its step, not the first's.
+  eq(host([[local P = require('desk.popout')
+    local function switches(p) local out = {}; for _, s in ipairs(p.history.steps) do if s.type == 'switch' then out[#out + 1] = s.from .. '>' .. s.to end end; return out end
+    local first = vim.tbl_filter(function(s) return s:find('graph.2', 1, true) ~= nil end, switches(P.pops[1]))
+    return { switches(P.pops[2]), first }]]),
+    { { 'rows>graph.2' }, {} }, "… and a history of its own: the second's switch is its step, and none of the first's")
+  -- Its kitty gone (gone → closed): only its pinned view comes back, and the first goes on as it was.
+  host("_G.heard = {}")
+  host("local P = require('desk.popout'); vim.uv.kill(P.pops[2].kitty, 'sigterm')")
+  ok(wait(5000, function() return host("return require('desk.popout').pops[2].chan") == vim.NIL end), "the second pop-out's kitty gone: it is closed")
+  ok(wait(3000, function() return host(panel_open) end), '… its pinned graph back here, as the panel')
+  ok(vim.tbl_contains(heard(), 'Pop-out 2 closed. Its pinned view is back here.'), '… one notice says which: ' .. vim.inspect(heard()))
+  eq({ host("local P = require('desk.popout'); return { P.pops[1].chan ~= nil, P.pops[1].order, next(P.pops[2].views) == nil }"), state().connected, state().views },
+    { { true, { 'graph' }, true }, true, { 'graph' } }, '… and the first pop-out goes on, its views as they were')
+  host("require('desk.callgraph').panel_close()")
+  eq(host("return require('desk.popout').new_pop()"), 2, 'a closed pop-out is the next new one')
 end
 
 vim.rpcnotify(h, 'nvim_command', 'qa!')

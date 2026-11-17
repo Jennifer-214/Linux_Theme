@@ -8,18 +8,23 @@
 -- (init.lua's desk-popout block). Its tab line is the header (each view, PINNED, ✱ for news, the keys that switch);
 -- each window's status line is that view's key line.
 --
--- Protocol 3. The editor sends rpcnotify of M.receive, { version = 3, type, … }:
+-- An editor may have several pop-outs (M.pops, by id 1, 2, …; the first is M.host), each a kitty and a Neovim of its
+-- own, started with g:desk_popout set to its id. Every view goes to the first unless she sends it to another.
+--
+-- Protocol 4. The editor sends each pop-out, on its own channel, rpcnotify of M.receive, { version = 4, type, … }:
 --   view.set   { id, gen, kind, surface, title, state, lines, marks, hl, items, footer, strip, select, front, news, views }
---              (views: every view the editor has; the pop-out closes a tab of any other)
+--              (views: every view the editor has in that pop-out; it closes a tab of any other)
 --   view.clear { id } · ping { serial } (every 10 s; one that stops answering is sent nothing until it does) · bye { why }
 --   answer { id, answer } (to an ask)
 -- The pop-out's messages go through the editor's bridge (desk.bridge), every ask with its deadline (pong and leaving
--- need none): subscribe { chan, pid, width, protocol = 3 } (a request: the handshake) · describe { view, gen, item } →
--- { rows } · act { view, gen, item, action, text, choice } · leaving { pid } (q on its last view: it goes, whatever the
--- editor is doing, and says so first) · pong { serial } · front { view, quiet } (the view in front there now; quiet when
--- it was not her own switch). describe, act and leaving are asks: notifications of M.ask with an id, answered by an
--- answer notification, so the pop-out waits for the editor only as long as it chooses (an editor held up, busy or at
--- a prompt, answers late: by then the pop-out has gone another way, and the deadline refuses what came late).
+-- need none), each naming the pop-out it comes from (pop: its id; the bridge cannot tell which channel called, and a
+-- message without one is the first's): subscribe { pop, chan, pid, width, protocol = 4 } (a request: the handshake) ·
+-- describe { pop, view, gen, item } → { rows } · act { pop, view, gen, item, action, text, choice } · leaving { pop, pid }
+-- (q on its last view: it goes, whatever the editor is doing, and says so first) · pong { pop, serial } · front { pop,
+-- view, quiet } (the view in front there now; quiet when it was not her own switch). describe, act and leaving are
+-- asks: notifications of M.ask with an id, answered by an answer notification to the pop-out that asked, so it waits
+-- for the editor only as long as it chooses (an editor held up, busy or at a prompt, answers late: by then the pop-out
+-- has gone another way, and the deadline refuses what came late).
 -- describe and act name the generation the pop-out drew: a view drawn again since is refused ("this view moved on").
 -- The pop-out's keys for a view are its in-editor surface's drawn rows (run there, on its copy) and remote rows (run in
 -- the editor, by act), beside its own rows (surface 'popout'); a row the editor keeps (remote = false) is not there.
@@ -29,7 +34,7 @@ local actions = require('desk.actions')
 local bridge = require('desk.bridge')
 
 M.CLASS = 'desk-popout'
-M.PROTOCOL = 3
+M.PROTOCOL = 4
 M.PING_MS, M.WATCH_MS, M.LINGER_MS, M.GAP_MS, M.START_MS = 10000, 2000, 1500, 50, 15000
 M.MAX_LINES, M.MAX_ITEMS = 2000, 500
 -- The two doors: the editor's (desk.bridge, as desk-work uses it) and the pop-out's.
@@ -156,12 +161,15 @@ function M.screen_choices(monitors, layout, prefer)
   return out
 end
 
--- The screen she chose for the pop-out this session (M.chosen), while it is there: { name, workspace }, the editor's
--- own screen allowed.
-local function chosen_screen(monitors)
-  if not M.chosen then return nil end
+-- The screen she chose for a pop-out this session (the first's is M.chosen, another's its own chosen).
+local function chosen_of(p) if p == M.host then return M.chosen end return p.chosen end
+local function choose_for(p, name) if p == M.host then M.chosen = name else p.chosen = name end end
+-- That screen while it is there: { name, workspace }, the editor's own screen allowed.
+local function chosen_screen(monitors, p)
+  local name = chosen_of(p)
+  if not name then return nil end
   for _, c in ipairs(M.screen_choices(monitors, M.screens())) do
-    if c.name == M.chosen then return { name = c.name, workspace = c.workspace } end
+    if c.name == name then return { name = c.name, workspace = c.workspace } end
   end
 end
 
@@ -252,23 +260,59 @@ function M.focus(who, done)
 end
 
 -- ─── the main editor's side ────────────────────────────────────────────────────────────────────────────────────
--- chan: the pop-out's channel once it subscribed; pid: its Neovim; kitty: the kitty it runs in; width: its window;
--- opening: a kitty on its way; views by id, and order: their ids in the order of the pop-out's tabs; front: the view in
--- front there; screen: the monitor it was placed on (prefer: the one a restore asks for); gen: the newest generation
--- sent; ping and heard: the pings sent and answered; stalled: not answering; history: the steps H, Backspace and L
--- walk; saved: the layout record last read or written; watch: the watch on desk-monitor's sidecar while it is open;
--- down: the editor is exiting and the pop-out was told.
-local H = { views = {}, order = {}, gen = 0, ping = 0, heard = 0, width = 80, history = { steps = {}, at = 0 }, waiting = {} }
-M.host = H   -- the tests read it
+-- One state machine per pop-out (pops[id]), its transitions written once, below:
+--   closed → opening (kitty started) → attached (subscribed) ⇄ stalled (a ping unanswered) → leaving (q on its last
+--   view there) | gone (its kitty exited, its channel closed) → closed
+-- A closed one is kept, empty, and its id used again for the next new one. Each one's fields: id; chan: its channel
+-- once it subscribed; pid: its Neovim; kitty: the kitty it runs in; width: its window; opening: a kitty on its way;
+-- views by id, and order: their ids in the order of its tabs; front: the view in front there; screen: the monitor it
+-- was placed on (prefer: the one a restore asks for; chosen: the one she chose this session, the first's is M.chosen);
+-- ping and heard: the pings sent and answered; timer: its pings; stalled: not answering; history: the steps Ctrl+o,
+-- Backspace and Ctrl+r walk there; waiting: saved tabs whose kind has not loaded yet; folding: the view an Enter is
+-- running in.
+-- A view (pops[i].views[id]) names its pop-out (view.pop; one without it is the first's) and has an id of its own: its
+-- kind's name for the first view of that kind, then kind.2, kind.3 (a kind may have a view in two pop-outs).
+local function new_pop(id)
+  return { id = id, views = {}, order = {}, ping = 0, heard = 0, width = 80, history = { steps = {}, at = 0 }, waiting = {} }
+end
+local pops = { new_pop(1) }
+local H = pops[1]
+M.host, M.pops = H, pops   -- the first pop-out (callers and the tests read it), and all of them
+M.MAX_POPS = 9
+-- The editor's own, one for all its pop-outs, kept on the first's table (where the tests read them): the layout
+-- record's state (root, saved, records, wrote, writing, pending, save_timer, waiting_root), gen: the newest generation
+-- sent, last: the pop-out last used (a view shown, pressed or put in front there), watch: the watch on desk-monitor's
+-- sidecar while any is open, down: the editor is exiting and its pop-outs were told.
+local L = H
+L.gen = 0
 local kinds = {}
 M.kinds = kinds
 M.MAX_STEPS = 50
 local watch_screens, unwatch_screens, kind_failed
 
+-- pops is a list (ids 1 to #pops, none ever removed). The pop-out a view names; whether one is open (attached, or on
+-- its way); the words for one ('the pop-out' for the first, as there was only ever one, else 'pop-out 2').
+local function pop_of(view) return view and pops[view.pop or 1] or nil end
+local function is_open(p) return p ~= nil and (p.chan ~= nil or p.opening ~= nil) end
+local function any_open() for _, p in ipairs(pops) do if is_open(p) then return true end end return false end
+local function any_views() for _, p in ipairs(pops) do if next(p.views) ~= nil then return true end end return false end
+local function named(p) return p.id == 1 and 'the pop-out' or ('pop-out ' .. p.id) end
+-- The view called id, in whichever pop-out it is, and that pop-out.
+local function find_view(id)
+  for _, p in ipairs(pops) do if p.views[id] then return p.views[id], p end end
+end
+-- The view of kind `name` in pop-out p (its first), or nil.
+local function kind_view(p, name)
+  for _, id in ipairs(p.order) do
+    local view = p.views[id]
+    if view and view.kind == name then return view end
+  end
+end
+
 -- Neovim is exiting (v:exiting is set before any exit autocommand runs) or the pop-out was told: nothing of the
 -- pop-out runs then but its goodbye. An error in a callback during the exit makes Neovim wait for a key before it
 -- quits, which :restart shows as a stall.
-function M.exiting() return H.down == true or vim.v.exiting ~= vim.NIL end
+function M.exiting() return L.down == true or vim.v.exiting ~= vim.NIL end
 local exiting = M.exiting
 
 local function host_pane()
@@ -287,19 +331,20 @@ local function checkout_of(win)
   return uv.fs_realpath(root) or root
 end
 
-local function send(msg)
-  if not H.chan or H.stalled or exiting() then return false end
+local forget
+local function send(p, msg)
+  if not p.chan or p.stalled or exiting() then return false end
   msg.version = M.PROTOCOL
-  local ok, err = pcall(vim.rpcnotify, H.chan, 'nvim_exec_lua', POPOUT_DOOR, { msg })
+  local ok, err = pcall(vim.rpcnotify, p.chan, 'nvim_exec_lua', POPOUT_DOOR, { msg })
   if ok then return true end
   -- Not sent to a pop-out that is still there: the message could not be encoded. It is dropped and its view's kind
   -- named; the pop-out stays.
-  if next(api.nvim_get_chan_info(H.chan)) ~= nil then
-    local view = type(msg.id) == 'string' and H.views[msg.id]
-    if view then kind_failed(view, err) else tell('Could not send the pop-out a ' .. tostring(msg.type) .. ': ' .. tostring(err):sub(1, 200), WARN) end
+  if next(api.nvim_get_chan_info(p.chan)) ~= nil then
+    local view = type(msg.id) == 'string' and p.views[msg.id]
+    if view then kind_failed(view, err) else tell('Could not send ' .. named(p) .. ' a ' .. tostring(msg.type) .. ': ' .. tostring(err):sub(1, 200), WARN) end
     return false
   end
-  M.forget('The pop-out closed.', { back = true })
+  forget(p, sentence(named(p) .. ' closed'), { back = true })
   return false
 end
 
@@ -467,7 +512,7 @@ local function plain_footer(footer)
 end
 local function payload(view)
   local kind = kinds[view.kind]
-  local ok, drawn = pcall(kind.render, view, H.width or 80, vim.g.desk_style or 'paper')
+  local ok, drawn = pcall(kind.render, view, pop_of(view).width or 80, vim.g.desk_style or 'paper')
   if not ok or type(drawn) ~= 'table' or type(drawn.lines) ~= 'table' then
     drawn = { lines = { '', '  This view could not be drawn: ' .. (tostring(ok and 'it gave no lines' or drawn):gsub('\n.*', '')):sub(1, 200) } }
   end
@@ -498,7 +543,8 @@ end
 -- lines or its items changed: the same drawing sent again (it answers again, a resize to the same width) keeps the
 -- items it named.
 function M.redraw(view)
-  if not view or view.gone or H.views[view.id] ~= view or not H.chan or H.stalled or exiting() then return end
+  local p = pop_of(view)
+  if not p or view.gone or p.views[view.id] ~= view or not p.chan or p.stalled or exiting() then return end
   local wait = (view.sent or -M.GAP_MS) + M.GAP_MS - uv.now()
   if wait > 0 then
     if not view.queued then
@@ -511,23 +557,23 @@ function M.redraw(view)
   local msg, refs, keys = payload(view)
   local drawing = table.concat(msg.lines, '\n') .. '\0' .. table.concat(keys, '\1')
   if drawing ~= view.drawing then
-    H.gen = H.gen + 1
-    view.gen, view.drawing = H.gen, drawing
+    L.gen = L.gen + 1
+    view.gen, view.drawing = L.gen, drawing
   end
   view.refs, view.count = refs, #msg.items
   msg.gen, msg.select, msg.front = view.gen, cut(view.select, 120), view.front == true
-  -- The views this editor has: the pop-out closes a tab of any other (a view.clear it never got, made while it did not
-  -- answer and so never sent).
-  msg.views = H.order
-  if send(msg) then view.select, view.front, view.news = nil, nil, nil end
+  -- The views this editor has there: the pop-out closes a tab of any other (a view.clear it never got, made while it
+  -- did not answer and so never sent).
+  msg.views = p.order
+  if send(p, msg) then view.select, view.front, view.news = nil, nil, nil end
 end
--- Every view sent again in the order of the pop-out's tabs (a pop-out makes a view's tab when it first arrives, so
+-- Every view of pop-out p sent again in the order of its tabs (a pop-out makes a view's tab when it first arrives, so
 -- this order is the tabs' order), then the one in front once more to bring it forward (a moment later: one send per
 -- view every M.GAP_MS).
-local function redraw_all()
-  local front = H.front and H.views[H.front]
-  for _, id in ipairs(H.order) do
-    local view = H.views[id]
+local function redraw_all(p)
+  local front = p.front and p.views[p.front]
+  for _, id in ipairs(p.order) do
+    local view = p.views[id]
     if view then view.sent = nil; M.redraw(view) end
   end
   if front then front.front = true; M.redraw(front) end
@@ -548,7 +594,9 @@ local function follow_one(view, event)
 end
 local function dispatch(event)
   if exiting() then return end
-  for _, view in pairs(H.views) do follow_one(view, event) end
+  for _, p in ipairs(pops) do
+    for _, view in pairs(p.views) do follow_one(view, event) end
+  end
 end
 local function follow_start()
   local group = api.nvim_create_augroup('desk_popout_follow', { clear = true })
@@ -559,7 +607,9 @@ local function follow_start()
     callback = function() dispatch({ type = 'unit', win = api.nvim_get_current_win() }) end })
   api.nvim_create_autocmd('BufWritePost', { group = group, callback = function(a) dispatch({ type = 'saved', buf = a.buf }) end })
   api.nvim_create_autocmd('LspAttach', { group = group, callback = function(a) dispatch({ type = 'attached', buf = a.buf }) end })
-  api.nvim_create_autocmd('ColorScheme', { group = group, callback = function() if not exiting() then redraw_all() end end })
+  api.nvim_create_autocmd('ColorScheme', { group = group, callback = function()
+    if not exiting() then for _, p in ipairs(pops) do redraw_all(p) end end
+  end })
 end
 local function follow_stop() pcall(api.nvim_del_augroup_by_name, 'desk_popout_follow') end
 
@@ -571,40 +621,40 @@ local function leave(view)
     if not ok then kind_failed(view, err) end
   end
 end
-local function unlist(id) for i, other in ipairs(H.order) do if other == id then table.remove(H.order, i); return end end end
+local function unlist(p, id) for i, other in ipairs(p.order) do if other == id then table.remove(p.order, i); return end end end
 
--- Takes a view off the pop-out (it goes back to the editor, she closed it there, or its kind took it off: the review
+-- Takes a view off its pop-out (it goes back to the editor, she closed it there, or its kind took it off: the review
 -- closing), and writes the layout record so a view gone is never restored.
 function M.clear(id)
-  local view = H.views[id]
+  local view, p = find_view(id)
   if not view then return end
-  H.views[id] = nil
-  unlist(id)
-  if H.front == id then H.front = nil end
+  p.views[id] = nil
+  unlist(p, id)
+  if p.front == id then p.front = nil end
   leave(view)
-  if next(H.views) == nil then follow_stop() end
-  send({ type = 'view.clear', id = id })
+  if not any_views() then follow_stop() end
+  send(p, { type = 'view.clear', id = id })
   M.save_layout()
 end
 
--- The pop-out is gone, or let go: nothing more is sent and nothing follows the cursor for it. One still running (q on
--- what is its last view here, a fold) is told why and its channel closed, so it never stays with every key refused;
--- opts.leaving: it is quitting by itself (q on its last view there) and is told nothing. opts.back: it went on its own
--- (it closed or crashed, or its screen was unplugged): its pinned views come back to the editor as splits (their kind's
--- attach), the following ones stop, and one notice says so; opts.all: it never showed them (it did not start), so
--- every view comes back. Her q on its last view brings nothing back.
-function M.forget(why, opts)
+-- Pop-out p is gone, or let go (→ closed): nothing more is sent to it and nothing follows the cursor for it; the other
+-- pop-outs go on. One still running (q on what is its last view here, a fold) is told why and its channel closed, so
+-- it never stays with every key refused; opts.leaving: it is quitting by itself (q on its last view there) and is told
+-- nothing. opts.back: it went on its own (it closed or crashed, or its screen was unplugged): its pinned views come
+-- back to the editor as splits (their kind's attach), the following ones stop, and one notice says so; opts.all: it
+-- never showed them (it did not start), so every view comes back. Her q on its last view brings nothing back.
+forget = function(p, why, opts)
   opts = opts or {}
   -- A write of the views still on its way is written now, while they are here: a fold right after a change keeps them.
   M.flush_layout()
-  local chan = H.chan
-  local had = chan ~= nil or next(H.views) ~= nil
-  H.chan, H.pid, H.kitty, H.stalled, H.opening, H.front, H.screen, H.prefer = nil, nil, nil, false, nil, nil, nil, nil
-  if H.timer then H.timer:stop() end
-  unwatch_screens()
+  local chan = p.chan
+  local had = chan ~= nil or next(p.views) ~= nil
+  p.chan, p.pid, p.kitty, p.stalled, p.opening, p.front, p.screen, p.prefer = nil, nil, nil, false, nil, nil, nil, nil
+  if p.timer then p.timer:stop() end
+  if not any_open() then unwatch_screens() end
   if not opts.leaving then let_go(chan, why) end
-  local views, order = H.views, H.order
-  H.views, H.order, H.history = {}, {}, { steps = {}, at = 0 }
+  local views, order = p.views, p.order
+  p.views, p.order, p.history = {}, {}, { steps = {}, at = 0 }
   local back = {}
   for _, id in ipairs(order) do
     local view = views[id]
@@ -614,7 +664,7 @@ function M.forget(why, opts)
       if (opts.all or (opts.back and view.pinned)) and kind and kind.attach then back[#back + 1] = view end
     end
   end
-  follow_stop()
+  if not any_views() then follow_stop() end
   for _, view in ipairs(back) do
     local ok, err = pcall(kinds[view.kind].attach, view)
     if not ok then tell(sentence('it could not come back: ' .. tostring(err):sub(1, 200)), WARN) end
@@ -625,34 +675,37 @@ function M.forget(why, opts)
       opts.all and WARN or nil)
   end
 end
+-- The first pop-out, or the one named (p).
+function M.forget(why, opts, p) return forget(p or H, why, opts) end
 
-local function start_pings()
-  H.timer = H.timer or uv.new_timer()
-  H.timer:stop()
-  H.timer:start(M.PING_MS, M.PING_MS, vim.schedule_wrap(function()
+local function start_pings(p)
+  p.timer = p.timer or uv.new_timer()
+  p.timer:stop()
+  p.timer:start(M.PING_MS, M.PING_MS, vim.schedule_wrap(function()
     if exiting() then return end
-    if not H.chan then return H.timer:stop() end
-    if next(api.nvim_get_chan_info(H.chan)) == nil then return M.forget('The pop-out closed.', { back = true }) end
-    if H.ping > H.heard and not H.stalled then
-      H.stalled = true
-      tell('The pop-out stopped answering; nothing more is sent to it until it does.', WARN)
+    if not p.chan then return p.timer:stop() end
+    if next(api.nvim_get_chan_info(p.chan)) == nil then return forget(p, sentence(named(p) .. ' closed'), { back = true }) end
+    if p.ping > p.heard and not p.stalled then
+      p.stalled = true
+      tell(sentence(named(p) .. ' stopped answering; nothing more is sent to it until it does'), WARN)
     end
-    H.ping = H.ping + 1
-    pcall(vim.rpcnotify, H.chan, 'nvim_exec_lua', POPOUT_DOOR, { { version = M.PROTOCOL, type = 'ping', serial = H.ping } })
+    p.ping = p.ping + 1
+    pcall(vim.rpcnotify, p.chan, 'nvim_exec_lua', POPOUT_DOOR, { { version = M.PROTOCOL, type = 'ping', serial = p.ping } })
   end))
 end
 
 -- The pop-out window appears floating at the side of the screen it opens on (the Hyprland rule, which also keeps the
 -- focus here). Then it moves, tiled, to the workspace showing on `screen` ({ name, workspace }; by default the screen
--- M.target_screen picks, a restore's screen first), and H.screen says which. pid: its kitty's. Each time, Hyprland's own
--- list of windows says whether it took: still elsewhere it is moved again, still floating it is tiled again, up to
--- M.PLACE_TRIES more times, then it says so (2026-11-16: moved to another screen it stayed floating there, not tiled
--- beside the windows already there). A window never found is said too.
+-- M.target_screen picks, a restore's screen first), and p.screen says which (p: the pop-out, the first by default).
+-- pid: its kitty's. Each time, Hyprland's own list of windows says whether it took: still elsewhere it is moved again,
+-- still floating it is tiled again, up to M.PLACE_TRIES more times, then it says so (2026-11-16: moved to another
+-- screen it stayed floating there, not tiled beside the windows already there). A window never found is said too.
 M.PLACE_TRIES = 3
-function M.place(pid, screen)
+function M.place(pid, screen, p)
+  p = p or H
   if type(pid) ~= 'number' or not have('hyprctl') then return end
   hyprctl({ 'monitors' }, function(monitors)
-    screen = screen or chosen_screen(monitors) or M.target_screen(monitors, M.screens(), H.prefer)
+    screen = screen or chosen_screen(monitors, p) or M.target_screen(monitors, M.screens(), p.prefer)
     if not screen then return end
     local where, looked, tried = tostring(screen.workspace), 0, 0
     local function look()
@@ -664,16 +717,16 @@ function M.place(pid, screen)
         end
         if not c then
           if looked < 30 then return vim.defer_fn(look, 100) end
-          if tried == 0 then tell("The pop-out's window was not found, so it stays where it opened.", WARN) end
+          if tried == 0 then tell(sentence(named(p) .. "'s window was not found, so it stays where it opened"), WARN) end
           return
         end
-        H.screen = screen.name
+        p.screen = screen.name
         local ws = type(c.workspace) == 'table' and tonumber(c.workspace.id) or nil
         local there, floating = ws == screen.workspace, c.floating == true
         -- A list without these (another Hyprland) cannot say: it is placed once.
         if tried > 0 and (ws == nil or type(c.floating) ~= 'boolean' or (there and not floating)) then return end
         if tried > M.PLACE_TRIES then
-          return tell(('The pop-out is still %s: Hyprland did not tile it on %s.'):format(there and 'floating' or 'on another workspace', screen.name), WARN)
+          return tell(sentence(('%s is still %s: Hyprland did not tile it on %s'):format(named(p), there and 'floating' or 'on another workspace', screen.name)), WARN)
         end
         tried = tried + 1
         local address = c.address
@@ -692,18 +745,19 @@ end
 
 -- kitty's exit is the pop-out's end. One that never subscribed did not start: every view it was to show comes back here
 -- (none was seen there). One that did is gone: its pinned views come back, as when it crashed.
-local function kitty_exited(opening)
+local function kitty_exited(p, opening)
   if exiting() then return end
-  if H.opening == opening then return M.forget('The pop-out did not start.', { all = true }) end
-  if H.kitty == opening.pid then M.forget('The pop-out closed.', { back = true }) end
+  if p.opening == opening then return forget(p, sentence(named(p) .. ' did not start'), { all = true }) end
+  if p.kitty == opening.pid then forget(p, sentence(named(p) .. ' closed'), { back = true }) end
 end
 
--- Opens the pop-out when none is attached or on its way. true, or false and why. root: the checkout its layout record
--- is filed under until the next one opens (by default the one in front).
-function M.open(root)
+-- Opens pop-out p (closed → opening) when it is not attached or on its way. true, or false and why. root: the
+-- checkout the layout record is filed under (by default the one in front), when no other pop-out is open: one record
+-- for them all, until the next opens with none open.
+local function open_pop(p, root)
   -- One whose channel is already gone (its window closed a moment ago) is forgotten first, so a new one opens.
-  if H.chan and next(api.nvim_get_chan_info(H.chan)) == nil then M.forget('The pop-out closed.', { back = true }) end
-  if H.chan or H.opening then return true end
+  if p.chan and next(api.nvim_get_chan_info(p.chan)) == nil then forget(p, sentence(named(p) .. ' closed'), { back = true }) end
+  if p.chan or p.opening then return true end
   local server = vim.v.servername or ''
   if #server > 107 or not server:match('^/[%w%._/%-]+$') then return false, 'this editor has no socket the pop-out can reach' end
   if not have('kitty') then return false, 'requires kitty' end
@@ -711,21 +765,34 @@ function M.open(root)
   -- editor's) and no $NVIM (it is not a terminal inside this editor). Not NVIM_NOTTYFAST: with it Neovim 0.12 never
   -- takes a resize, and the pop-out kept the size it opened at, floating at the side (2026-11-16, seen in a VM: 61
   -- columns in a 186-column window). A slow first answer from kitty may show E1568 once; that is the lesser cost.
-  local argv = { 'kitty', '--class', M.CLASS, '-e', 'nvim', '--cmd', 'let g:desk_popout=1', '-c', "lua require('desk.popout').client()",
+  -- g:desk_popout is its id (1 for the first), which every message it sends names.
+  local argv = { 'kitty', '--class', M.CLASS, '-e', 'nvim', '--cmd', 'let g:desk_popout=' .. p.id, '-c', "lua require('desk.popout').client()",
     '--', 'desk-popout:' .. server }
   local opening = {}
   local env = { TMUX = '', TMUX_PANE = '', NVIM = '' }
   local ok, job = pcall(vim.system, argv, { text = true, detach = true, env = env }, function()
-    vim.schedule(function() kitty_exited(opening) end)
+    vim.schedule(function() kitty_exited(p, opening) end)
   end)
   if not ok then return false, 'kitty did not start (' .. tostring(job):sub(1, 120) .. ')' end
   opening.pid = job.pid
-  H.opening, H.kitty, H.root = opening, job.pid, root or checkout_of()
-  M.place(job.pid)
+  if not any_open() then L.root = root or checkout_of() end
+  p.opening, p.kitty = opening, job.pid
+  M.place(job.pid, nil, p)
   vim.defer_fn(function()
-    if H.opening == opening and not exiting() then M.forget('The pop-out did not start.', { all = true }) end
+    if p.opening == opening and not exiting() then forget(p, sentence(named(p) .. ' did not start'), { all = true }) end
   end, M.START_MS)
   return true
+end
+-- The first pop-out, or the one called id.
+function M.open(root, id) return open_pop(id and pops[id] or H, root) end
+
+-- A pop-out to open for a view she sends to a new one: the first closed one with nothing in it (its id used again),
+-- else one more. Its id, or nil and why.
+function M.new_pop()
+  for _, p in ipairs(pops) do if not is_open(p) and next(p.views) == nil then return p.id end end
+  if #pops >= M.MAX_POPS then return nil, ('%d pop-outs are open, the most there may be'):format(#pops) end
+  pops[#pops + 1] = new_pop(#pops + 1)
+  return #pops
 end
 
 -- Whether the pop-out can be opened from here: true, or why not; false where it does not apply (in a pop-out, or a
@@ -742,13 +809,13 @@ local function refused_here(why)
 end
 
 -- ─── history: Ctrl+o and Backspace go back, Ctrl+r forward ─────────────────────────────────────────────────────
--- Steps, each undone by Ctrl+o or Backspace and done again by Ctrl+r: a switch between views; an Enter (the code spot the editor
--- was at, and the view's state from before for a kind that keeps one: one step, so one Ctrl+o puts back both the file
+-- Each pop-out's own. Steps, each undone by Ctrl+o or Backspace and done again by Ctrl+r: a switch between views; an
+-- Enter (the code spot the editor was at, and the view's state from before for a kind that keeps one: one step, so one Ctrl+o puts back both the file
 -- the review showed and the spot); a view's content changing (its kind's save from before: a graph centred on another
 -- function). What Ctrl+r brings back is what Ctrl+o left (taken when it undoes it), so a graph still being read when it was
 -- centred comes back read. At most M.MAX_STEPS; a new step drops the ones ahead of it.
-local function push_step(step)
-  local h = H.history
+local function push_step(p, step)
+  local h = p.history
   for i = #h.steps, h.at + 1, -1 do h.steps[i] = nil end
   h.steps[#h.steps + 1] = step
   while #h.steps > M.MAX_STEPS do table.remove(h.steps, 1) end
@@ -756,17 +823,21 @@ local function push_step(step)
 end
 
 -- A kind changed what its view shows (before: its save from just before): a step Ctrl+o can undo.
--- During an Enter in that view (H.folding) the change is part of the Enter's own step, which keeps the view's state from
+-- During an Enter in that view (its pop-out's folding) the change is part of the Enter's own step, which keeps the view's state from
 -- before it: one Ctrl+o undoes both.
 function M.stepped(view, before)
-  local kind = view and kinds[view.kind]
-  if not (kind and kind.save and kind.restore) or view.gone or H.views[view.id] ~= view or type(before) ~= 'table' then return end
-  if H.folding == view.id then return end
-  push_step({ type = 'state', view = view.id, before = before })
+  local kind, p = view and kinds[view.kind], pop_of(view)
+  if not (kind and kind.save and kind.restore and p) or view.gone or p.views[view.id] ~= view or type(before) ~= 'table' then return end
+  if p.folding == view.id then return end
+  push_step(p, { type = 'state', view = view.id, before = before })
 end
 
+-- A view put in front of its pop-out. Any other view there that was to come forward with its next drawing (one held
+-- back M.GAP_MS) no longer does: it never takes the window back from this one.
 local function to_front(view)
-  H.front = view.id
+  local p = pop_of(view)
+  p.front, L.last = view.id, p.id
+  for _, other in pairs(p.views) do if other ~= view then other.front = nil end end
   view.front = true
   M.redraw(view)
 end
@@ -785,14 +856,14 @@ local function put_spot(spot)
 end
 
 -- A step undone (again: done again). false when what it names is gone, so the walk goes on past it.
-local function apply(step, again)
+local function apply(p, step, again)
   if step.type == 'switch' then
-    local view = H.views[again and step.to or step.from]
+    local view = p.views[again and step.to or step.from]
     if not view then return false end
     to_front(view)
   elseif step.type == 'enter' then
     -- The view's state first (it may show another file in the editor), then the editor's exact spot.
-    local view = H.views[step.view]
+    local view = p.views[step.view]
     local kind = view and kinds[view.kind]
     if not again then
       step.after = main_spot(step.before.win)
@@ -807,9 +878,9 @@ local function apply(step, again)
       if not fine then kind_failed(view, err) end
     end
     if not put_spot(again and step.after or step.before) and not saved then return false end
-    if view and (saved or H.front ~= view.id) then to_front(view) end
+    if view and (saved or p.front ~= view.id) then to_front(view) end
   elseif step.type == 'state' then
-    local view = H.views[step.view]
+    local view = p.views[step.view]
     local kind = view and kinds[view.kind]
     if not (kind and kind.restore and kind.save) then return false end
     if not again then
@@ -825,21 +896,24 @@ local function apply(step, again)
   return true
 end
 
-function M.history_back()
-  local h = H.history
+-- In pop-out p (the first by default).
+function M.history_back(p)
+  p = p or H
+  local h = p.history
   while h.at >= 1 do
     local step = h.steps[h.at]
     h.at = h.at - 1
-    if apply(step, false) then return true end
+    if apply(p, step, false) then return true end
   end
   tell('Nothing further back.')
   return false
 end
-function M.history_forward()
-  local h = H.history
+function M.history_forward(p)
+  p = p or H
+  local h = p.history
   while h.at < #h.steps do
     h.at = h.at + 1
-    if apply(h.steps[h.at], true) then return true end
+    if apply(p, h.steps[h.at], true) then return true end
   end
   tell('Nothing further forward.')
   return false
@@ -850,18 +924,18 @@ end
 -- view in front, show = { screen } } (keys its allow-list has). Written when a view opens, closes, is pinned or centred,
 -- and when the editor exits; read at start, so the Views group offers "Restore 2 views". The selection inside a view is
 -- not kept: a restored graph selects its centre.
--- Each record belongs to a checkout. The open pop-out's is filed under the one it opened in (H.root), whatever is in
--- front when it is written; the one offered (H.saved) is the record of the checkout in front (H.saved_root), read again
--- whenever that changes. H.records: the records read or written, by checkout (false: there is none); H.wrote: writes
+-- Each record belongs to a checkout. The open pop-out's is filed under the one it opened in (L.root), whatever is in
+-- front when it is written; the one offered (L.saved) is the record of the checkout in front (L.saved_root), read again
+-- whenever that changes. L.records: the records read or written, by checkout (false: there is none); L.wrote: writes
 -- made, by checkout (a read that started before one is older than it).
 local RESTORE   -- its row, named for what the record holds
-H.records, H.wrote = {}, {}
-local function layout_root() return H.root or checkout_of() end
+L.records, L.wrote = {}, {}
+local function layout_root() return L.root or checkout_of() end
 local function restore_named()
   if not RESTORE then return end
-  -- Only what can come back now: a tab whose kind has not loaded yet waits for it (H.waiting).
+  -- Only what can come back now: a tab whose kind has not loaded yet waits for it (its pop-out's waiting).
   local n = 0
-  for _, tab in ipairs(H.saved and type(H.saved.tabs) == 'table' and H.saved.tabs or {}) do
+  for _, tab in ipairs(L.saved and type(L.saved.tabs) == 'table' and L.saved.tabs or {}) do
     if type(tab) == 'table' and kinds[tab.kind] then n = n + 1 end
   end
   RESTORE.name = n == 0 and "Restore the pop-out's views" or n == 1 and 'Restore 1 view' or ('Restore %d views'):format(n)
@@ -869,7 +943,7 @@ end
 M.restore_named = restore_named   -- a kind registering changes what Restore can bring back (and the tests ask)
 -- The record offered here: the one of the checkout in front.
 local function offer(front)
-  H.saved_root, H.saved = front, H.records[front] or nil
+  L.saved_root, L.saved = front, L.records[front] or nil
   restore_named()
 end
 local function layout_record()
@@ -885,7 +959,7 @@ local function layout_record()
     end
   end
   -- Tabs of a kind not loaded yet are written back as they were, so the first write after a restart keeps them.
-  if H.waiting_root == layout_root() then for _, saved in ipairs(H.waiting) do tabs[#tabs + 1] = saved end end
+  if L.waiting_root == layout_root() then for _, saved in ipairs(H.waiting) do tabs[#tabs + 1] = saved end end
   return { version = 1, tabs = tabs, activeTab = H.front, show = { screen = H.screen } }
 end
 -- A write that failed is said, in desk-work's own words when it gave some.
@@ -894,13 +968,13 @@ local function not_saved(out)
   tell(sentence("the pop-out's views were not saved" .. (said ~= '' and (': ' .. said:sub(1, 160)) or (' (desk-work exited ' .. tostring(out.code) .. ')'))), WARN)
 end
 -- One write at a time, in the order asked: a change made while a write is on its way waits for it, and only the newest
--- of those goes after it (H.pending), so an older state never lands after a newer one. wait: the editor is exiting:
+-- of those goes after it (L.pending), so an older state never lands after a newer one. wait: the editor is exiting:
 -- the write on its way is waited for (a second at most), then this one is written, now.
 local function write_now(w, wait)
   local argv = { 'desk-work', 'workspace', '--root', w.root, '--client', 'popout', '--input', '-' }
   if wait then
-    if H.writing then pcall(H.writing.wait, H.writing, 1000) end
-    H.writing, H.pending = nil, nil
+    if L.writing then pcall(L.writing.wait, L.writing, 1000) end
+    L.writing, L.pending = nil, nil
     local started, job = pcall(vim.system, argv, { stdin = w.json, text = true, timeout = 5000 })
     if started then pcall(job.wait, job, 1000) end
     return
@@ -908,26 +982,26 @@ local function write_now(w, wait)
   local job
   local started = pcall(function()
     job = vim.system(argv, { stdin = w.json, text = true, timeout = 5000 }, vim.schedule_wrap(function(out)
-      if H.writing == job then H.writing = nil end
+      if L.writing == job then L.writing = nil end
       if exiting() then return end
       if out.code ~= 0 then not_saved(out) end
-      local after = H.pending
-      H.pending = nil
+      local after = L.pending
+      L.pending = nil
       if after then write_now(after) end
     end))
   end)
   if not started then return not_saved({ code = -1, stderr = 'desk-work did not start' }) end
-  H.writing = job
+  L.writing = job
 end
 local function write_layout(wait)
   local record = layout_record()
   local ok, json = pcall(vim.json.encode, record)
   if not ok then return end
   local root = layout_root()
-  H.records[root], H.wrote[root] = record, (H.wrote[root] or 0) + 1
-  if root == H.saved_root then offer(root) end
+  L.records[root], L.wrote[root] = record, (L.wrote[root] or 0) + 1
+  if root == L.saved_root then offer(root) end
   local w = { root = root, json = json }
-  if not wait and H.writing then H.pending = w; return end
+  if not wait and L.writing then L.pending = w; return end
   write_now(w, wait)
 end
 -- The writes of a moment (a view closing, then the one in front changing) go as one, M.SAVE_MS after the last. wait:
@@ -935,33 +1009,33 @@ end
 M.SAVE_MS = 300
 -- The write still on its way, now (nothing when none is).
 function M.flush_layout()
-  if H.save_timer and H.save_timer:is_active() then
-    H.save_timer:stop()
+  if L.save_timer and L.save_timer:is_active() then
+    L.save_timer:stop()
     write_layout(false)
   end
 end
 function M.save_layout(wait)
   if M.is_popout() or vim.g.desk_work_view or not have('desk-work') then return end
-  H.save_timer = H.save_timer or uv.new_timer()
-  H.save_timer:stop()
+  L.save_timer = L.save_timer or uv.new_timer()
+  L.save_timer:stop()
   if wait then return write_layout(true) end
-  H.save_timer:start(M.SAVE_MS, 0, vim.schedule_wrap(function() if not exiting() then write_layout(false) end end))
+  L.save_timer:start(M.SAVE_MS, 0, vim.schedule_wrap(function() if not exiting() then write_layout(false) end end))
 end
 -- The record of checkout root (by default the one in front), read; done(record or nil).
 function M.read_layout(done, root)
   done = done or function() end
   if M.is_popout() or vim.g.desk_work_view or not have('desk-work') then return done(nil) end
   root = root or checkout_of()
-  local seen = H.wrote[root] or 0
+  local seen = L.wrote[root] or 0
   local ok = pcall(vim.system, { 'desk-work', 'workspace', '--root', root, '--client', 'popout' }, { text = true, timeout = 5000 },
     vim.schedule_wrap(function(out)
       local decoded, record = pcall(vim.json.decode, out.code == 0 and out.stdout or '')
       -- A write made since it started is newer than what it read.
-      if (H.wrote[root] or 0) == seen then
-        H.records[root] = decoded and type(record) == 'table' and type(record.tabs) == 'table' and record or false
+      if (L.wrote[root] or 0) == seen then
+        L.records[root] = decoded and type(record) == 'table' and type(record.tabs) == 'table' and record or false
       end
-      if root == H.saved_root then offer(root) end
-      done(H.records[root] or nil)
+      if root == L.saved_root then offer(root) end
+      done(L.records[root] or nil)
     end))
   if not ok then done(nil) end
 end
@@ -969,38 +1043,62 @@ end
 local function front_moved()
   if exiting() then return end
   local front = checkout_of()
-  if front == H.saved_root then return end
+  if front == L.saved_root then return end
   offer(front)
   M.read_layout(nil, front)
 end
 
 -- ─── views in and out ──────────────────────────────────────────────────────────────────────────────────────────
-local function add_view(name)
-  local view = { id = name, kind = name, gen = 0, pinned = false }
-  H.views[name] = view
-  H.order[#H.order + 1] = name
+-- A new view's id: its kind's name while no view has it, else kind.2, kind.3, …
+local function new_id(kind)
+  if not find_view(kind) then return kind end
+  for n = 2, 99 do if not find_view(kind .. '.' .. n) then return kind .. '.' .. n end end
+end
+local function add_view(p, kind)
+  local id = new_id(kind)
+  local view = { id = id, kind = kind, pop = p.id, gen = 0, pinned = false }
+  p.views[id] = view
+  p.order[#p.order + 1] = id
   follow_start()
   return view
 end
 
--- A view of kind `name` in the pop-out, opening the window when it is not open. A new view is filled by its kind from
--- ctx; asked for again from the editor (o in another graph, its Views row) it is filled again from there; asked for
--- from the pop-out (ctx.remote) it only comes to the front. Either way, from another view, it is a step Ctrl+o undoes.
-function M.show(name, ctx, asked)
+-- The pop-out she last sent a view of each kind to (kind → id): the kind's views go there while it is open.
+local homes = {}
+-- Where a view of kind `name` goes: the pop-out asked for (want), else the one she sent a view of it to, while that
+-- view is there, else the first that has a view of it, else that one while it is open, else the first. So every
+-- view goes to the first pop-out unless she sends it elsewhere, and no other opens by itself.
+local function pop_for(name, want)
+  if want then return pops[want] end
+  local home = homes[name] and pops[homes[name]]
+  if home and kind_view(home, name) then return home end
+  for _, p in ipairs(pops) do if kind_view(p, name) then return p end end
+  if is_open(home) then return home end
+  return H
+end
+
+-- A view of kind `name` in its pop-out (pop_for; opts.pop: that one), opening the window when it is not open. A new
+-- view is filled by its kind from ctx; asked for again from the editor (o in another graph, its Views row) it is
+-- filled again from there; asked for from the pop-out (ctx.remote) it only comes to the front. Either way, from
+-- another view, it is a step Ctrl+o undoes. opts.asked: the screen was asked already.
+function M.show(name, ctx, opts)
   local kind = kinds[name]
   if not kind then return tell('No view is called ' .. tostring(name) .. '.', WARN) end
   if refused_here(M.can_pop()) then return end
   ctx = ctx or actions.context()
-  -- Opening it, with more than one other screen and none chosen this session: where to, first.
-  if not asked and not (H.chan or H.opening) and not M.chosen then
+  opts = type(opts) == 'table' and opts or {}
+  local p = pop_for(name, opts.pop)
+  if not p then return tell('There is no pop-out ' .. tostring(opts.pop) .. '.', WARN) end
+  -- Opening it, with more than one other screen and none chosen for it this session: where to, first.
+  if not opts.asked and not is_open(p) and not chosen_of(p) then
     return M.choose_screen(function(screen)
-      if screen then M.chosen = screen end
-      M.show(name, ctx, true)
+      if screen then choose_for(p, screen) end
+      M.show(name, ctx, { asked = true, pop = p.id })
     end)
   end
-  local ok, why = M.open(checkout_of(ctx.win))
+  local ok, why = open_pop(p, checkout_of(ctx.win))
   if not ok then return tell(sentence(why), WARN) end
-  local view, before = H.views[name], H.front
+  local view, before = kind_view(p, name), p.front
   if not (view and ctx.remote) then
     -- Sent again over what it showed (another graph's o, the map of another checkout): a step Ctrl+o undoes (2026-11-16).
     local was
@@ -1008,24 +1106,40 @@ function M.show(name, ctx, asked)
       local fine, state = pcall(kind.save, view)
       was = fine and type(state) == 'table' and state or nil
     end
-    view = view or add_view(name)
+    view = view or add_view(p, name)
     if kind.open then
       local fine, err = pcall(kind.open, view, ctx)
       if not fine then kind_failed(view, err) end
     end
     if was then M.stepped(view, was) end
   end
-  if before and before ~= view.id and H.views[before] then push_step({ type = 'switch', from = before, to = view.id }) end
+  if before and before ~= view.id and p.views[before] then push_step(p, { type = 'switch', from = before, to = view.id }) end
   to_front(view)
   M.save_layout()
 end
 
+-- What the kinds' own modules ask: whether a view is in a pop-out still (out there, not gone), the view of a kind
+-- (the first pop-out's first), whether the pop-out a view is in is attached, and whether the one a view of kind
+-- `name` would go to is.
+function M.holds(view)
+  local p = pop_of(view)
+  return p ~= nil and not view.gone and p.views[view.id] == view
+end
+function M.view_of(name)
+  for _, p in ipairs(pops) do
+    local view = kind_view(p, name)
+    if view then return view end
+  end
+end
+function M.attached(view) local p = pop_of(view); return p ~= nil and p.chan ~= nil end
+function M.is_open(name) return pop_for(name).chan ~= nil end
+
 -- The pop-out's last views again (after a restart): it opens, on the screen it was on when that is there, with each
 -- saved view its kind fills again from what was kept, and the one in front then in front.
-local function restore_tab(saved)
+local function restore_tab(p, saved)
   local kind = type(saved) == 'table' and kinds[saved.kind]
-  if not (kind and kind.restore) or H.views[saved.kind] then return end
-  local view = add_view(saved.kind)
+  if not (kind and kind.restore) or kind_view(p, saved.kind) then return end
+  local view = add_view(p, saved.kind)
   view.pinned = saved.pinned == true
   local fine, err = pcall(kind.restore, view, { pinned = view.pinned, target = type(saved.target) == 'table' and saved.target or nil })
   if not fine then kind_failed(view, err) end
@@ -1033,29 +1147,34 @@ local function restore_tab(saved)
 end
 
 function M.restore_layout()
-  local record = H.saved
+  local record = L.saved
   if not (record and type(record.tabs) == 'table' and #record.tabs > 0) then return tell('No views of the pop-out were saved here.') end
   if refused_here(M.can_pop()) then return end
-  H.prefer = type(record.show) == 'table' and type(record.show.screen) == 'string' and record.show.screen or nil
-  local ok, why = M.open(H.saved_root)
+  local p = H
+  p.prefer = type(record.show) == 'table' and type(record.show.screen) == 'string' and record.show.screen or nil
+  local ok, why = open_pop(p, L.saved_root)
   if not ok then return tell(sentence(why), WARN) end
-  H.waiting, H.waiting_root = {}, H.saved_root
+  p.waiting, L.waiting_root = {}, L.saved_root
   for _, saved in ipairs(record.tabs) do
-    if type(saved) == 'table' and type(saved.kind) == 'string' and not kinds[saved.kind] then H.waiting[#H.waiting + 1] = saved
-    else restore_tab(saved) end
+    if type(saved) == 'table' and type(saved.kind) == 'string' and not kinds[saved.kind] then p.waiting[#p.waiting + 1] = saved
+    else restore_tab(p, saved) end
   end
-  local active = type(record.activeTab) == 'string' and H.views[record.activeTab]
+  -- The one in front, by its kind (a view's id is its kind's name, or kind.2 when another pop-out had one).
+  local active = type(record.activeTab) == 'string' and kind_view(p, (record.activeTab:gsub('%.%d+$', '')))
   if active then to_front(active) end
 end
 
--- A kind just registered: its saved tabs come back into the open pop-out.
+-- A kind just registered: its saved tabs come back into the open pop-outs they were in.
 function M.restore_waiting(name)
-  if #H.waiting == 0 or not (H.chan or H.opening) then return end
-  local still = {}
-  for _, saved in ipairs(H.waiting) do
-    if saved.kind == name then restore_tab(saved) else still[#still + 1] = saved end
+  for _, p in ipairs(pops) do
+    if #p.waiting > 0 and is_open(p) then
+      local still = {}
+      for _, saved in ipairs(p.waiting) do
+        if saved.kind == name then restore_tab(p, saved) else still[#still + 1] = saved end
+      end
+      p.waiting = still
+    end
   end
-  H.waiting = still
 end
 
 -- o in the pop-out: the view leaves it, and its kind puts it back in the editor.
@@ -1080,29 +1199,34 @@ function M.pin(view)
 end
 
 -- ─── its screen unplugged ──────────────────────────────────────────────────────────────────────────────────────
--- desk-monitor rewrites its sidecar on every hotplug (desk-pulse runs its reconcile). When the screen the pop-out was
--- placed on is no longer among Hyprland's monitors, the pop-out moves to another screen that is not the editor's, when
--- one is left; else it closes and its pinned views come back here as splits (one screen: no pop-out, as when it would
--- not open). Hyprland itself would only park it on a workspace nobody sees.
+-- desk-monitor rewrites its sidecar on every hotplug (desk-pulse runs its reconcile). When the screen a pop-out was
+-- placed on is no longer among Hyprland's monitors, it moves to another screen that is not the editor's, when one is
+-- left; else it closes and its pinned views come back here as splits (one screen: no pop-out, as when it would not
+-- open). Hyprland itself would only park it on a workspace nobody sees. Each pop-out is looked at on its own.
+local function screen_gone(p, monitors)
+  if not (p.chan and p.screen) then return end
+  for _, m in ipairs(monitors) do
+    if type(m) == 'table' and m.name == p.screen and not m.disabled then return end
+  end
+  local gone, screen = p.screen, M.target_screen(monitors, M.screens())
+  if screen and p.kitty then
+    M.place(p.kitty, screen, p)
+    return tell(sentence(('%s moved to %s: %s was unplugged'):format(named(p), screen.name, gone)))
+  end
+  M.fold(gone .. ' was unplugged', p)
+end
 function M.screens_changed()
-  if exiting() or not (H.chan and H.screen) then return end
+  if exiting() or not any_open() then return end
   hyprctl({ 'monitors' }, function(monitors)
-    if not (H.chan and H.screen) or type(monitors) ~= 'table' then return end
-    for _, m in ipairs(monitors) do
-      if type(m) == 'table' and m.name == H.screen and not m.disabled then return end
-    end
-    local gone, screen = H.screen, M.target_screen(monitors, M.screens())
-    if screen and H.kitty then
-      M.place(H.kitty, screen)
-      return tell(('The pop-out moved to %s: %s was unplugged.'):format(screen.name, gone))
-    end
-    M.fold(gone .. ' was unplugged')
+    if type(monitors) ~= 'table' then return end
+    for _, p in ipairs(pops) do screen_gone(p, monitors) end
   end)
 end
--- The pop-out closes, its pinned views back here as splits; why: the one notice, which the pop-out shows too.
-function M.fold(why) M.forget(sentence(why), { back = true }) end
+-- A pop-out closes (the first, or p), its pinned views back here as splits; why: the one notice, which the pop-out
+-- shows too.
+function M.fold(why, p) forget(p or H, sentence(why), { back = true }) end
 watch_screens = function()
-  if H.watch then return end
+  if L.watch then return end
   local file = M.layout_file()
   local dir, name = vim.fs.dirname(file), vim.fs.basename(file)
   local watcher, timer = uv.new_fs_event(), uv.new_timer()
@@ -1113,12 +1237,12 @@ watch_screens = function()
     timer:start(300, 0, vim.schedule_wrap(M.screens_changed))
   end)
   if not ok then pcall(watcher.close, watcher); pcall(timer.close, timer); return end
-  H.watch = { watcher = watcher, timer = timer }
+  L.watch = { watcher = watcher, timer = timer }
 end
 unwatch_screens = function()
-  local w = H.watch
+  local w = L.watch
   if not w then return end
-  H.watch = nil
+  L.watch = nil
   pcall(w.watcher.stop, w.watcher)
   pcall(w.watcher.close, w.watcher)
   pcall(w.timer.stop, w.timer)
@@ -1133,15 +1257,20 @@ local function enter_row(surface)
   end
 end
 
--- The view, generation and item an ask names, as a ctx for the action registry: its kind's ctx_for (the view's
--- surface, and what that surface's rows read), with ctx.view, ctx.item (the item's ref), ctx.index, ctx.remote and the
--- window's own surface (ctx.also). A view drawn again since refuses: its items are not the ones the pop-out saw.
+-- The pop-out a message comes from: the one it names (pop), the first when it names none.
+local function from_pop(msg) return pops[msg.pop or 1] end
+
+-- The pop-out, view, generation and item an ask names, as a ctx for the action registry: its kind's ctx_for (the
+-- view's surface, and what that surface's rows read), with ctx.pop (the pop-out's id), ctx.view, ctx.item (the item's
+-- ref), ctx.index, ctx.remote and the window's own surface (ctx.also). A view drawn again since refuses: its items are
+-- not the ones the pop-out saw.
 local function remote_ctx(msg)
   if exiting() then return nil, 'this editor is closing' end
-  if not H.chan then return nil, 'no pop-out is subscribed to this editor' end
+  local p = from_pop(msg)
+  if not (p and p.chan) then return nil, 'no pop-out is subscribed to this editor' end
   local view, ref
   if msg.view ~= nil then
-    view = H.views[msg.view]
+    view = p.views[msg.view]
     if not view then return nil, 'this view is no longer shown' end
     if msg.gen ~= view.gen then return nil, 'this view moved on' end
   end
@@ -1159,7 +1288,8 @@ local function remote_ctx(msg)
     ctx = actions.context(api.nvim_get_current_win())
     ctx.surface = kind and kind.surface or ON
   end
-  ctx.view, ctx.item, ctx.index, ctx.remote, ctx.also = view, ref, msg.item, true, { ON }
+  ctx.pop, ctx.view, ctx.item, ctx.index, ctx.remote, ctx.also = p.id, view, ref, msg.item, true, { ON }
+  L.last = p.id
   return ctx
 end
 
@@ -1171,9 +1301,10 @@ local function timed(handler)
   end
 end
 
--- subscribe { chan, pid, width, protocol }: chan is the pop-out's channel here (nvim_get_api_info gave it the number),
--- labelled with its pid through nvim_set_client_info, since code run by nvim_exec_lua cannot tell which channel called.
--- Again from the same channel (a resize): the new width, every view drawn again.
+-- subscribe { pop, chan, pid, width, protocol }: chan is the pop-out's channel here (nvim_get_api_info gave it the
+-- number), labelled with its pid through nvim_set_client_info, since code run by nvim_exec_lua cannot tell which
+-- channel called; pop says which pop-out it is (opening → attached). Again from the same channel (a resize): the new
+-- width, every view drawn again.
 local function subscribe(msg)
   if M.is_popout() or vim.g.desk_work_view then return refuse('this editor keeps no pop-out') end
   if exiting() then return refuse('this editor is closing') end
@@ -1186,18 +1317,23 @@ local function subscribe(msg)
   if info.mode ~= 'rpc' or client.name ~= M.CLASS or attributes.pid ~= tostring(msg.pid) then
     return refuse('a pop-out subscribes on its own channel, named with nvim_set_client_info first')
   end
-  if H.chan and H.chan ~= msg.chan then let_go(H.chan, 'Another pop-out took over.') end
-  local again = H.chan == msg.chan
-  H.chan, H.pid, H.width, H.opening = msg.chan, msg.pid, msg.width or H.width, nil
+  local id = msg.pop or 1
+  if id < 1 or id > M.MAX_POPS then return refuse(('a pop-out is numbered 1 to %d'):format(M.MAX_POPS)) end
+  -- One this editor did not open (it is numbered past the ones it has) gets the state of one closed until now.
+  for n = #pops + 1, id do pops[n] = new_pop(n) end
+  local p = pops[id]
+  if p.chan and p.chan ~= msg.chan then let_go(p.chan, 'Another pop-out took over.') end
+  local again = p.chan == msg.chan
+  p.chan, p.pid, p.width, p.opening = msg.chan, msg.pid, msg.width or p.width, nil
   -- The kitty whose exit ends it is the one it runs in (one this editor did not start has none watched: the pings find
   -- it gone).
-  if H.kitty and not vim.tbl_contains(M.lineage(msg.pid), H.kitty) then H.kitty = nil end
+  if p.kitty and not vim.tbl_contains(M.lineage(msg.pid), p.kitty) then p.kitty = nil end
   if not again then
-    H.stalled, H.ping, H.heard = false, 0, 0
-    start_pings()
+    p.stalled, p.ping, p.heard = false, 0, 0
+    start_pings(p)
     watch_screens()
   end
-  vim.schedule(redraw_all)
+  vim.schedule(function() redraw_all(p) end)
   return { subscribed = true, pid = vim.fn.getpid(), pane = host_pane() }
 end
 
@@ -1227,6 +1363,7 @@ local function act(msg)
   if missing then return refuse(missing) end
   local kind = ctx.view and kinds[ctx.view.kind]
   local entering = kind and (row == enter_row(kind.surface) or row.id == 'popout.go-focus' or row.id == 'popout.go-focus-enter')
+  local p = pops[ctx.pop]
   vim.schedule(function()
     local view = ctx.view
     local before = entering and main_spot(ctx.origin) or nil
@@ -1237,81 +1374,87 @@ local function act(msg)
       local fine, state = pcall(kind.save, view)
       saved = fine and type(state) == 'table' and state or nil
     end
-    if entering then H.folding = view.id end
+    if entering then p.folding = view.id end
     -- What goes wrong while it runs is said where she pressed the key too: warnings and errors go to the pop-out as a
     -- notice (her choice, 2026-11-16). Said later, by a callback after this run, it stays in the editor only.
     local real = vim.notify
     vim.notify = function(text, level, opts)
       real(text, level, opts)
-      if (level or vim.log.levels.INFO) >= WARN then send({ type = 'notice', text = tostring(text):sub(1, 400), level = level }) end
+      if (level or vim.log.levels.INFO) >= WARN then send(p, { type = 'notice', text = tostring(text):sub(1, 400), level = level }) end
     end
     local ran, ok, err = pcall(actions.act, msg.action, ctx)
     if not ran then ok, err = false, ok end
     if not ok then
-      H.folding = nil
+      p.folding = nil
       tell(sentence(err or (msg.action .. ' did not run')), WARN)
     end
     vim.notify = real
     if not ok then return end
-    if before then push_step({ type = 'enter', view = view.id, before = before, saved = saved }) end
-    if entering then vim.schedule(function() if H.folding == view.id then H.folding = nil end end) end
+    if before then push_step(p, { type = 'enter', view = view.id, before = before, saved = saved }) end
+    if entering then vim.schedule(function() if p.folding == view.id then p.folding = nil end end) end
   end)
   return { done = true }
 end
 
--- pong { serial }: the pop-out answered a ping; one that had stopped answering gets its views again.
+-- pong { pop, serial }: a pop-out answered a ping; one that had stopped answering gets its views again (stalled →
+-- attached).
 local function pong(msg)
-  if not H.chan then return { heard = false } end
-  H.heard = math.max(H.heard, msg.serial)
-  if H.stalled and H.heard >= H.ping then
-    H.stalled = false
-    tell('The pop-out answers again.')
-    vim.schedule(redraw_all)
+  local p = from_pop(msg)
+  if not (p and p.chan) then return { heard = false } end
+  p.heard = math.max(p.heard, msg.serial)
+  if p.stalled and p.heard >= p.ping then
+    p.stalled = false
+    tell(sentence(named(p) .. ' answers again'))
+    vim.schedule(function() redraw_all(p) end)
   end
   return { heard = true }
 end
 
--- front { view, quiet }: another view is in front in the pop-out. Her own switch there (gt, a click on its tab) is a
--- step Ctrl+o undoes; quiet: it came of something else (the editor showed it, a view closed), only noted.
+-- front { pop, view, quiet }: another view is in front in a pop-out. Her own switch there (gt, a click on its tab) is
+-- a step Ctrl+o undoes; quiet: it came of something else (the editor showed it, a view closed), only noted.
 local function front(msg)
-  if not H.chan or exiting() then return { heard = false } end
-  local view = H.views[msg.view]
+  local p = from_pop(msg)
+  if not (p and p.chan) or exiting() then return { heard = false } end
+  local view = p.views[msg.view]
   if not view then return { heard = false } end
-  if not msg.quiet and H.front and H.front ~= view.id and H.views[H.front] then push_step({ type = 'switch', from = H.front, to = view.id }) end
-  if H.front ~= view.id then
-    H.front = view.id
+  if not msg.quiet then L.last = p.id end
+  if not msg.quiet and p.front and p.front ~= view.id and p.views[p.front] then push_step(p, { type = 'switch', from = p.front, to = view.id }) end
+  if p.front ~= view.id then
+    p.front = view.id
     M.save_layout()
   end
   return { heard = true }
 end
 
--- leaving { pid }: the pop-out this editor has is quitting (q on its last view there): forgotten as she closed it
--- (nothing comes back, nothing is said) and the keyboard back here. Never refused for what this editor is doing: the
--- pop-out goes all the same, and an act it was refused would have it taken for a crash.
+-- leaving { pop, pid }: a pop-out of this editor's is quitting (q on its last view there; → leaving → closed):
+-- forgotten as she closed it (nothing comes back, nothing is said) and the keyboard back here. Never refused for what
+-- this editor is doing: the pop-out goes all the same, and an act it was refused would have it taken for a crash.
 local function on_leaving(msg)
-  if not H.chan or msg.pid ~= H.pid or exiting() then return { heard = false } end
-  M.forget(nil, { leaving = true })
+  local p = from_pop(msg)
+  if not (p and p.chan) or msg.pid ~= p.pid or exiting() then return { heard = false } end
+  forget(p, nil, { leaving = true })
   M.focus({ pid = vim.fn.getpid(), pane = host_pane() })
   M.save_layout()
   return { heard = true }
 end
 
-local ID, NUMBER = bridge.field('string', 32), bridge.field('integer', 2147483647)
-bridge.register('subscribe', timed(subscribe), { chan = bridge.field('integer', 2147483647, true),
+local ID, NUMBER, POP = bridge.field('string', 32), bridge.field('integer', 2147483647), bridge.field('integer', M.MAX_POPS)
+bridge.register('subscribe', timed(subscribe), { pop = POP, chan = bridge.field('integer', 2147483647, true),
   pid = bridge.field('integer', 2147483647, true), width = bridge.field('integer', 1000), protocol = bridge.field('integer', 1000, true) })
-bridge.register('describe', timed(describe), { view = ID, gen = NUMBER, item = bridge.field('integer', M.MAX_ITEMS) })
-bridge.register('act', timed(act), { view = ID, gen = NUMBER, item = bridge.field('integer', M.MAX_ITEMS),
+bridge.register('describe', timed(describe), { pop = POP, view = ID, gen = NUMBER, item = bridge.field('integer', M.MAX_ITEMS) })
+bridge.register('act', timed(act), { pop = POP, view = ID, gen = NUMBER, item = bridge.field('integer', M.MAX_ITEMS),
   action = bridge.field('string', 64, true), text = bridge.field('string', 2000), choice = bridge.field('string', 64) })
-bridge.register('pong', pong, { serial = bridge.field('integer', 2147483647, true) })
-bridge.register('front', timed(front), { view = bridge.field('string', 32, true), quiet = bridge.field('boolean') })
-bridge.register('leaving', on_leaving, { pid = bridge.field('integer', 2147483647, true) })
+bridge.register('pong', pong, { pop = POP, serial = bridge.field('integer', 2147483647, true) })
+bridge.register('front', timed(front), { pop = POP, view = bridge.field('string', 32, true), quiet = bridge.field('boolean') })
+bridge.register('leaving', on_leaving, { pop = POP, pid = bridge.field('integer', 2147483647, true) })
 
--- An ask of the pop-out's, by notification (id: its number there): the message goes through the bridge as any other,
--- and its answer back as a notification, to the pop-out it came from (leaving forgets that pop-out, and is still
--- answered).
+-- An ask of a pop-out's, by notification (id: its number there): the message goes through the bridge as any other,
+-- and its answer back as a notification, to the pop-out it came from (msg.pop; leaving forgets that pop-out, and is
+-- still answered).
 function M.ask(id, msg)
   if type(id) ~= 'number' or M.is_popout() then return end
-  local chan = H.chan
+  local p = type(msg) == 'table' and (msg.pop == nil or type(msg.pop) == 'number') and from_pop(msg)
+  local chan = p and p.chan
   local answer = bridge.receive(msg)
   if chan and next(api.nvim_get_chan_info(chan)) ~= nil then
     pcall(vim.rpcnotify, chan, 'nvim_exec_lua', POPOUT_DOOR, { { version = M.PROTOCOL, type = 'answer', id = id, answer = answer } })
@@ -1322,8 +1465,9 @@ end
 -- chan: to the editor; me: that channel's number there; host: { pid, pane } of the editor; views by id, each in a
 -- buffer and a tab page of its own (view.win: its window); empty: the buffer that says nothing is shown, in the one tab
 -- left when there is no view; shown: the view in front (nil: none); switching: a tab change of this module's own;
--- asked: the asks sent so far; waiting and answers: the asks waited for, by id, and their answers once they came.
-local C = { views = {}, asked = 0, waiting = {}, answers = {} }
+-- asked: the asks sent so far; waiting and answers: the asks waited for, by id, and their answers once they came;
+-- pop: which of the editor's pop-outs this is (g:desk_popout), named in every message it sends.
+local C = { views = {}, asked = 0, waiting = {}, answers = {}, pop = 1 }
 local ns = api.nvim_create_namespace('desk_popout')
 
 local function say(text, level) vim.notify(sentence(text), level or vim.log.levels.INFO, { title = 'Pop-out' }) end
@@ -1348,7 +1492,7 @@ local function request(msg, budget, keep)
   if C.busy then budget = math.min(budget, M.BUSY_MS) end
   C.asked = C.asked + 1
   local id = C.asked
-  msg.version = 1
+  msg.version, msg.pop = 1, C.pop
   if not keep then msg.deadline = now_ms() + budget end
   C.waiting[id] = true
   local sent, err = pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', ASK_DOOR, { id, msg })
@@ -1384,7 +1528,7 @@ end
 -- Tells the editor which view is in front now (quiet: not her own switch).
 local function tell_front(view, quiet)
   if not (C.chan and view) then return end
-  pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { { version = 1, type = 'front', view = view.id, quiet = quiet == true,
+  pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { { version = 1, type = 'front', pop = C.pop, view = view.id, quiet = quiet == true,
     deadline = now_ms() + 2000 } })
 end
 
@@ -1827,7 +1971,7 @@ local function handle(msg)
     if type(msg.id) == 'string' then drop(msg.id) end
   elseif msg.type == 'ping' then
     if C.chan and type(msg.serial) == 'number' then
-      pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { { version = 1, type = 'pong', serial = msg.serial } })
+      pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { { version = 1, type = 'pong', pop = C.pop, serial = msg.serial } })
     end
   elseif msg.type == 'bye' then
     M.closing(type(msg.why) == 'string' and msg.why:sub(1, 200) or 'Editor closed.')
@@ -1854,7 +1998,7 @@ end
 -- resize, whose new width goes without waiting.
 function M.subscribe(again)
   if not C.chan then return refuse('the pop-out is not connected to an editor') end
-  local msg = { version = 1, type = 'subscribe', chan = C.me, pid = vim.fn.getpid(), width = math.min(1000, width()), protocol = M.PROTOCOL,
+  local msg = { version = 1, type = 'subscribe', pop = C.pop, chan = C.me, pid = vim.fn.getpid(), width = math.min(1000, width()), protocol = M.PROTOCOL,
     deadline = now_ms() + 2000 }
   if again then
     pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { msg })
@@ -1959,6 +2103,8 @@ function M.client()
   if C.started then return end
   C.started = true
   vim.g.desk_popout = vim.g.desk_popout or 1
+  local id = tonumber(vim.g.desk_popout)
+  C.pop = id and id >= 1 and id <= M.MAX_POPS and math.floor(id) or 1
   vim.o.shadafile = 'NONE'   -- her history and marks are the editor's to keep
   local server
   for _, arg in ipairs(vim.fn.argv()) do server = server or arg:match('^desk%-popout:(/.+)$') end
@@ -2062,22 +2208,30 @@ local function go_focus(ctx)
   if ctx.stayed then return end
   M.focus({ pid = vim.fn.getpid(), pane = host_pane() })
 end
-local function back_there() return H.history.at >= 1 or 'nothing further back' end
-local function ahead_there() return H.history.at < #H.history.steps or 'nothing further forward' end
+-- The pop-out a remote row was pressed in (ctx.pop), the first by default.
+local function pressed_in(ctx) return pops[ctx.pop or 1] or H end
+local function back_there(ctx) return pressed_in(ctx).history.at >= 1 or 'nothing further back' end
+local function ahead_there(ctx)
+  local h = pressed_in(ctx).history
+  return h.at < #h.steps or 'nothing further forward'
+end
+-- The first pop-out that is attached.
+local function first_attached() for _, p in ipairs(pops) do if p.chan then return p end end end
 
 local ROWS = actions.add({
   { id = 'popout.focus', group = 'Pop-out', name = 'To the pop-out', key = '<leader><Tab>', on = 'editor',
     about = 'Put the keyboard in the pop-out window, on whichever screen it is; the same key there comes back here',
-    available = function() return (H.chan ~= nil and not M.is_popout()) or false end,
+    available = function() return (first_attached() ~= nil and not M.is_popout()) or false end,
     run = function()
       if M.is_popout() then return end
-      if not H.chan then return tell('No pop-out is open. ' .. sentence('Space Space › views opens one'), WARN) end
-      M.focus({ pid = H.pid })
+      local p = first_attached()
+      if not p then return tell('No pop-out is open. ' .. sentence('Space Space › views opens one'), WARN) end
+      M.focus({ pid = p.pid })
     end },
   { id = 'popout.restore', group = 'Views', name = "Restore the pop-out's views", on = 'editor', remote = true,
     about = 'Open the pop-out again with the views it had when this editor last closed, pinned as they were, on the screen it was on',
     available = function()
-      if H.chan or H.opening or not (H.saved and type(H.saved.tabs) == 'table' and #H.saved.tabs > 0) then return false end
+      if any_open() or not (L.saved and type(L.saved.tabs) == 'table' and #L.saved.tabs > 0) then return false end
       return M.can_pop()
     end,
     run = function() M.restore_layout() end },
@@ -2116,11 +2270,11 @@ local ROWS = actions.add({
     run = function() pcall(vim.cmd, 'tabprevious ' .. vim.v.count1) end },
   remote({ id = 'popout.history-back', group = 'Pop-out', name = 'Back', key = '<C-o>', on = ON,
     about = 'Back where you were: the view before, the graph before a centre, the code spot before `Enter` (the editor goes back too)',
-    available = back_there }, function() M.history_back() end),
+    available = back_there }, function(ctx) M.history_back(pressed_in(ctx)) end),
   remote({ id = 'popout.history-back-bs', group = 'Pop-out', name = 'Back', key = '<BS>', on = ON, line = 'popout.history-back', menu = false,
-    available = back_there }, function() M.history_back() end),
+    available = back_there }, function(ctx) M.history_back(pressed_in(ctx)) end),
   remote({ id = 'popout.history-forward', group = 'Pop-out', name = 'Forward', key = '<C-r>', on = ON,
-    about = 'Forward again, after going back', available = ahead_there }, function() M.history_forward() end),
+    about = 'Forward again, after going back', available = ahead_there }, function(ctx) M.history_forward(pressed_in(ctx)) end),
   { id = 'popout.find', group = 'Pop-out', name = 'Find a box or row', key = '/', on = ON,
     about = 'Every box or row of this view by its whole name, filtered as you type; `Enter` selects it', run = function() M.client_find() end },
   { id = 'popout.keys', group = 'Pop-out', name = "The pop-out's keys", key = '?', on = ON, about = 'The keys of this view in the pop-out, in a list',
@@ -2131,10 +2285,11 @@ local ROWS = actions.add({
     about = 'Close this view; closing the last one closes the pop-out, and the keyboard comes back to the editor',
     run = function(ctx)
       if not M.is_popout() then
-        if ctx.view and #H.order > 1 then M.clear(ctx.view.id)
+        local p = pressed_in(ctx)
+        if ctx.view and #p.order > 1 then M.clear(ctx.view.id)
         else
           -- The last one: the pop-out closes, and the keyboard comes here rather than stay on its empty screen.
-          M.forget(nil)
+          forget(p, nil)
           if ctx.remote then M.focus({ pid = vim.fn.getpid(), pane = host_pane() }) end
         end
         return M.save_layout()
@@ -2149,28 +2304,32 @@ local ROWS = actions.add({
 })
 for _, row in ipairs(ROWS) do if row.id == 'popout.restore' then RESTORE = row end end
 
--- The editor exiting: the layout is written, the pop-out told, and nothing of it left running to keep this editor
--- waiting (its channel, the pings, the watch on the screens, the views' own timers).
-local function shutdown()
-  if H.down then return end
-  local chan = H.chan
-  if chan or (H.save_timer and H.save_timer:is_active()) then M.save_layout(true)
-  elseif H.pending then write_now(H.pending, true) end   -- the newest state, behind a write still on its way
-  H.down = true
-  if chan then pcall(vim.rpcnotify, chan, 'nvim_exec_lua', POPOUT_DOOR, { { version = M.PROTOCOL, type = 'bye', why = 'Editor closed.' } }) end
-  for _, name in ipairs({ 'timer', 'save_timer' }) do
-    local timer = H[name]
-    if timer then
-      timer:stop()
-      if not timer:is_closing() then timer:close() end
-      H[name] = nil
-    end
+-- The editor exiting: the layout is written, every pop-out told, and nothing of them left running to keep this editor
+-- waiting (their channels and pings, the watch on the screens, the views' own timers).
+local function close_timer(owner, name)
+  local timer = owner[name]
+  if timer then
+    timer:stop()
+    if not timer:is_closing() then timer:close() end
+    owner[name] = nil
   end
+end
+local function shutdown()
+  if L.down then return end
+  if any_open() or (L.save_timer and L.save_timer:is_active()) then M.save_layout(true)
+  elseif L.pending then write_now(L.pending, true) end   -- the newest state, behind a write still on its way
+  L.down = true
+  close_timer(L, 'save_timer')
   unwatch_screens()
   follow_stop()
-  for _, view in pairs(H.views) do leave(view) end
-  H.chan = nil
-  if chan then pcall(vim.fn.chanclose, chan) end
+  for _, p in ipairs(pops) do
+    local chan = p.chan
+    if chan then pcall(vim.rpcnotify, chan, 'nvim_exec_lua', POPOUT_DOOR, { { version = M.PROTOCOL, type = 'bye', why = 'Editor closed.' } }) end
+    close_timer(p, 'timer')
+    for _, view in pairs(p.views) do leave(view) end
+    p.chan = nil
+    if chan then pcall(vim.fn.chanclose, chan) end
+  end
 end
 
 local set = false
@@ -2183,7 +2342,7 @@ function M.setup()
   local group = api.nvim_create_augroup('desk_popout', { clear = true })
   api.nvim_create_autocmd('VimLeavePre', { group = group, callback = function() pcall(shutdown) end })
   api.nvim_create_autocmd({ 'BufEnter', 'DirChanged', 'TabEnter' }, { group = group, callback = front_moved })
-  H.saved_root = checkout_of()
+  L.saved_root = checkout_of()
   M.read_layout()
 end
 

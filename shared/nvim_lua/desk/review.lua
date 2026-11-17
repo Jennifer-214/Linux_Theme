@@ -3172,7 +3172,7 @@ local function open_view(view)
   set_footer(r)
   -- A pop-out that never came: the list comes back here.
   local P = pop()
-  vim.defer_fn(function() if r.popout == view and P and not P.host.chan then P.clear(view.id) end end, (P and P.START_MS or 15000) + 1000)
+  vim.defer_fn(function() if r.popout == view and P and not P.attached(view) then P.clear(view.id) end end, (P and P.START_MS or 15000) + 1000)
 end
 
 -- The view left the pop-out (o there, the pop-out closed, the list taken back here): the list comes back beside the

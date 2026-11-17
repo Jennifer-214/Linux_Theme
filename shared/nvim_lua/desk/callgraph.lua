@@ -1061,7 +1061,7 @@ local ROWS = actions.add({
     about = 'The call graph of a function the notebook names (its file and line): in the pop-out when it is open, else in the panel beside the code, pinned on it',
     available = function(ctx)
       if type(ctx.at) ~= 'table' then return false end
-      if pop().host.chan then return true end
+      if pop().is_open('graph') then return true end
       local review = package.loaded['desk.review']
       return not (type(review) == 'table' and review.current) or 'a review is open'
     end,
@@ -1461,7 +1461,7 @@ end
 function M.show_at(spec)
   local target, why = target_at(spec.file, spec.line, spec.name)
   if not target then return tell(why:sub(1, 1):upper() .. why:sub(2) .. '.') end
-  if pop().host.chan then return pop().show('graph', { target = target }) end
+  if pop().is_open('graph') then return pop().show('graph', { target = target }) end
   M.panel_on(target)
 end
 
@@ -1479,7 +1479,7 @@ local function at_message(msg)
   local can = actions.available(actions.get('callgraph.at'), ctx)
   if can ~= true then return { refused = can == false and 'not here' or tostring(can) } end
   vim.schedule(function() actions.act('callgraph.at', ctx) end)
-  return { shown = pop().host.chan and 'popout' or 'panel' }
+  return { shown = pop().is_open('graph') and 'popout' or 'panel' }
 end
 if not headless then
   local bridge = require('desk.bridge')
