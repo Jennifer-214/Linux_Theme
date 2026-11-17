@@ -166,12 +166,21 @@ end
 
 -- Asks which screen; done(name), done(nil) when there was nothing to ask, done(false) when she chose none. all: every
 -- screen, this one too (the move); else only when there is a real choice, two screens or more besides this one.
-function M.choose_screen(done, all)
+-- The screens as a row's choices ({ id = name, name = label }): every one when all, else only when there is a real
+-- choice (two or more besides this one), else nil.
+function M.screen_input_choices(all)
   local choices = M.screen_choices(M.hyprctl_now({ 'monitors' }), M.screens(), M.host and M.host.prefer)
   local others = #vim.tbl_filter(function(c) return not c.here end, choices)
-  if #choices == 0 or (not all and others < 2) then return done(nil) end
-  vim.ui.select(choices, { prompt = 'Pop out on', format_item = function(c) return c.label end },
-    function(c) done(c and c.name or false) end)
+  if #choices == 0 or (not all and others < 2) then return nil end
+  return vim.tbl_map(function(c) return { id = c.name, name = c.label } end, choices)
+end
+
+-- Asks which screen, the way every row asks (desk.actions: a letter each with a few, else a list): done(name), or
+-- done(nil) at once when there was nothing to ask. Esc asks no more and calls nothing.
+function M.choose_screen(done, all)
+  local choices = M.screen_input_choices(all)
+  if not choices then return done(nil) end
+  actions.ask({ choices = choices }, actions.context(), function(_, choice) done(choice) end, 'Pop out on')
 end
 
 -- ─── windows ───────────────────────────────────────────────────────────────────────────────────────────────────
@@ -939,7 +948,6 @@ function M.show(name, ctx, asked)
   -- Opening it, with more than one other screen and none chosen this session: where to, first.
   if not asked and not (H.chan or H.opening) and not M.chosen then
     return M.choose_screen(function(screen)
-      if screen == false then return end
       if screen then M.chosen = screen end
       M.show(name, ctx, true)
     end)
@@ -1897,12 +1905,12 @@ local ROWS = actions.add({
   { id = 'popout.screen', group = 'Views', name = 'Move the pop-out to another screen', on = 'editor', remote = false,
     about = 'Asks which screen (every one, this one too); the pop-out moves there now if it is open, and opens there from now on, this session',
     available = function() return M.second_screen() end,
-    run = function()
-      M.choose_screen(function(screen)
-        if not screen then return end
-        M.chosen = screen
-        if H.kitty and H.chan then M.place(H.kitty) end
-      end, true)
+    -- Asked by desk.actions before the row runs (after a menu has closed), not from inside run.
+    input = { choices = function() return M.screen_input_choices(true) end },
+    run = function(ctx)
+      if type(ctx.choice) ~= 'string' or ctx.choice == '' then return end
+      M.chosen = ctx.choice
+      if H.kitty and H.chan then M.place(H.kitty) end
     end },
   remote({ id = 'popout.go-focus', group = 'Pop-out', name = 'Go to it, in the editor', key = 'f', on = ON,
     about = 'What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too', available = can_go },
