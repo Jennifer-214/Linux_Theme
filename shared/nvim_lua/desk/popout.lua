@@ -1557,7 +1557,7 @@ local function escape(s) return (tostring(s):gsub('%%', '%%%%')) end
 -- The answer, or { refused = why }.
 -- C.busy: the last ask timed out (the editor at a prompt, or still working). Until anything comes from it, asks wait
 -- M.BUSY_MS, not two seconds each, and the header says "editor busy" (2026-11-16: every key froze the pop-out 2 s).
-M.BUSY_MS, M.SWAP_MS = 250, 500
+M.BUSY_MS = 250
 local function busy(on)
   if C.busy == on then return end
   C.busy = on
@@ -2147,6 +2147,41 @@ function M.client_find()
   end)
 end
 
+-- Which pop-out a window is: its process, or the Neovim it runs, was started with g:desk_popout=N. Her own processes
+-- are readable under hidepid.
+function M.popout_number(pid)
+  local function in_cmdline(p)
+    local f = io.open('/proc/' .. p .. '/cmdline', 'rb')
+    if not f then return nil end
+    local text = f:read('*a'); f:close()
+    return tonumber(text:match('g:desk_popout=(%d+)'))
+  end
+  local n = in_cmdline(pid)
+  if n then return n end
+  local f = io.open(('/proc/%d/task/%d/children'):format(pid, pid), 'r')
+  if not f then return nil end
+  local children = f:read('*a'); f:close()
+  for child in children:gmatch('%d+') do
+    n = in_cmdline(child)
+    if n then return n end
+  end
+end
+
+-- Space Tab in a pop-out: the next pop-out by number from Hyprland's own list of windows, else (the last) the editor.
+function M.client_swap()
+  local mine = tonumber(vim.g.desk_popout) or 1
+  hyprctl({ 'clients' }, function(clients)
+    local best, best_pid
+    for _, c in ipairs(type(clients) == 'table' and clients or {}) do
+      if type(c) == 'table' and c.class == M.CLASS and type(c.pid) == 'number' then
+        local n = M.popout_number(c.pid)
+        if n and n > mine and (not best or n < best) then best, best_pid = n, c.pid end
+      end
+    end
+    M.focus(best_pid and { pid = best_pid } or C.host)
+  end)
+end
+
 function M.client_keys()
   local view = shown() or C.empty
   local said = actions.voice(graphs().retro())
@@ -2417,13 +2452,8 @@ local ROWS = actions.add({
   { id = 'popout.swap', group = 'Pop-out', name = 'To the editor, or next pop-out', key = '<leader><Tab>', on = ON, remote = true,
     about = 'Put the keyboard in the next pop-out, and from the last one in the editor (with one pop-out: the editor); the same key in the editor comes to the first',
     run = function(ctx)
-      if M.is_popout() then
-        -- The editor knows the pop-outs and says where; one that does not answer at once (busy, or she is typing
-        -- there) is where the keyboard goes.
-        local answer = request(naming({ type = 'act', action = 'popout.swap' }), M.SWAP_MS)
-        if answer.refused then M.focus(C.host) end
-        return
-      end
+      -- From a pop-out: worked out here, never asking the editor (a busy one held Space Tab up, 2026-11-17).
+      if M.is_popout() then return M.client_swap() end
       local after = next_attached(ctx.pop)
       M.focus(after and { pid = after.pid } or { pid = vim.fn.getpid(), pane = host_pane() })
     end },

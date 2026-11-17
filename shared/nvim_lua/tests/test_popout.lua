@@ -1197,6 +1197,17 @@ do
   vim.rpcrequest(second, 'nvim_input', '<Space><Tab>')
   ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xa1' })", 1, true) end),
     '… in the second, the last: the editor')
+  -- The editor busy: Space Tab in a pop-out still goes at once, worked out there from Hyprland's list (2026-11-17: it
+  -- asked the editor, so a busy one held it up to half a second).
+  host("vim.defer_fn(function() vim.uv.sleep(1500) end, 20)")
+  vim.wait(100)
+  mark = #read('hyprctl.log')
+  local started = vim.uv.hrtime()
+  press('<Space><Tab>')
+  local went = wait(1200, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xb2' })", 1, true) end)
+  local took = math.floor((vim.uv.hrtime() - started) / 1e6)
+  ok(went and took < 400, '… with the editor busy: the second at once (' .. took .. ' ms)')
+  vim.wait(1600)
   -- Moved to another screen from the second: that one moves; the first stays where it is.
   local first_screen = host("return require('desk.popout').pops[1].screen")
   mark = #read('hyprctl.log')
