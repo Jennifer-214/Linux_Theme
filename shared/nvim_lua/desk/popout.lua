@@ -1269,9 +1269,18 @@ local function escape(s) return (tostring(s):gsub('%%', '%%%%')) end
 -- An ask of the editor's: sent with its id, its answer waited for budget ms at most (2 s by default; this window keeps
 -- drawing what comes meanwhile). keep: no deadline, so an editor held up still takes it when it gets there (leaving).
 -- The answer, or { refused = why }.
+-- C.busy: the last ask timed out (the editor at a prompt, or still working). Until anything comes from it, asks wait
+-- M.BUSY_MS, not two seconds each, and the header says "editor busy" (2026-11-16: every key froze the pop-out 2 s).
+M.BUSY_MS = 250
+local function busy(on)
+  if C.busy == on then return end
+  C.busy = on
+  vim.schedule(function() pcall(vim.cmd, 'redrawtabline') end)
+end
 local function request(msg, budget, keep)
   if not C.chan then return refuse('the pop-out is not connected to an editor') end
   budget = budget or 2000
+  if C.busy then budget = math.min(budget, M.BUSY_MS) end
   C.asked = C.asked + 1
   local id = C.asked
   msg.version = 1
@@ -1282,7 +1291,11 @@ local function request(msg, budget, keep)
   local answer = C.answers[id]
   C.waiting[id], C.answers[id] = nil, nil
   if not sent then return refuse('the editor did not answer (' .. (tostring(err):gsub('\n.*', '')):sub(1, 160) .. ')') end
-  if answer == nil then return refuse('the editor did not answer in time') end
+  if answer == nil then
+    busy(true)
+    return refuse('the editor is busy (at a prompt, or still working); try again in a moment')
+  end
+  busy(false)
   return type(answer) == 'table' and answer or refuse('the editor gave no answer')
 end
 M.request = request   -- the tests time it
@@ -1451,6 +1464,7 @@ local function tabline()
     out[#out + 1] = '%' .. n .. 'T' .. (tab == current and '%#DeskPopoutTabSel#' or '%#DeskPopoutTab#') .. escape(text .. ' ')
   end
   local right = ' ' .. typed('popout.next-view') .. ' ' .. said('views') .. ' · ' .. typed('popout.home') .. ' ' .. said('menu') .. ' '
+  if C.busy then right = ' ' .. said('editor busy') .. ' ·' .. right end
   return table.concat(out, retro and '%#DeskPopoutTab#│' or '%#DeskPopoutTab# ') .. '%#DeskPopoutTabFill#%T%=%#DeskPopoutTab#'
     .. (retro and '│' or '') .. escape(right)
 end
@@ -1713,6 +1727,7 @@ end
 -- The pop-out's door: what the editor sends, drawn on the next tick so the editor's rpcnotify returns at once.
 function M.receive(msg)
   if not M.is_popout() or type(msg) ~= 'table' or msg.version ~= M.PROTOCOL or not RECEIVES[msg.type] then return false end
+  busy(false)   -- the editor is answering again
   -- An answer is taken at once: its ask is waiting for it (one no longer waited for is dropped).
   if msg.type == 'answer' then
     if type(msg.id) == 'number' and C.waiting[msg.id] then C.answers[msg.id] = msg.answer == nil and vim.NIL or msg.answer end

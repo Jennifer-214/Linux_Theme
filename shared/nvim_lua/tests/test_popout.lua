@@ -918,10 +918,19 @@ do
   host("vim.defer_fn(function() vim.uv.sleep(1500) end, 20)")
   vim.wait(200)
   local took = pop("local t = vim.uv.hrtime(); local a = require('desk.popout').request({ type = 'describe' }, 100); return { math.floor((vim.uv.hrtime() - t) / 1e6), a.refused }")
-  ok(type(took) == 'table' and took[1] < 700 and took[2] == 'the editor did not answer in time',
+  ok(type(took) == 'table' and took[1] < 700 and (took[2] or ''):find('the editor is busy', 1, true),
     'the editor busy 1.5 s, an ask of 100 ms: answered on its own time: ' .. vim.inspect(took))
+  -- Busy now (2026-11-16: each key froze the pop-out 2 s): the header says so, and the next ask, of the usual 2 s,
+  -- gives up after a moment instead.
+  ok((state().header or ''):find('editor busy', 1, true), '… the header says "editor busy": ' .. tostring(state().header))
+  took = pop("local t = vim.uv.hrtime(); local a = require('desk.popout').request({ type = 'describe' }); return { math.floor((vim.uv.hrtime() - t) / 1e6), a.refused }")
+  ok(type(took) == 'table' and took[1] < 700 and (took[2] or ''):find('the editor is busy', 1, true),
+    '… and the next ask of 2 s gives up in a moment: ' .. vim.inspect(took))
   vim.wait(1600)
   ok(state().connected, '… and the pop-out goes on')
+  local fine = pop("return require('desk.popout').request({ type = 'describe' })")
+  ok(type(fine) == 'table' and not fine.refused, 'the editor free again: an ask is answered')
+  ok(wait(2000, function() return not (state().header or ''):find('editor busy', 1, true) end), '… and "editor busy" goes')
 end
 
 -- ─── a focus that did not happen is said ─────────────────────────────────────────────────────────────────────────
