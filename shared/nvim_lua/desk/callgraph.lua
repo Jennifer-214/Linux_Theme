@@ -235,6 +235,8 @@ M.sel_ns = api.nvim_create_namespace('desk_callgraph_selected')
 
 local function paint(s)
   if not api.nvim_buf_is_valid(s.buf) then return end
+  -- Its colour, when no graph has been opened yet to define it (the map paints its boxes with it too).
+  if next(api.nvim_get_hl(0, { name = 'DeskCallGraphSelected' })) == nil then highlights() end
   api.nvim_buf_clear_namespace(s.buf, M.sel_ns, 0, -1)
   local box = s.index and s.drawn and s.drawn.boxes[s.index]
   for _, span in ipairs(box and box.spans or {}) do
