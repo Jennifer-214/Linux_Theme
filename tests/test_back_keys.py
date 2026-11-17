@@ -68,7 +68,9 @@ class SessionBack(unittest.TestCase):
         self.tmux("-f", str(conf), "new-session", "-d", "-s", "first")
         self.tmux("new-session", "-d", "-s", "second")
         self.assertIn("switch-client -l", self.tmux("list-keys", "-T", "prefix", "BSpace"))
-        client = subprocess.Popen(["script", "-qfc", f"tmux -S {self.socket} attach -t first", "/dev/null"], env=self.env,
+        # A terminal type of its own: CI has no TERM, and tmux will not attach to a terminal it cannot name (2026-11-17).
+        client = subprocess.Popen(["script", "-qfc", f"tmux -S {self.socket} attach -t first", "/dev/null"],
+                                  env={**self.env, "TERM": "xterm-256color"},
                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(client.wait, 10)
         self.addCleanup(client.kill)

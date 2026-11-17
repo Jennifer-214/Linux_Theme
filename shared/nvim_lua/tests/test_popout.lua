@@ -157,13 +157,18 @@ if #shadowed ~= 5 or vim.tbl_contains(shadowed, false) then
   os.exit(1)
 end
 
-local function wait(ms, cond) return vim.wait(ms, function() local fine, value = pcall(cond); return fine and value end, 20) end
+-- Three times the patience asked: a CI runner is several times slower than her laptop, and a wait ends the moment its
+-- condition holds, so this costs nothing when things are quick (2026-11-17: three checks failed in CI only).
+local PATIENCE = 3
+local function wait(ms, cond) return vim.wait(ms * PATIENCE, function() local fine, value = pcall(cond); return fine and value end, 20) end
 local function exists(path) return uv.fs_stat(path) ~= nil end
 local function later(ms) local s, us = uv.gettimeofday(); return s * 1000 + math.floor(us / 1000) + ms end
 -- A Neovim's socket, connected to once it accepts: its file is there a moment before it listens (a long moment on a
 -- busy machine). A plain loop: connects that fail inside vim.wait's condition hang this Neovim. nil after 10 s.
+-- Up to 30 s: a slow CI runner took more than 10 to start the second of two pop-outs (2026-11-17); it returns at once
+-- when the socket is there.
 local function connect(path)
-  for _ = 1, 100 do
+  for _ = 1, 300 do
     if path ~= '' and exists(path) then
       local fine, chan = pcall(vim.fn.sockconnect, 'pipe', path, { rpc = true })
       if fine and chan > 0 then return chan end
@@ -298,7 +303,7 @@ ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]')
 s = state()
 eq({ s.mode, s.current_win == s.win }, { 'n', true }, '… and the keyboard stays in the pop-out (its window, normal mode)')
 -- A focus would come a moment later (hyprctl runs in the background): wait long enough for one to land.
-ok(not wait(1500, function() return log_since(mark):find('hl.dsp.focus', 1, true) end), '… and nothing is focused, then or a moment later')
+ok(not vim.wait(1500, function() return log_since(mark):find('hl.dsp.focus', 1, true) ~= nil end, 20), '… and nothing is focused, then or a moment later')
 ok(wait(3000, function() return state().title == 'call graph · M.beta' end), 'following: the graph moves to where the editor went')
 eq(history_at(), at_enter + 1, '… the Enter one step of the history')
 -- H: back to where Enter left from, the editor too; L: there again.
