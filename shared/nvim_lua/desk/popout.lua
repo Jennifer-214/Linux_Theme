@@ -255,7 +255,7 @@ end
 -- sent; ping and heard: the pings sent and answered; stalled: not answering; history: the steps H, Backspace and L
 -- walk; saved: the layout record last read or written; watch: the watch on desk-monitor's sidecar while it is open;
 -- down: the editor is exiting and the pop-out was told.
-local H = { views = {}, order = {}, gen = 0, ping = 0, heard = 0, width = 80, history = { steps = {}, at = 0 } }
+local H = { views = {}, order = {}, gen = 0, ping = 0, heard = 0, width = 80, history = { steps = {}, at = 0 }, waiting = {} }
 M.host = H   -- the tests read it
 local kinds = {}
 M.kinds = kinds
@@ -406,6 +406,9 @@ function M.kind(spec)
   end
   local name = spec.name
   kinds[name] = spec
+  -- A view of this kind saved before it loaded (symdeps loads on its first C file): it comes back now.
+  if M.restore_waiting then M.restore_waiting(name) end
+  if M.restore_named then M.restore_named() end
   actions.add({ { id = 'popout.view.' .. name, group = 'Views', name = spec.menu or ('Pop out the ' .. spec.title), about = spec.about,
     on = 'editor', remote = true,
     available = function(ctx)
@@ -824,9 +827,14 @@ H.records, H.wrote = {}, {}
 local function layout_root() return H.root or checkout_of() end
 local function restore_named()
   if not RESTORE then return end
-  local n = H.saved and type(H.saved.tabs) == 'table' and #H.saved.tabs or 0
+  -- Only what can come back now: a tab whose kind has not loaded yet waits for it (H.waiting).
+  local n = 0
+  for _, tab in ipairs(H.saved and type(H.saved.tabs) == 'table' and H.saved.tabs or {}) do
+    if type(tab) == 'table' and kinds[tab.kind] then n = n + 1 end
+  end
   RESTORE.name = n == 0 and "Restore the pop-out's views" or n == 1 and 'Restore 1 view' or ('Restore %d views'):format(n)
 end
+M.restore_named = restore_named   -- a kind registering changes what Restore can bring back (and the tests ask)
 -- The record offered here: the one of the checkout in front.
 local function offer(front)
   H.saved_root, H.saved = front, H.records[front] or nil
@@ -844,6 +852,8 @@ local function layout_record()
       end
     end
   end
+  -- Tabs of a kind not loaded yet are written back as they were, so the first write after a restart keeps them.
+  if H.waiting_root == layout_root() then for _, saved in ipairs(H.waiting) do tabs[#tabs + 1] = saved end end
   return { version = 1, tabs = tabs, activeTab = H.front, show = { screen = H.screen } }
 end
 -- A write that failed is said, in desk-work's own words when it gave some.
@@ -980,6 +990,16 @@ end
 
 -- The pop-out's last views again (after a restart): it opens, on the screen it was on when that is there, with each
 -- saved view its kind fills again from what was kept, and the one in front then in front.
+local function restore_tab(saved)
+  local kind = type(saved) == 'table' and kinds[saved.kind]
+  if not (kind and kind.restore) or H.views[saved.kind] then return end
+  local view = add_view(saved.kind)
+  view.pinned = saved.pinned == true
+  local fine, err = pcall(kind.restore, view, { pinned = view.pinned, target = type(saved.target) == 'table' and saved.target or nil })
+  if not fine then kind_failed(view, err) end
+  to_front(view)
+end
+
 function M.restore_layout()
   local record = H.saved
   if not (record and type(record.tabs) == 'table' and #record.tabs > 0) then return tell('No views of the pop-out were saved here.') end
@@ -987,18 +1007,23 @@ function M.restore_layout()
   H.prefer = type(record.show) == 'table' and type(record.show.screen) == 'string' and record.show.screen or nil
   local ok, why = M.open(H.saved_root)
   if not ok then return tell(sentence(why), WARN) end
+  H.waiting, H.waiting_root = {}, H.saved_root
   for _, saved in ipairs(record.tabs) do
-    local kind = type(saved) == 'table' and kinds[saved.kind]
-    if kind and kind.restore and not H.views[saved.kind] then
-      local view = add_view(saved.kind)
-      view.pinned = saved.pinned == true
-      local fine, err = pcall(kind.restore, view, { pinned = view.pinned, target = type(saved.target) == 'table' and saved.target or nil })
-      if not fine then kind_failed(view, err) end
-      to_front(view)
-    end
+    if type(saved) == 'table' and type(saved.kind) == 'string' and not kinds[saved.kind] then H.waiting[#H.waiting + 1] = saved
+    else restore_tab(saved) end
   end
   local active = type(record.activeTab) == 'string' and H.views[record.activeTab]
   if active then to_front(active) end
+end
+
+-- A kind just registered: its saved tabs come back into the open pop-out.
+function M.restore_waiting(name)
+  if #H.waiting == 0 or not (H.chan or H.opening) then return end
+  local still = {}
+  for _, saved in ipairs(H.waiting) do
+    if saved.kind == name then restore_tab(saved) else still[#still + 1] = saved end
+  end
+  H.waiting = still
 end
 
 -- o in the pop-out: the view leaves it, and its kind puts it back in the editor.

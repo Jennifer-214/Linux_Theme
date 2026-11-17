@@ -711,6 +711,24 @@ ok(wait(5000, function() return not exists(psock) end), 'folded right after a ch
 ok(wait(5000, writes_landed), '… the write that was on its way has landed')
 eq(#(record().tabs or {}), 2, '… and the layout record still holds both views for the next Restore')
 host("require('desk.callgraph').panel_close()")
+-- A kind that loads later (symdeps loads on its first C file): Restore brings back what it can, the record keeps the
+-- rest through the writes after it, and the tab comes back when its kind registers (2026-11-16).
+host("_G.rows_kind = require('desk.popout').kinds.rows; require('desk.popout').kinds.rows = nil; require('desk.popout').restore_named()")
+ok(wait(5000, function() return host("return require('desk.actions').get('popout.restore').name") == 'Restore 1 view' end),
+  'its kind not loaded: Restore offers only the view it can bring back')
+os.remove(dir .. '/kitty.listen')
+host("local A = require('desk.actions'); A.get('popout.restore').run(A.context())")
+opened()
+ok(wait(10000, function() return state().tabs == 1 and state().shown == 'graph' end), '… the graph comes back alone')
+host("require('desk.popout').save_layout()")
+ok(wait(5000, writes_landed), '… a write after it')
+eq(#(record().tabs or {}), 2, '… keeps the waiting view in the record')
+host("require('desk.popout').kind(_G.rows_kind)")
+ok(wait(10000, function() return state().tabs == 2 end), 'its kind registers: the view comes back')
+host("local P = require('desk.popout'); P.save_layout(); P.fold('the screen went')")
+ok(wait(5000, function() return not exists(psock) end), '… (closed again)')
+ok(wait(5000, writes_landed), '… its write landed')
+host("require('desk.callgraph').panel_close()")
 
 -- ─── the notebook's call graph with the pop-out open ─────────────────────────────────────────────────────────────
 os.remove(dir .. '/kitty.listen')
