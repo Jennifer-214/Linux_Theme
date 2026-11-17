@@ -300,10 +300,10 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `Enter` in a graph, a double click | Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it) |
 | `<BS>` in the graph tab | Back to that code window as it was, the graph left open |
 | `c` in a graph | Centre the graph on the selected box: its own callers and callees (in the panel and the pop-out it is pinned there; `p` follows again) |
-| `m` in the graph tab | Draw the callers and callees past the first 24 on each side too (where it says "+N more") |
+| `m` in a graph | Draw the callers and callees past the first 24 on each side too (where it says "+N more") |
 | `r` in a graph | Ask the language server for the graph again (a graph that follows the cursor: for the function under it) |
 | `q` in the graph tab | Close the graph tab |
-| `gs` in the graph tab | The centre function in symdeps' card (C and C++); in the pop-out, the selected box's function, shown here |
+| `gs` in a graph | The centre function in symdeps' card (C and C++); in the panel and the pop-out, the selected box's function, shown in the code |
 | `p` in the panel | Pin the panel to the graph it shows (PINNED), or follow the cursor again |
 | `q` in the panel | Close the panel |
 | `o` in a graph | Move this graph to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as a split |

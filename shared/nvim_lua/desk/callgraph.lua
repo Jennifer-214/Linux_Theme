@@ -994,7 +994,8 @@ local ROWS = actions.add({
       local view, item = ctx.graph, M.selected(ctx.graph)
       if item and item.raw then view.target = { buf = view.source, item = item, name = item.name }; load(view, view.target) end
     end },
-  { id = 'callgraph.more', group = 'Call graph', name = 'Show every caller and callee', key = 'm', on = GRAPH, remote = true,
+  -- m and gs on every graph, the panel too (2026-11-16: there m set a Vim mark and gs slept a second).
+  { id = 'callgraph.more', group = 'Call graph', name = 'Show every caller and callee', key = 'm', on = BOTH, remote = true,
     about = 'Draw the callers and callees past the first ' .. M.MAX .. ' on each side too (where it says "+N more")',
     available = function(ctx)
       local graph = ctx.view and ctx.view.graph or (ctx.graph and ctx.graph.graph)
@@ -1003,6 +1004,7 @@ local ROWS = actions.add({
     run = function(ctx)
       if ctx.view then M.show_all(ctx.view.graph); return pop().redraw(ctx.view) end
       M.show_all(ctx.graph.graph)
+      if ctx.graph == panel then return panel_show(panel.graph, true) end
       render(ctx.graph, true)
     end },
   -- On every graph (2026-11-16: in the panel and the pop-out r was Vim's own, an error on their read-only buffers).
@@ -1015,17 +1017,24 @@ local ROWS = actions.add({
     end },
   { id = 'callgraph.close', group = 'Call graph', name = 'Close the call graph', key = 'q', on = GRAPH, about = 'Close the graph tab', remote = false,
     run = function(ctx) M.close_view(ctx.graph.buf) end },
-  { id = 'callgraph.symdeps', group = 'Call graph', name = 'This function in symdeps', key = 'gs', on = GRAPH, remote = true,
-    about = "The centre function in symdeps' card (C and C++); in the pop-out, the selected box's function, shown here",
+  { id = 'callgraph.symdeps', group = 'Call graph', name = 'This function in symdeps', key = 'gs', on = BOTH, remote = true,
+    about = "The centre function in symdeps' card (C and C++); in the panel and the pop-out, the selected box's function, shown in the code",
     available = function(ctx)
       if not actions.symdeps() then return 'requires symdeps' end
-      if not ctx.view then return end
-      if not ctx.item then return 'no box is selected' end
-      local ft = vim.filetype.match({ filename = ctx.item.uri and vim.uri_to_fname(ctx.item.uri) or '' })
+      local item
+      if ctx.view then item = ctx.item elseif ctx.graph == panel then item = M.selected(panel) else return end
+      if not item then return 'no box is selected' end
+      local ft = vim.filetype.match({ filename = item.uri and vim.uri_to_fname(item.uri) or '' })
       return (ft == 'c' or ft == 'cpp') or 'requires a C or C++ function'
     end,
     run = function(ctx)
       if ctx.view then return popout_symdeps(ctx) end
+      if ctx.graph == panel then
+        if not actions.symdeps() then return tell('Requires symdeps (an optional plugin for C and C++ symbols).') end
+        local item = M.selected(panel)
+        if item then popout_symdeps({ item = item, origin = panel.source_win }) end
+        return
+      end
       local view = ctx.graph
       local center = view.graph and view.graph.center
       if not center or not center.uri then return end

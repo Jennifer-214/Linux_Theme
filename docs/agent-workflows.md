@@ -377,7 +377,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   Enter goes to the selected one; `q` or closing the last window beside it closes it. `p` pins it: it keeps the graph
   it shows (its first line reads `PINNED`) while the cursor goes elsewhere, Enter goes there without re-centring it,
   and saving that graph's file reads it again. `p` again follows the cursor from where it is. `c` centres it on the
-  selected box and pins it there, as in the pop-out; `r` reads it again.
+  selected box and pins it there, as in the pop-out; `r` reads it again, `m` draws what "+N more" left out and `gs`
+  shows the selected function in symdeps.
 - **The pop-out**: with a second monitor, `Space Space` → views → "Pop out the call graph" opens the live graph in a
   window of its own (kitty, class `desk-popout`): it opens without taking the keyboard, at the side of the screen, and
   moves, tiled, to the workspace showing on the other screen (the first one `~/.config/foxml/monitor-layout.conf` lists

@@ -396,6 +396,23 @@ api.nvim_set_current_win(origin)
 ok(vim.wait(1000, function() return #requests > 0 and G.panel.inflight == nil end), "r in the panel asks the language server again")
 eq({ prepares(), G.panel.pinned, text(G.panel.drawn.lines):find("callee_of_callee_of_M.beta", 1, true) ~= nil }, { 0, true, true },
   "… for the function it is pinned on")
+-- m and gs in the panel, as on the other graphs (2026-11-16: m set a Vim mark there, gs slept a second).
+local crowded = { center = G.panel.graph.center, callers = { { name = "caller_a", detail = "x:1" } },
+  hidden = { callers = { { name = "caller_b", detail = "x:2" } } }, more = { callers = 1 }, callees = {} }
+G.panel_open_with(crowded, G.panel.target, true)
+ok(text(G.panel.drawn.lines):find("+1 more", 1, true) and not text(G.panel.drawn.lines):find("caller_b", 1, true), "a panel that leaves one out")
+api.nvim_set_current_win(G.panel.win)
+ok(vim.fn.maparg("m", "n", false, true).callback ~= nil, "m is the panel's own key")
+key("m")
+ok(text(G.panel.drawn.lines):find("caller_b", 1, true) and not text(G.panel.drawn.lines):find("+1 more", 1, true), "… m draws it too")
+local said_gs = {}
+local real_notify = vim.notify
+vim.notify = function(msg) said_gs[#said_gs + 1] = msg end
+ok(vim.fn.maparg("gs", "n", false, true).callback ~= nil, "gs is the panel's own key")
+key("gs")
+vim.notify = real_notify
+api.nvim_set_current_win(origin)
+eq(said_gs, { "Requires symdeps (an optional plugin for C and C++ symbols)." }, "… without symdeps gs says what it needs")
 
 -- Closing the last window beside the panel closes the panel (here another tab remains).
 vim.cmd("tabnew")
@@ -480,7 +497,7 @@ local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
 eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "m", "r", "q", "gs", "o" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "r", "p", "q", "o" }, "the panel's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "m", "r", "gs", "p", "q", "o" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do
