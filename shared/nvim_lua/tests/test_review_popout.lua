@@ -498,6 +498,14 @@ local working = host([[local set = require('desk.review').current.sets and requi
   return { open = set.expanded == true, files = rels }]])
 eq(working, { open = true, files = { 'four.txt' } }, "… and the checkout's working changes listed in its tree, as Space Cw lists them")
 ok(wait(3000, function() return popped():find('four.txt', 1, true) end), '… there too:\n' .. popped())
+-- What changed asked from the pop-out (its menu, through the bridge): the review's file list comes to the pop-out and
+-- the comparison stays here, as a view asked for there opens there (2026-11-16: it opened all of it in the editor).
+do
+  local s_, us = vim.uv.gettimeofday()
+  eq(host("return require('desk.bridge').receive(...)", { version = 1, type = 'act', action = 'claude.changes',
+    deadline = s_ * 1000 + math.floor(us / 1000) + 5000 }), { done = true }, 'What changed, asked from the pop-out: taken')
+  ok(wait(5000, function() return state().kind == 'review' and review().popped end), "… the review's list in the pop-out")
+end
 vim.rpcnotify(p, 'nvim_input', 'q')
 ok(wait(5000, function() return not exists(psock) end), 'the pop-out closes')
 

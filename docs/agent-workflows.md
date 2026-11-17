@@ -316,7 +316,8 @@ list there yourself). It draws in the palette and keeps its session records in p
   `Ctrl+r` the next again; its tab is marked when a file joins the list, a request is ready or a checked file changed. `o` there,
   Backspace or `Space re` here, or closing the pop-out bring the list back, on the row selected there; closing the
   review clears it, and the pop-out's Restore after a restart opens that review again with its list there. With one
-  screen `o` says "requires a second monitor" and the list stays.
+  screen `o` says "requires a second monitor" and the list stays. "What changed" and "Review the next thing" in the
+  pop-out's own `Space Space` open the review with its list there and the comparison here.
 - **What a change calls**: each changed function's calls before and after, compared by name (treesitter, in any
   language with a parser). A file whose change adds or removes a call is marked `→`; a changed function's strip reads
   `calls by name: +memcpy −old_copy` and who calls it: the language server attached to the working file when that

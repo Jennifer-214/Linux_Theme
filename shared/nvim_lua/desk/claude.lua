@@ -661,14 +661,22 @@ end
 -- The keys are rows of the action registry (desk/actions.lua): the mappings, which-key's words, the home menu and the
 -- keybinds reference all read them.
 local actions = require("desk.actions")
+-- Asked from the pop-out (its menu), a review opens with its file list there and the comparison here, as a view asked
+-- for there opens there (2026-11-16).
+local function list_there(ctx)
+  if not (ctx and ctx.remote) then return end
+  local R, P = package.loaded["desk.review"], package.loaded["desk.popout"]
+  local r = R and R.current
+  if P and r and not r.closing and not r.popout then P.show("review", actions.context()) end
+end
 local ROWS = actions.add({
   { id = "claude.changes", group = "Review", name = "What changed", key = "<leader>Cw", on = "editor", remote = true,
     about = "Changes tree: working changes (including unsaved drafts), live sessions and the most recent 80 commits",
-    run = function() M.changes() end },
+    run = function(ctx) M.changes(); list_there(ctx) end },
   { id = "claude.next", group = "Review", name = "Review the next thing that needs you", key = "<leader>Cr", on = "editor", remote = true,
     also = "`:ReviewNext`",
     about = "Review the next thing that needs you: a requested change whose file has changed, a file edited since you reviewed it, else the oldest unreviewed Claude commit",
-    run = function() require("desk.review").next() end },
+    run = function(ctx) require("desk.review").next(); list_there(ctx) end },
   { id = "claude.diff", group = "Review", name = "This change side by side", key = "<leader>Cd", on = "editor",
     about = "Show this file in the current review panes", run = function() M.diff() end },
   { id = "claude.close", group = "Review", name = "Close all Claude review views", key = "<leader>Cq", on = "editor", remote = true,
