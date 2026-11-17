@@ -299,7 +299,7 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `s` in a graph | Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; `Enter` still goes |
 | `Enter` in a graph, a double click | Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it) |
 | `<BS>` in the graph tab | Back to that code window as it was, the graph left open |
-| `c` in the graph tab | Centre the graph on the selected box: its own callers and callees (in the pop-out the graph is pinned there) |
+| `c` in a graph | Centre the graph on the selected box: its own callers and callees (in the panel and the pop-out it is pinned there; `p` follows again) |
 | `m` in the graph tab | Draw the callers and callees past the first 24 on each side too (where it says "+N more") |
 | `r` in the graph tab | Ask the language server for the graph again |
 | `q` in the graph tab | Close the graph tab |

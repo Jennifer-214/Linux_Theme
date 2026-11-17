@@ -675,7 +675,7 @@ local function panel_request()
   local cached = panel.cache[cache_key(target)]
   if cached then if panel.key == target.key then panel_show(cached) end; return end
   panel.inflight = target
-  local center = placeholder(target)
+  local center = target.item or placeholder(target)
   local function finish(graph)
     panel.inflight, panel.stop = nil, nil
     panel.cache[cache_key(target)] = graph
@@ -759,6 +759,23 @@ function M.panel_pin()
     panel_show(panel.graph or { message = 'move the cursor into a function' }, true)
     M.panel_update()
   end
+end
+
+-- c in the panel: the graph centred on the selected box and pinned there, as in the pop-out; p follows again.
+function M.panel_centre()
+  local item = panel_open() and M.selected(panel)
+  if not (item and item.raw) then return end
+  local buf = panel.target and panel.target.buf
+  if not (buf and api.nvim_buf_is_valid(buf)) and panel.source_win and api.nvim_win_is_valid(panel.source_win) then
+    buf = api.nvim_win_get_buf(panel.source_win)
+  end
+  if not buf then return end
+  if panel.timer then panel.timer:stop() end
+  local row = item.range and item.range.start.line or 0
+  local target = { buf = buf, item = item, name = item.name, row = row, col = 0, key = 'centre:' .. tostring(item.uri) .. ':' .. row }
+  panel.pinned, panel.target, panel.key, panel.wanted = true, target, target.key, target
+  panel_show({ center = item, message = 'reading the call hierarchy…' })
+  if not (panel.inflight and panel.inflight.key == target.key) then panel_request() end
 end
 
 function M.panel_close()
@@ -949,8 +966,9 @@ local ROWS = actions.add({
       if api.nvim_win_is_valid(ctx.graph.origin) then api.nvim_set_current_win(ctx.graph.origin)
       elseif #api.nvim_list_tabpages() > 1 then vim.cmd('tabprevious') end
     end },
-  { id = 'callgraph.centre', group = 'Call graph', name = 'Centre the graph on the selected function', key = 'c', on = GRAPH, remote = true,
-    about = 'Centre the graph on the selected box: its own callers and callees (in the pop-out the graph is pinned there)',
+  -- On every graph (2026-11-16: in the panel c was Vim's own, an error on its read-only buffer).
+  { id = 'callgraph.centre', group = 'Call graph', name = 'Centre the graph on the selected function', key = 'c', on = BOTH, remote = true,
+    about = 'Centre the graph on the selected box: its own callers and callees (in the panel and the pop-out it is pinned there; `p` follows again)',
     available = function(ctx)
       if not ctx.view then return end
       if not ctx.item then return 'no box is selected' end
@@ -958,6 +976,7 @@ local ROWS = actions.add({
     end,
     run = function(ctx)
       if ctx.view then return popout_centre(ctx.view, ctx.item) end
+      if ctx.graph == panel then return M.panel_centre() end
       local view, item = ctx.graph, M.selected(ctx.graph)
       if item and item.raw then view.target = { buf = view.source, item = item, name = item.name }; load(view, view.target) end
     end },
