@@ -345,6 +345,32 @@ press('m')
 ok(wait(3000, function() return #review().checked == 3 end), 'm: the last file checked')
 ok(wait(3000, function() return popped():find('✓ three.lua', 1, true) end), '… shown there')
 settled()
+-- A click on a row's check box in the pop-out checks it, as in the editor: the review's zones go with its items
+-- (2026-11-16: a single click there only moved the selection). The mouse is stood in for; the handler is the click's.
+do
+  pop([[vim.ui.select = function(items, opts, done)
+    for i, item in ipairs(items) do if opts.format_item(item):find('three.lua', 1, true) then return done(item, i) end end
+    done(nil, nil)
+  end]])
+  press('/')
+  ok(wait(3000, function() return state().selected:find('three.lua', 1, true) end), 'three.lua selected: ' .. tostring(state().selected))
+  local s = state()
+  local box
+  for _, z in ipairs(s.zones) do if z[3] == 'review.mark-list' then box = z end end
+  ok(box ~= nil, '… its zones name the check box: ' .. vim.inspect(s.zones))
+  local function click(column)
+    pop("local w, l, c = ...; local real = vim.fn.getmousepos; vim.fn.getmousepos = function() return { winid = w, line = l, column = c } end; "
+      .. "require('desk.popout').client_zone_click(); vim.fn.getmousepos = real", s.win, s.item_line, column)
+  end
+  click(box[1])
+  ok(wait(3000, function() return #review().checked == 2 end), 'a click on its box unchecks it: ' .. #review().checked .. ' checked')
+  click(box[2] + 3)
+  vim.wait(300)
+  eq(#review().checked, 2, '… a click past the box does nothing')
+  click(box[2])
+  ok(wait(3000, function() return #review().checked == 3 end), '… and on it again checks it')
+  settled()
+end
 -- The question, asked in the pop-out as a menu (vim.ui.select) with the editor's letters as its keys.
 pop([[vim.ui.select = function(items, opts, done)
   local keys = opts.desk_keys or {}

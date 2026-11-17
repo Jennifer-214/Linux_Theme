@@ -425,6 +425,17 @@ local function cut(value, cap) return type(value) == 'string' and value:sub(1, c
 -- A kind's marks, spans and footer as plain numbers and strings, as the pop-out reads them: a table with named fields
 -- among its list (a mark's priority written by name) or a function in it could not be sent at all.
 local function num(value) return type(value) == 'number' and value or nil end
+-- An item's click zones as sent: at most 4 { from, to, row id } (1-based columns; desk.review's zones_of).
+local function plain_zones(zones)
+  local out = {}
+  for _, z in ipairs(type(zones) == 'table' and zones or {}) do
+    if #out >= 4 then break end
+    if type(z) == 'table' and type(z[1]) == 'number' and type(z[2]) == 'number' and type(z[3]) == 'string' and z[3]:match('^[%w_.-]+$') then
+      out[#out + 1] = { z[1], z[2], z[3]:sub(1, 64) }
+    end
+  end
+  return #out > 0 and out or nil
+end
 local function plain_marks(marks)
   local out = {}
   for _, m in ipairs(type(marks) == 'table' and marks or {}) do
@@ -470,7 +481,8 @@ local function payload(view)
     refs[i], keys[i] = item.ref, tostring(item.key or i):sub(1, 120)
     items[i] = { key = keys[i], kind = item.kind == 'row' and 'row' or 'box', line = num(item.line), name_col = num(item.name_col), x = num(item.x),
       w = num(item.w), spans = plain_spans(item.spans), centre = item.centre == true, name = tostring(item.name or ''):sub(1, 200), mark = cut(item.mark, 16),
-      strip = type(item.strip) == 'table' and { cut(item.strip[1], 400) or '', cut(item.strip[2], 400) or '' } or nil }
+      strip = type(item.strip) == 'table' and { cut(item.strip[1], 400) or '', cut(item.strip[2], 400) or '' } or nil,
+      zones = plain_zones(item.zones) }
   end
   return { type = 'view.set', id = view.id, kind = view.kind, surface = kind.surface, title = cut(drawn.title, 200) or kind.title,
     state = cut(drawn.state, 200) or '', lines = lines, marks = marks, hl = definitions(drawn.hl), items = items,
@@ -1553,6 +1565,10 @@ local function client_view(id, surface)
   for _, row in ipairs(view.rows) do if row.remote and row.key and row.key:lower() == '<cr>' and not is_on(row, ON) then view.enter = row end end
   actions.map(ON, { buffer = buf, rows = view.rows, every = true, nowait = true, silent = true, press = press,
     ctx = { copy = view.copy, also = surface and { surface } or nil } })
+  -- A click is Neovim's own (the cursor, tab and window it lands on), then its zone, if any (M.client_zone_click). An
+  -- expression map, not a registry row: the click itself has to happen first.
+  vim.keymap.set('n', '<LeftMouse>', function() vim.schedule(M.client_zone_click); return '<LeftMouse>' end,
+    { buffer = buf, expr = true, silent = true, desc = 'Click: the cursor there, and what its zone does' })
   api.nvim_create_autocmd('CursorMoved', { buffer = buf, callback = function() moved(view) end })
   return view
 end
@@ -1629,6 +1645,16 @@ local function valid_spans(spans)
   return true
 end
 local function short(value, cap) return type(value) == 'string' and #value <= cap and value or nil end
+local function valid_zones(raw)
+  local out = {}
+  for _, z in ipairs(type(raw) == 'table' and raw or {}) do
+    if #out >= 4 then break end
+    if type(z) == 'table' and type(z[1]) == 'number' and type(z[2]) == 'number' and type(z[3]) == 'string' and z[3]:match('^[%w_.-]+$') then
+      out[#out + 1] = { z[1], z[2], z[3] }
+    end
+  end
+  return out
+end
 local function valid_items(raw)
   local items = {}
   for i, item in ipairs(type(raw) == 'table' and raw or {}) do
@@ -1638,7 +1664,8 @@ local function valid_items(raw)
     items[i] = { key = item.key, kind = item.kind == 'row' and 'row' or 'box', line = item.line, name_col = tonumber(item.name_col) or 0,
       x = tonumber(item.x) or 0, w = tonumber(item.w) or 1, spans = item.spans, centre = item.centre == true,
       name = type(item.name) == 'string' and item.name:sub(1, 200) or '', mark = short(item.mark, 16),
-      strip = type(lines[1]) == 'string' and type(lines[2]) == 'string' and { lines[1]:sub(1, 400), lines[2]:sub(1, 400) } or nil }
+      strip = type(lines[1]) == 'string' and type(lines[2]) == 'string' and { lines[1]:sub(1, 400), lines[2]:sub(1, 400) } or nil,
+      zones = valid_zones(item.zones) }
   end
   return items
 end
@@ -1880,6 +1907,21 @@ function M.client_keys()
 end
 
 -- A double click: the item under the mouse is selected, then it goes as Enter would.
+-- A single click: the editor's own click moves the cursor (and with it the selection); on a zone of the item clicked
+-- (the review's arrow and check box) its row is pressed, as in the editor (2026-11-16).
+function M.client_zone_click()
+  local view = shown()
+  if not view then return end
+  local pos = vim.fn.getmousepos()
+  if pos.winid ~= view.win or (pos.line or 0) < 1 then return end
+  local index = item_at(view, pos.line, math.max(0, (pos.column or 1) - 1))
+  local item = index and view.items[index]
+  if not (item and item.line == pos.line) then return end
+  for _, zone in ipairs(item.zones or {}) do
+    if pos.column >= zone[1] and pos.column <= zone[2] then return client_act(zone[3], nil, view, index) end
+  end
+end
+
 function M.client_click()
   local view = shown()
   if not view then return end
@@ -1962,7 +2004,7 @@ function M.client_state()
   local item = s.index and view.items[s.index]
   local buf, win = api.nvim_get_current_buf(), api.nvim_get_current_win()
   return { connected = C.chan ~= nil, host = C.host, shown = C.shown or '', gen = view and view.gen or 0, kind = view and view.kind or '',
-    gutter = view and view.gutter or 0,
+    gutter = view and view.gutter or 0, zones = item and item.zones or {}, item_line = item and item.line or 0,
     title = view and view.title or '', state = view and view.state or '', index = s.index or 0, selected = item and item.name or '',
     selected_key = item and item.key or '', lines = api.nvim_buf_get_lines(buf, 0, -1, false), closing = C.closing or '',
     win = view and view.win or (C.empty and C.empty.win) or 0, current_win = win, buf = buf, mode = api.nvim_get_mode().mode,

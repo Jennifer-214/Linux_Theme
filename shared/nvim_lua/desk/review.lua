@@ -1526,6 +1526,13 @@ M.rows = actions.add({
       local entry = named(ctx)
       if entry then M.fold(entry) end
     end },
+  { id = 'review.functions', group = 'Review', name = "Show or hide a file's changed functions", on = LIST, remote = true, menu = false,
+    about = "Shows or hides the changed functions under a file row: what a click on its arrow does",
+    run = function(ctx)
+      if not ctx.view then return M.toggle_functions() end
+      local entry = named(ctx)
+      if entry then M.toggle_functions(entry) end
+    end },
   { id = 'review.next-file', group = 'Review', name = 'Next review file', key = ']f', on = BOTH, doc = 'Next / previous file', remote = true,
     about = 'The next file of this review', run = function(ctx) next_file(ctx.review)() end },
   { id = 'review.previous-file', group = 'Review', name = 'Previous review file', key = '[f', on = BOTH, line = 'review.next-file', remote = true,
@@ -1642,12 +1649,13 @@ maps = function(r, buf, sidebar)
     local hit = r.hits and r.hits[mouse.line] or {}
     local within = function(range) return range and mouse.column >= range[1] and mouse.column <= range[2] end
     local file_row = entry and entry.file and not entry.symbol
-    local expanded = file_row and (entry.set and entry.set.files or r.files)[entry.file].expanded
     if M.enter() and file_row then
-      if within(hit.mark) then M.mark()
-      elseif within(hit.fold) then
-        (entry.set and entry.set.files or r.files)[entry.file].expanded = not expanded
-        panel(r)
+      -- The zones the pop-out's items carry too: the arrow shows or hides the functions, the box checks the file.
+      for _, zone in ipairs(M.zones_of(entry, hit)) do
+        if within(zone) then
+          if zone[3] == 'review.mark-list' then M.mark() else M.toggle_functions(entry) end
+          break
+        end
       end
     end
     if api.nvim_win_is_valid(r.panel_win) then api.nvim_set_current_win(r.panel_win) end
@@ -2347,6 +2355,32 @@ end
 
 -- h: the row's file folded (its changed functions), else its commit; the selection goes to what was folded. entry:
 -- the row (the pop-out names one); nil, the row under the list's cursor.
+-- A file row's changed functions shown or hidden (its ▸/▾ clicked). entry: the row's, else the one under the cursor.
+function M.toggle_functions(entry)
+  local r = M.current
+  if not r then return end
+  if entry == nil and api.nvim_win_is_valid(r.panel_win) then entry = r.entries[api.nvim_win_get_cursor(r.panel_win)[1]] end
+  if not (entry and entry.file and not entry.symbol) then return end
+  local file = (entry.set and entry.set.files or r.files)[entry.file]
+  file.expanded = not file.expanded
+  if r.popout then r.popout.select = item_key(entry_key(r, entry)) end
+  panel(r)
+end
+
+-- Where a click on a list row does something, and which row it presses: { from, to (1-based columns), row id }. One
+-- definition for the click here and the pop-out's (its items carry them, 2026-11-16).
+function M.zones_of(entry, hit)
+  if not (entry and hit) then return {} end
+  local out = {}
+  if entry.file and not entry.symbol then
+    if hit.fold then out[#out + 1] = { hit.fold[1], hit.fold[2], 'review.functions' } end
+    if hit.mark then out[#out + 1] = { hit.mark[1], hit.mark[2], 'review.mark-list' } end
+  elseif entry.set and not entry.file and hit.fold then
+    out[#out + 1] = { hit.fold[1], hit.fold[2], 'review.enter' }
+  end
+  return out
+end
+
 function M.fold(entry)
   local r = M.current
   if not r then return end
@@ -3081,7 +3115,8 @@ local function render_view(view, width)
     local entry, text = built.entries[line], built.lines[line]
     local key = entry_key(r, entry)
     items[#items + 1] = { key = item_key(key), kind = 'row', line = line, name_col = (text:find('%S') or 1) - 1, x = 0, w = w,
-      spans = { { line, 0, #text } }, name = row_name(r, entry), ref = { key = key }, strip = strip_of(r, entry, w) }
+      spans = { { line, 0, #text } }, name = row_name(r, entry), ref = { key = key }, strip = strip_of(r, entry, w),
+      zones = M.zones_of(entry, built.hits and built.hits[line]) }
   end
   -- The box's two lines in the drawing are a stand-in the pop-out writes the selected row's own strip over. A strip that
   -- changes (a caller answered) leaves the drawing as it was, so its generation stays: a key pressed meanwhile still
