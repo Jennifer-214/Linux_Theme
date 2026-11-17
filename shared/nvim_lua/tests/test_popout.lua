@@ -236,7 +236,9 @@ vim.fn.writefile({ 'PRIMARY="eDP-1"', 'PORTRAIT_OUTPUTS=""', 'SECONDARY_OUTPUTS=
 eq(host("return require('desk.popout').second_screen()"), 'requires a second monitor', 'one screen: the pop-out is not offered')
 eq(host("local A = require('desk.actions'); return A.available(A.get('popout.view.graph'), A.context())"), 'requires a second monitor',
   '… its row says why')
-eq(host("local A = require('desk.actions'); local ctx = A.context(); local r = A.for_context(ctx)[1]; return { r.group, A.available(r, ctx) }"),
+eq(host([[local A = require('desk.actions'); local ctx = A.context(); local rows = A.for_context(ctx)
+  local graph; for _, r in ipairs(rows) do if r.id == 'popout.view.graph' then graph = r end end
+  return { rows[1].group, A.available(graph, ctx) }]]),
   { 'Views', 'requires a second monitor' }, "Space Space in the editor: the views first, greyed with why they cannot open")
 open_row()
 -- The row's run decides before it returns: a pop-out it started would be on its way now.
@@ -649,8 +651,25 @@ eq({ saved.tabs[1].kind, saved.tabs[1].pinned, saved.tabs[1].target, saved.activ
 -- ─── a view of a surface the pop-out cannot load: symdeps' board (the pop-out never loads fox-symdeps) ───────────
 -- tests/popout_board.lua stands in for symdeps' adapter, in the editor only: its surface declared with no module, its
 -- rows on it remote. In the pop-out its keys are bound from the editor's describe and run in the editor.
+-- Without symdeps: its Views row is there, greyed with why, in the editor and in the pop-out's Space Space; and the
+-- pop-out never loads symdeps to tell.
+eq(host("local A = require('desk.actions'); local r = A.get('popout.view.symdeps'); return { r.name, A.available(r, A.context()) }"),
+  { "Pop out symdeps' board", 'requires symdeps' }, "without symdeps: its Views row, greyed with why")
+pop("package.preload['fox-symdeps'] = function() _G.symdeps_loaded = true; return {} end")
+press('<Space><Space>')
+ok(wait(3000, function() return pop("local m = require('desk.menu')._last; return m ~= nil and vim.api.nvim_win_is_valid(m.win)") end),
+  "Space Space in the pop-out")
+local board_line = pop([[for _, l in ipairs(vim.api.nvim_buf_get_lines(require('desk.menu')._last.buf, 0, -1, false)) do
+  if l:find("Pop out symdeps' board", 1, true) then return l end end return '']])
+ok(board_line:find('requires symdeps', 1, true), "… its row there too, with why: " .. board_line)
+press('<Esc>')
+ok(wait(2000, function() return state().current_win == state().win end), '… Esc closes the menu')
+eq(pop('return _G.symdeps_loaded'), vim.NIL, '… and the pop-out never loaded symdeps to tell')
 host("require('tests.popout_board')")
-host("require('desk.popout').show('symdeps', require('desk.actions').context())")
+eq(host([[local A = require('desk.actions'); local r = A.get('popout.view.symdeps')
+  return { r.name, A.available(r, A.context()), #vim.tbl_filter(function(x) return x.id == 'popout.view.symdeps' end, A.rows()) }]]),
+  { "Pop out symdeps' board", true, 1 }, "its kind registers: the row is its kind's, still one, and it can open")
+host("local A = require('desk.actions'); A.get('popout.view.symdeps').run(A.context())")
 ok(wait(3000, function() return state().kind == 'symdeps' and state().selected == 'Order' end), "symdeps' board comes to the pop-out")
 eq(pop("local A = require('desk.actions'); return { package.loaded['tests.popout_board'] == nil, A.SURFACES.symdeps == nil, A.get('symdeps.compare') == nil }"),
   { true, true, true }, '… which has neither its module, nor its surface, nor its rows')

@@ -603,8 +603,14 @@ function M.ex(command)
 end
 
 -- ─── its own rows: the home key, and symdeps ──────────────────────────────────────────────────────────────────────
--- symdeps (fox-symdeps.nvim) is optional. Asking for it loads it when it is installed, as the review's menus do.
-function M.symdeps() return package.loaded['fox-symdeps'] ~= nil or (pcall(require, 'fox-symdeps')) end
+-- symdeps (fox-symdeps.nvim) is optional. Asking for it loads it when it is installed, as the review's menus do; in a
+-- pop-out it is only whether it is loaded: a pop-out never loads symdeps (lazy.nvim would run its setup there).
+function M.symdeps()
+  if package.loaded['fox-symdeps'] ~= nil then return true end
+  local pop = vim.g.desk_popout
+  if pop ~= nil and pop ~= 0 and pop ~= false then return false end
+  return (pcall(require, 'fox-symdeps'))
+end
 
 local OWN = M.add({
   { id = 'desk.home', group = 'Home', name = 'Home menu', key = '<leader><leader>', on = 'editor', menu = false,

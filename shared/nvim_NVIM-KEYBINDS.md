@@ -658,6 +658,7 @@ which-key its words.
 <!-- desk-keys:begin · generated from the action registry (shared/nvim_lua/desk/actions.lua): python3 tests/test_nvim_keys.py --write -->
 | Key | Action |
 |---|---|
+| home menu: Pop out symdeps' board | symdeps' board, its cards at the pop-out's width. symdeps is an optional plugin |
 | home menu: Restore the pop-out's views | Open the pop-outs again with the views they had when this editor last closed, pinned as they were, each on the screen it was on |
 | home menu: This pop-out to another screen | Asks which screen (every one, this one too); the pop-out (the one this is pressed in; in the editor the one last used) moves there now if it is open, and opens there from now on, this session |
 | home menu: Pop out the call graph | The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (`p` there pins it), and `Enter` there goes to a function here while the keyboard stays there |

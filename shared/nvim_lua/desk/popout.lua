@@ -473,6 +473,18 @@ function M.kind(spec)
   return spec
 end
 
+-- symdeps' board, a kind fox-symdeps registers when it is installed (its own module; this one never loads it): until
+-- then its Views row is here, greyed with why, never hidden. M.kind from the plugin replaces it (the same id, added
+-- from this file).
+actions.add({ { id = 'popout.view.symdeps', group = 'Views', name = "Pop out symdeps' board", on = 'editor', remote = true,
+  about = "symdeps' board, its cards at the pop-out's width. symdeps is an optional plugin",
+  available = function()
+    if not actions.symdeps() then return 'requires symdeps' end
+    if not kinds.symdeps then return 'requires a symdeps with its board for the pop-out' end
+    return M.can_pop()
+  end,
+  run = function(ctx) M.show('symdeps', ctx) end } })
+
 -- A view as the pop-out draws it, from its kind: the message, and its items' refs and keys (kept here).
 local function cut(value, cap) return type(value) == 'string' and value:sub(1, cap) or nil end
 -- A kind's marks, spans and footer as plain numbers and strings, as the pop-out reads them: a table with named fields

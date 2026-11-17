@@ -455,6 +455,28 @@ for name, kind in pairs(P.kinds) do
   end
   eq(stray, {}, name .. ": in the pop-out only its drawn and remote rows, and the window's own")
 end
+-- symdeps' board: without symdeps its Views row is there, greyed with why; symdeps' own kind takes its place.
+local board = A.get("popout.view.symdeps")
+eq({ board and board.name, board and A.available(board, { surface = "editor" }) }, { "Pop out symdeps' board", "requires symdeps" },
+  "without symdeps: the board's Views row says why it cannot open")
+package.loaded["fox-symdeps"] = {}
+eq(A.available(board, { surface = "editor" }), "requires a symdeps with its board for the pop-out", "… a symdeps with no board for it says so")
+eq({ A.surface("symdeps", "symdeps' board in the pop-out") }, { true }, "symdeps declares its surface")
+P.kind({ name = "symdeps", title = "symdeps' board", menu = "Pop out symdeps' board", surface = "symdeps", about = "Its board",
+  render = function() return { lines = {} } end })
+local now = A.get("popout.view.symdeps")
+eq({ now ~= board, now.name, now.about, #vim.tbl_filter(function(r) return r.id == "popout.view.symdeps" end, A.rows()) },
+  { true, "Pop out symdeps' board", "Its board", 1 }, "its kind registers: the row is the kind's, still one")
+package.loaded["fox-symdeps"] = nil
+-- A pop-out never loads symdeps to ask whether it is there (lazy.nvim would run its setup in it).
+local loads = 0
+package.preload["fox-symdeps"] = function() loads = loads + 1; return {} end
+vim.g.desk_popout = 1
+eq({ A.symdeps(), loads, package.loaded["fox-symdeps"] }, { false, 0, nil }, "in a pop-out, asking for symdeps loads nothing")
+vim.g.desk_popout = nil
+eq({ A.symdeps(), loads }, { true, 1 }, "… in the editor asking loads it")
+package.preload["fox-symdeps"], package.loaded["fox-symdeps"] = nil, nil
+
 -- Space Space in code: the project map's rows after this function's, before the review's; never after every group.
 require("desk.map")
 local home_rows = A.for_context({ surface = "editor" })
