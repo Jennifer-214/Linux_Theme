@@ -423,8 +423,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   folders, or the folder inside `src/`, `lib/`, `lua/`, `shared/` and the like), a part's files, a file's functions
   and classes. Callers sit above what they call. Enter zooms in, and on a function goes to its code; Backspace (or
   `-`) zooms out, and at the top goes back to the code with the map left open; `q` closes. One tab per checkout:
-  `Space cm` again brings it back as it was. `?` lists every key: they are rows of the action registry, as the call
-  graph's are, and so is its keybinds table. A level draws at most 60 boxes (24 on each side) and says "+N more" for
+  `Space cm` again brings it back as it was (one in the pop-out comes back from there). `?` lists every key: they are
+  rows of the action registry, as the call graph's are, and so is its keybinds table. A level draws at most 60 boxes (24 on each side) and says "+N more" for
   the rest. Without desk-work the page opens and says "requires desk-work"; before the first build, it says
   "no map built yet · R builds it". Where no reader can build one (a folder that is not a git checkout, and no binary
   given) it says what each reader needs instead, and `R` is greyed with that reason.

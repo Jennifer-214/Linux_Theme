@@ -1255,11 +1255,18 @@ local function adopt(to, from) for _, k in ipairs(STATE) do to[k] = from[k] end 
 
 -- Opens the map of root (default: this checkout) in a tab of its own; one tab per checkout: when it is open already,
 -- it comes back as it was, and Backspace at its top goes back to the window this was pressed in. from: a map's state
--- to show there (one coming back from the pop-out).
+-- to show there (one coming back from the pop-out). The map of root in the pop-out comes back from there as this tab,
+-- as o there brings it back: one map per checkout (2026-11-16: Space cm made a second, fresh one).
 function M.open(root, from)
   local here_view = views[api.nvim_get_current_buf()]
   root = root or (here_view and here_view.root) or vim.fs.root(0, '.git') or vim.fn.getcwd()
   root = uv.fs_realpath(root) or root
+  local P = package.loaded['desk.popout']
+  local out = not from and P and P.host.views.map
+  if out and out.out and not out.gone and out.root == root then
+    P.back(out)
+    for _, open in pairs(views) do if open.root == root and valid(open) then return open end end
+  end
   highlights()
   local origin = api.nvim_get_current_win()
   for _, open in pairs(views) do
@@ -1387,7 +1394,7 @@ local function moving(how, key, name, line, doc)
 end
 local ROWS = actions.add({
   { id = 'map.open', group = GROUP, name = 'Project map', key = '<leader>cm', on = 'editor', remote = true, also = '`:ProjectMap`',
-    about = 'The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was',
+    about = 'The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was, or the map out in the pop-out back as the tab',
     -- In the map itself its own keys apply; without desk-work the page opens and says so. Asked from the pop-out it
     -- would open a tab here, beside the Views row that opens the map there: there only that one is offered (2026-11-16:
     -- "when in the popout, opening more graphs, opens them in the editor").

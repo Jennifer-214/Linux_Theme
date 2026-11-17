@@ -715,6 +715,25 @@ ok(back_tab and api.nvim_get_current_win() == back_tab.win and #back_tab.stack =
 ok(vim.wait(1000, function() return back_tab and back_tab.drawn and line_with(back_tab.drawn.lines, "│ M.alpha")
   and line_with(back_tab.drawn.lines, "parts › lua › mod.lua") end), "… and drawn in it, the file's functions")
 press("q")
+-- Space cm here while this checkout's map is in the pop-out: that map comes back as the tab, as it was (2026-11-16: a
+-- second, fresh map opened beside it).
+local pv3 = { id = "map", kind = "map", gen = 0, pinned = false }
+P.host.views, P.host.order = { map = pv3 }, { "map" }
+api.nvim_set_current_win(code)
+K.open(pv3, A.context(code))
+ok(vim.wait(1000, function() return item_named(K.render(pv3, 80, "paper"), "lua") ~= nil end), "a map in the pop-out")
+local lua_ref = item_named(K.render(pv3, 80, "paper"), "lua").ref
+local into = K.ctx_for(pv3, lua_ref)
+into.view, into.item, into.remote = pv3, lua_ref, true
+A.act("map.in", into)
+ok(vim.wait(1000, function() return #pv3.stack == 2 and item_named(K.render(pv3, 80, "paper"), "mod.lua") ~= nil end), "… zoomed into lua there")
+api.nvim_set_current_win(code)
+local came = Map.open()
+local tabs_of_root = 0
+for _, v in pairs(Map.views) do if v.root == tab_root then tabs_of_root = tabs_of_root + 1 end end
+eq({ came and #came.stack, P.host.views.map == nil, tabs_of_root }, { 2, true, 1 },
+  "Space cm: the pop-out's map back as the one tab, at the level it was on")
+press("q")
 
 -- The bridge's act, as the pop-out sends it: each Enter is one step back, holding where the editor was and the map as
 -- it was (desk.popout folds the map's own step into it), so each H does something: an Enter that zoomed is undone by
