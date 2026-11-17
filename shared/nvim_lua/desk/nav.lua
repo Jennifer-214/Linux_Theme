@@ -10,9 +10,45 @@ local api = vim.api
 -- the desktop. A float (a picker, a menu) has no split beside it: the key goes on from there too.
 function M.go(dir)
   if dir ~= 'h' and dir ~= 'j' and dir ~= 'k' and dir ~= 'l' then return 0 end
-  if api.nvim_win_get_config(0).relative ~= '' then return 0 end
-  if vim.fn.winnr(dir) == vim.fn.winnr() then return 0 end
-  vim.cmd('wincmd ' .. dir)
+  local here = api.nvim_get_current_win()
+  if api.nvim_win_get_config(here).relative ~= '' then
+    -- In a panel: the split that way, else the key goes on; any other float (a menu, a picker) lets it go on.
+    if not M.is_panel(here) then return 0 end
+    return M.to_window(here, dir, false)
+  end
+  if vim.fn.winnr(dir) ~= vim.fn.winnr() then
+    vim.cmd('wincmd ' .. dir)
+    return 1
+  end
+  -- No split that way: a panel float that way (symdeps' card) is the window there (2026-11-16: only Ctrl+h/j/k/l
+  -- reached it).
+  return M.to_window(here, dir, true)
+end
+
+-- A float that takes part in ALT+h/j/k/l as a split does: symdeps' panel (its buffer's filetype is fox-symdeps), or a
+-- window marked vim.w.desk_panel. Menus, pickers and the rest stay out of the way.
+function M.is_panel(win)
+  if not (win and api.nvim_win_is_valid(win)) then return false end
+  local config = api.nvim_win_get_config(win)
+  if config.relative == '' or config.focusable == false or config.hide then return false end
+  return vim.w[win].desk_panel == true or vim.bo[api.nvim_win_get_buf(win)].filetype == 'fox-symdeps'
+end
+
+-- The window that way from `from`: panels (panels = true) or splits, the nearest mostly that way by centres (the
+-- screen map's own rule, desk.screens.nav; a row counts as two columns, as it looks). 1 when it moved, else 0.
+function M.to_window(from, dir, panels)
+  local wins, places = { from }, {}
+  for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
+    if win ~= from and (panels and M.is_panel(win) or not panels and api.nvim_win_get_config(win).relative == '') then wins[#wins + 1] = win end
+  end
+  if #wins == 1 then return 0 end
+  for i, win in ipairs(wins) do
+    local at = vim.fn.win_screenpos(win)
+    places[i] = { x = at[2], y = at[1] * 2, w = api.nvim_win_get_width(win), h = api.nvim_win_get_height(win) * 2 }
+  end
+  local to = require('desk.screens').nav(places, 1, dir)
+  if to == 1 then return 0 end
+  api.nvim_set_current_win(wins[to])
   return 1
 end
 
