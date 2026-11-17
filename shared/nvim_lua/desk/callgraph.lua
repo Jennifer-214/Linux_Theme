@@ -419,9 +419,25 @@ local function calls(list, field, enc)
     if raw and not seen[key] then seen[key] = true; out[#out + 1] = M.item(raw, enc) end
   end
   table.sort(out, function(a, b) return a.name < b.name end)
-  local more = math.max(0, #out - M.MAX)
-  while #out > M.MAX do table.remove(out) end
-  return out, more
+  local more, rest = math.max(0, #out - M.MAX), {}
+  while #out > M.MAX do table.insert(rest, 1, table.remove(out)) end
+  return out, more, rest
+end
+
+-- m: what M.MAX left out ("+N more") drawn too, on both sides; the boxes stay in name order.
+function M.show_all(graph)
+  for _, side in ipairs({ 'callers', 'callees' }) do
+    local rest = graph.hidden and graph.hidden[side]
+    if graph[side] and rest and #rest > 0 then
+      vim.list_extend(graph[side], rest)
+      table.sort(graph[side], function(a, b) return a.name < b.name end)
+    end
+  end
+  graph.hidden, graph.more = nil, nil
+end
+local function left_out(graph)
+  local more = graph and graph.more or {}
+  return (more.callers or 0) + (more.callees or 0)
 end
 
 -- The graph of target ({buf, row, col} or {buf, item}); one request in flight at a time, in turn. done(graph) or
@@ -442,11 +458,11 @@ function M.fetch(client, target, done)
   local function from(raw)
     local graph = { center = M.item(raw, enc) }
     step('callHierarchy/incomingCalls', { item = raw }, function(incoming)
-      local more = {}
-      graph.callers, more.callers = calls(incoming, 'from', enc)
+      local more, hidden = {}, {}
+      graph.callers, more.callers, hidden.callers = calls(incoming, 'from', enc)
       step('callHierarchy/outgoingCalls', { item = raw }, function(outgoing)
-        graph.callees, more.callees = calls(outgoing, 'to', enc)
-        graph.more = more
+        graph.callees, more.callees, hidden.callees = calls(outgoing, 'to', enc)
+        graph.more, graph.hidden = more, hidden
         done(graph)
       end)
     end)
@@ -931,6 +947,17 @@ local ROWS = actions.add({
       if ctx.view then return popout_centre(ctx.view, ctx.item) end
       local view, item = ctx.graph, M.selected(ctx.graph)
       if item and item.raw then view.target = { buf = view.source, item = item, name = item.name }; load(view, view.target) end
+    end },
+  { id = 'callgraph.more', group = 'Call graph', name = 'Show every caller and callee', key = 'm', on = GRAPH, remote = true,
+    about = 'Draw the callers and callees past the first ' .. M.MAX .. ' on each side too (where it says "+N more")',
+    available = function(ctx)
+      local graph = ctx.view and ctx.view.graph or (ctx.graph and ctx.graph.graph)
+      return left_out(graph) > 0 or 'nothing is left out'
+    end,
+    run = function(ctx)
+      if ctx.view then M.show_all(ctx.view.graph); return pop().redraw(ctx.view) end
+      M.show_all(ctx.graph.graph)
+      render(ctx.graph, true)
     end },
   { id = 'callgraph.reload', group = 'Call graph', name = 'Read the graph again', key = 'r', on = GRAPH, remote = false,
     about = 'Ask the language server for the graph again', run = function(ctx) load(ctx.graph, ctx.graph.target) end },

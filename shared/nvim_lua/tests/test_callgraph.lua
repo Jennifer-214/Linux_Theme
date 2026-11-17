@@ -438,7 +438,7 @@ eq({ G.target_at(dir .. "/no-such-file.lua", 1) }, { nil, "that file is no longe
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "r", "q", "gs", "o" }, "the graph tab's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "m", "r", "q", "gs", "o" }, "the graph tab's keys")
 eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "p", "q", "o" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
@@ -476,6 +476,23 @@ api.nvim_feedkeys("3j", "x", false)
 eq(surface.index, want, "3j moves three boxes down")
 api.nvim_feedkeys("2k", "x", false)
 eq(surface.index, G.nav(laid.boxes, G.nav(laid.boxes, want, "up"), "up"), "… and 2k two up")
+
+-- m: what the cap left out ("+N more") drawn too, the boxes still in name order (2026-11-16: no way to see them).
+do
+  local shown, rest = {}, {}
+  for i = 1, G.MAX do shown[i] = item(string.format("f%02d", i)) end
+  for i = 1, 3 do rest[i] = item(string.format("f%02d", G.MAX + i)) end
+  local capped = { center = item("centre"), callers = shown, more = { callers = 3 }, hidden = { callers = rest } }
+  local before = table.concat(G.layout(vim.deepcopy(capped), 120, false).lines, "\n")
+  ok(before:find("+3 more", 1, true) and not before:find(rest[1].name, 1, true), "capped: +3 more, the rest not drawn")
+  local all = vim.deepcopy(capped)
+  G.show_all(all)
+  local after = table.concat(G.layout(all, 120, false).lines, "\n")
+  ok(not after:find("+3 more", 1, true) and after:find(rest[3].name, 1, true), "m: every caller drawn, no +N more")
+  eq({ #all.callers, all.callers[G.MAX + 1].name, all.more, all.hidden }, { G.MAX + 3, rest[1].name, nil, nil }, "… in name order")
+  local A = require("desk.actions")
+  eq(A.get("callgraph.more").available({ graph = { graph = all } }), "nothing is left out", "m says when nothing is left out")
+end
 
 vim.fn.delete(dir, "rf")
 print(string.format("test_callgraph: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
