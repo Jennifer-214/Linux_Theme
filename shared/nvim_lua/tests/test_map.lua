@@ -183,7 +183,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "r", "c", "P", "m", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "D", "U", "P", "m", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -236,7 +236,7 @@ ok(line_with(view.drawn.lines, "stale since 3789c69 · R rebuilds"), "the stale 
 ok(line_with(view.drawn.lines, "1 changed file differs"), "… and why")
 ok(line_with(view.drawn.lines, "answered by syntax (calls by name"), "the footer names the reader that answered")
 ok(line_with(view.drawn.lines, "binary: requires a built binary"), "… and the one that did not, with what it requires")
-ok(line_with(view.drawn.lines, "Enter in · BS out · r reach · c callers · P paths · ? keys · q close"),
+ok(line_with(view.drawn.lines, "Enter in · BS out · D reach · U callers · P paths · ? keys · q close"),
   "the key line: the keys that matter, as their rows have them, and ? for the rest")
 for i, line in ipairs(view.drawn.lines) do ok(api.nvim_strwidth(line) <= api.nvim_win_get_width(view.win), "line " .. i .. " of the view fits its window") end
 eq(vim.bo[view.buf].modifiable, false, "the page is read-only")
@@ -372,17 +372,34 @@ ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ use") end),
 cursor_on("use")
 local prompt
 vim.ui.input = function(opts, done) prompt = opts; done(opts.default) end
-press("r")
-ok(vim.wait(1000, function() return line_with(view.drawn.lines, "║ use") end), "r: what the function reaches")
+press("D")
+ok(vim.wait(1000, function() return line_with(view.drawn.lines, "║ use") end), "D: what the function reaches")
 eq(prompt.default, "use", "the prompt offers the box under the cursor")
 ok(asked[#asked]:find("--q reach --from lua/other.lua::use --depth 3", 1, true), "… and asks by its id, at depth 3 without a count")
 press("<BS>")
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "Backspace leaves the answer")
-api.nvim_feedkeys("2r", "x", false)
-ok(asked[#asked]:find("--q reach --from lua/other.lua::use --depth 2", 1, true), "a count reaches the key through the registry: 2r is depth 2")
+api.nvim_feedkeys("2D", "x", false)
+ok(asked[#asked]:find("--q reach --from lua/other.lua::use --depth 2", 1, true), "a count reaches the key through the registry: 2D is depth 2")
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "║ use") end), "… and shows its answer")
+-- r reads the page again where it is, as r reads a call graph again (2026-11-16: r here was what it reaches): an
+-- answer is asked again and replaces itself; a level of the map is read again with desk-work's status.
+local depth, before_r = #view.stack, #asked
+press("r")
+ok(vim.wait(1000, function() return #asked >= before_r + 2 end), "r on an answer: desk-work asked again")
+eq({ asked[before_r + 1]:match("^map status") ~= nil, asked[before_r + 2]:find("--q reach --from lua/other.lua::use --depth 2", 1, true) ~= nil },
+  { true, true }, "… its status, then the same question")
+ok(vim.wait(1000, function() return #view.stack == depth and line_with(view.drawn.lines, "║ use") end), "… the answer in its place, not one more page")
 press("-")
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "- leaves it too")
+before_r = #asked
+local function box_here() local c = api.nvim_win_get_cursor(view.win); local it = Map.item_at(view.drawn, c[1], c[2]); return it and it.name end
+local box_before = box_here()
+press("r")
+ok(vim.wait(1000, function() return #asked >= before_r + 2 end), "r on a level of the map")
+eq({ asked[before_r + 1]:match("^map status") ~= nil, asked[before_r + 2]:find("--q module", 1, true) ~= nil }, { true, true },
+  "… its status, then that level read again")
+ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "… and drawn again")
+eq({ box_here() ~= nil, box_here() }, { true, box_before }, "… the cursor on the box it was on")
 -- P: the ways from the box under the cursor to a function she names.
 local prompts = {}
 vim.ui.input = function(opts, done) prompts[#prompts + 1] = opts.prompt; done(#prompts == 1 and opts.default or "M.beta") end
@@ -506,8 +523,8 @@ ok(line_with(view.drawn.lines, "BINARY: REQUIRES A BUILT BINARY: desk-work map b
 local retro_reach = table.concat(Map.layout(Map.level_query(reach), 80, true).lines, "\n")
 local retro_ways = table.concat(Map.layout(Map.level_query({ ok = true, q = "paths", from = contents.nodes[5], to = contents.nodes[2], paths = {} }), 80, true).lines, "\n")
 ok(retro_reach:find("WHAT use REACHES · DEPTH 2", 1, true) and retro_ways:find("WAYS FROM use TO M.beta · 0", 1, true),
-  "… and so do the functions a query names:\n" .. retro_reach:sub(1, 300))ok(line_with(view.drawn.lines, "Enter IN · BS OUT · r REACH · c CALLERS · P PATHS · ? KEYS · q CLOSE"),
-  "retro: the keys as typed (r and R are two keys), the words in capitals")
+  "… and so do the functions a query names:\n" .. retro_reach:sub(1, 300))ok(line_with(view.drawn.lines, "Enter IN · BS OUT · D REACH · U CALLERS · P PATHS · ? KEYS · q CLOSE"),
+  "retro: the keys as typed (keys keep their case: P and p are two keys), the words in capitals")
 ok(line_with(view.drawn.lines, "parts » lua » mod.lua") and not line_with(view.drawn.lines, "›") and not line_with(view.drawn.lines, "…"),
   "retro: nothing outside code page 437 (» between the levels, .. for an ellipsis)")
 vim.g.desk_style = "paper"
@@ -533,7 +550,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.down", "map.in", "map.left", "map.out", "map.paths", "map.reach", "map.rebuild", "map.right", "map.up" },
+eq(remote_ids, { "map.callers", "map.down", "map.in", "map.left", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.up" },
   "in the pop-out Enter, -, r, c, P and R run here and hjkl move its selection; Backspace, q, m, B and o stay the tab's")
 local views_row = A.get("popout.view.map")
 eq(views_row and { views_row.group, views_row.name, views_row.remote }, { "Views", "Pop out the project map", true },
@@ -578,7 +595,7 @@ do
   ok(vim.wait(1000, function() return pv.status ~= nil end), "… its status kept")
 end
 ok(not table.concat(d.lines, "\n"):find("Enter in", 1, true), "no key line in its lines: the pop-out's window has its own")
-eq(table.concat(vim.tbl_map(function(p) return p[1] .. " " .. p[2] end, P.key_pairs(d.footer)), " · "), "Enter in · - out · r reach · c callers · ? keys",
+eq(table.concat(vim.tbl_map(function(p) return p[1] .. " " .. p[2] end, P.key_pairs(d.footer)), " · "), "Enter in · - out · D reach · U callers · ? keys",
   "its key line in the pop-out: five keys, as she reads them")
 local file_item = item_named(d, "mod.lua")
 eq({ file_item.kind, #file_item.spans, file_item.key, d.lines[file_item.line]:sub(file_item.name_col + 1, file_item.name_col + 7) },
@@ -624,7 +641,7 @@ ok(vim.wait(1000, function() return item_named(shown(), "M.alpha") ~= nil end), 
 eq(act("map.out"), { true }, "- there: out a level")
 ok(vim.wait(1000, function() return item_named(shown(), "mod.lua") ~= nil and not item_named(shown(), "M.alpha") end), "… to the files")
 eq(#P.host.history.steps, 2, "… a step back too")
-eq(A.available(A.get("map.reach"), ctx_on(file_item)), "select a function first", "r there needs a function selected")
+eq(A.available(A.get("map.reach"), ctx_on(file_item)), "select a function first", "D there needs a function selected")
 eq(A.available(A.get("map.in"), ctx_on(nil)), "nothing is selected", "… and Enter something selected")
 act("map.in", file_item)
 ok(vim.wait(1000, function() return item_named(shown(), "M.alpha") ~= nil end), "into the file again")
@@ -637,7 +654,7 @@ pv.news = nil
 local prompted = 0
 local real_input = vim.ui.input
 vim.ui.input = function(opts, done) prompted = prompted + 1; real_input(opts, done) end
-eq(act("map.reach", alpha), { true }, "r on a function, from the pop-out")
+eq(act("map.reach", alpha), { true }, "D on a function, from the pop-out")
 ok(asked[#asked]:find("--q reach --from lua/mod.lua::M.alpha --depth 3", 1, true), "… asks what the selected function reaches, at depth 3")
 eq(prompted, 0, "… without asking anything here: the keyboard is in the pop-out")
 vim.ui.input = real_input
@@ -746,8 +763,8 @@ local why = {}
 for _, l in ipairs(A.key_lines(A.context(lonely.win))) do why[l.ident] = l.right or true end
 eq({ why["map.reach"], why["map.paths"], why["map.rebuild"], why["map.back"], why["map.close"] },
   { "requires desk-work", "requires desk-work", "requires desk-work", true, true }, "? says which keys need desk-work")
-press("r")
-eq({ asked_for, said[#said] }, { 0, "Requires desk-work." }, "r says so instead of asking for a function")
+press("D")
+eq({ asked_for, said[#said] }, { 0, "Requires desk-work." }, "D says so instead of asking for a function")
 vim.env.PATH = saved_path
 Map.desk_work = fake
 api.nvim_set_current_win(origin)
@@ -761,8 +778,8 @@ status.built = false
 local unbuilt = Map.open(root)
 ok(vim.wait(1000, function() return unbuilt.drawn and line_with(unbuilt.drawn.lines, "no map built yet · R builds it") end), "no map yet: the badge")
 ok(line_with(unbuilt.drawn.lines, "No map built yet. R builds it in the background"), "… and the page say R builds it")
-press("r")
-eq({ asked_for, said[#said] }, { 0, "No map built yet · R builds it." }, "r says so instead of asking")
+press("D")
+eq({ asked_for, said[#said] }, { 0, "No map built yet · R builds it." }, "D says so instead of asking")
 why = {}
 for _, l in ipairs(A.key_lines(A.context(unbuilt.win))) do why[l.ident] = l.right or true end
 eq({ why["map.reach"], why["map.rebuild"] }, { "no map built yet · R builds it", true }, "? greys the questions, not the build")

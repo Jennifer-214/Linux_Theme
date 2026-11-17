@@ -338,7 +338,7 @@ the keyboard stays in the pop-out; `f` or Shift+Enter puts the keyboard here too
 
 The project map (desk.map): the whole checkout as boxes, rebuilt only when asked. "In the map" means its tab, one per
 checkout; `Space cm` from anywhere brings it back as it was. Without desk-work it opens and says "requires desk-work".
-`o` moves it to the pop-out (also Space Space › "Pop out the project map"): there `Enter`, `-`, `r`, `c`, `P` and `R`
+`o` moves it to the pop-out (also Space Space › "Pop out the project map"): there `Enter`, `-`, `D`, `U`, `P`, `r` and `R`
 work on the box selected there, `Ctrl+o` and Backspace go back through its zooms, and `o` brings it back as its tab.
 
 <!-- map-keys:begin · generated from shared/nvim_lua/desk/map.lua: python3 tests/test_nvim_keys.py --write -->
@@ -347,10 +347,11 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `Space cm`, `:ProjectMap` | The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was |
 | `Enter` in the map | Zoom into the part, file or class under the cursor; on a function, go to its code (the map stays open) |
 | `<BS>` / `-` in the map | Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open |
-| `r` in the map | Everything a function reaches (a count before `r` is the depth; 3 without one) |
-| `c` in the map | Who calls a function, transitively (a count before `c` is the depth) |
+| `D` in the map | Everything a function reaches, down the calls (a count before `D` is the depth; 3 without one) |
+| `U` in the map | Who calls a function, up the calls, transitively (a count before `U` is the depth) |
 | `P` in the map | Every way from one function to another, shortest first |
 | `m` in the map | Go to a part of the checkout, picked by name |
+| `r` in the map | Read this page again, as `r` does in a call graph: desk-work's status and the level shown (a query's answer is asked again); `R` rebuilds the map |
 | `R` in the map | Rebuild the map in the background (a desk-work job; its log is in the jobs list) |
 | `B` in the map | Rebuild, reading a built binary for its exact calls (remembered for the next builds) |
 | `q` in the map | Close the project map |

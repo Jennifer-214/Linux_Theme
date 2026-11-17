@@ -1110,8 +1110,9 @@ end
 
 -- A query: its answer goes on the stack as a page of its own (Backspace goes back). A name that fits several things
 -- asks which one, then asks desk-work again with its id (in the pop-out the reason is said instead: what she names
--- there is asked once). from: the box it was asked from, in the pop-out.
-local function query(view, args, from)
+-- there is asked once). from: the box it was asked from, in the pop-out. again: r on that answer's page: the new
+-- answer replaces it.
+local function query(view, args, from, again)
   local full = { 'map', 'query', '--root', view.root }
   vim.list_extend(full, args)
   view.asked = (view.asked or 0) + 1
@@ -1129,7 +1130,13 @@ local function query(view, args, from)
       end)
     end
     if not answer or answer.ok == false then return tell(refusal(answer, out), vim.log.levels.WARN) end
-    push(view, { kind = 'query', answer = answer }, from)
+    local top = view.stack[#view.stack]
+    if again then
+      if top ~= again then return end
+      view.stack[#view.stack] = { kind = 'query', answer = answer, args = args, keep = top.keep, selected = top.selected }
+      return load(view)
+    end
+    push(view, { kind = 'query', answer = answer, args = args }, from)
   end)
 end
 
@@ -1209,6 +1216,23 @@ local function refresh(view)
     if s and s.building then poll(view) end
     if s and s.built then load(view) end
   end)
+end
+
+-- r: this page read again where it is, as r reads a call graph again: desk-work's status, and the level shown (a
+-- query's answer asked again); the cursor stays on its box. R rebuilds the map itself.
+local function reread(view)
+  local level = view.stack[#view.stack]
+  if not view.out and api.nvim_win_is_valid(view.win) then
+    local cursor = api.nvim_win_get_cursor(view.win)
+    local item = M.item_at(view.drawn, cursor[1], cursor[2])
+    level.keep = { box = item and box_of(item), cursor = cursor }
+  end
+  if level.kind == 'query' then
+    return status(view, function() if level.args then query(view, level.args, nil, level) end end)
+  end
+  local key = level.kind == 'modules' and 'modules' or level.module and ('module:' .. level.module)
+  if key then view.cache[key] = nil end
+  refresh(view)
 end
 
 -- A map's state moved from one place to another (its tab to the pop-out, and back).
@@ -1363,13 +1387,19 @@ local ROWS = actions.add({
     nil, HERE),
   row('out', '-', 'Zoom out', 'Zoom out a level',
     function(view) if view.out then return zoom_out(view) end; back(view) end, nil, { line = 'map.back', menu = false, remote = true }),
-  row('reach', 'r', 'What a function reaches', 'Everything a function reaches (a count before `r` is the depth; 3 without one)',
+  -- D and U: down and up the calls (2026-11-16: r and c here meant what they do not mean on a graph, read again and
+  -- centre).
+  row('reach', 'D', 'What a function reaches (downstream)',
+    'Everything a function reaches, down the calls (a count before `D` is the depth; 3 without one)',
     function(view, ctx) walk(view, 'reach', ctx) end, needs_function, THERE),
-  row('callers', 'c', 'Who calls a function', 'Who calls a function, transitively (a count before `c` is the depth)',
+  row('callers', 'U', 'Who calls a function (upstream)', 'Who calls a function, up the calls, transitively (a count before `U` is the depth)',
     function(view, ctx) walk(view, 'callers', ctx) end, needs_function, THERE),
   row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_function,
     { remote = true, input = { prompt = 'Ways to: ' } }),
   row('module', 'm', 'A part of the checkout', 'Go to a part of the checkout, picked by name', part, needs_map, HERE),
+  row('read', 'r', 'Read the map again',
+    "Read this page again, as `r` does in a call graph: desk-work's status and the level shown (a query's answer is asked again); `R` rebuilds the map",
+    function(view) reread(view) end, needs_map, THERE),
   row('rebuild', 'R', 'Rebuild the map', 'Rebuild the map in the background (a desk-work job; its log is in the jobs list)',
     function(view) M.rebuild(view) end, needs_reader, THERE),
   row('binary', 'B', 'Rebuild reading a binary', 'Rebuild, reading a built binary for its exact calls (remembered for the next builds)',
