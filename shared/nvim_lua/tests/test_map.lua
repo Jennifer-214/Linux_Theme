@@ -436,6 +436,25 @@ api.nvim_win_set_cursor(view.win, { #view.drawn.lines, 0 })
 press("k")
 ok(box_here() and on_a_name(), "from a gap or the bottom, k lands on a box")
 
+-- The box under the cursor is drawn selected in the tab too, as in the call graph and the pop-out (2026-11-16: only
+-- the cursor showed where she was).
+local function painted()
+  local G = require("desk.callgraph")
+  local out = {}
+  for _, m in ipairs(api.nvim_buf_get_extmarks(view.buf, G.sel_ns, 0, -1, { details = true })) do
+    if m[4].hl_group == "DeskCallGraphSelected" then out[#out + 1] = m[2] + 1 end
+  end
+  return out
+end
+cursor_on("M.alpha")
+api.nvim_exec_autocmds("CursorMoved", { buffer = view.buf })
+local alpha_box = (function() for _, b in ipairs(view.drawn.items) do if b.item and b.item.name == "M.alpha" then return b end end end)()
+local lit = painted()
+ok(#lit > 0 and vim.tbl_contains(lit, alpha_box.spans[1][1]), "the box under the cursor is drawn selected (lines " .. vim.inspect(lit) .. ")")
+press("j")
+api.nvim_exec_autocmds("CursorMoved", { buffer = view.buf })
+ok(not vim.tbl_contains(painted(), alpha_box.spans[1][1]), "… and j moves the selection off it")
+
 vim.g.desk_style = "retro"
 Map.render(view)
 ok(line_with(view.drawn.lines, "PROJECT MAP") and line_with(view.drawn.lines, "┌"), "retro: the page in capitals and code page 437 boxes")

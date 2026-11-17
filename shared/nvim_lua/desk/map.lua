@@ -875,6 +875,22 @@ function M.render(view)
   page.notes = M.footer(view, G)
   view.drawn = M.layout(page, api.nvim_win_get_width(view.win) - 2, retro)
   draw(view.buf, view.drawn)
+  view.sel = { buf = view.buf, win = view.win, drawn = { boxes = view.drawn.items or {} } }
+  M.mark_selected(view)
+end
+
+-- The box under the cursor drawn selected, as the call graph and the pop-out draw theirs (callgraph.select: one
+-- colour and one painter for every box view); off a box, the last one stays.
+function M.mark_selected(view)
+  local s = view and view.sel
+  if not (s and api.nvim_win_is_valid(s.win) and api.nvim_win_get_buf(s.win) == s.buf) then return end
+  local cursor = api.nvim_win_get_cursor(s.win)
+  local under = M.item_at(view.drawn, cursor[1], cursor[2])
+  for i, b in ipairs(s.drawn.boxes) do
+    if under and b.item == under then
+      return require('desk.callgraph').select(s, i, false)
+    end
+  end
 end
 
 -- Drawn again where it is: its tab, or sent to the pop-out (which draws it with the view kind below).
@@ -1241,6 +1257,7 @@ function M.open(root, from)
   -- the question its row asks in the pop-out and the menus (P's "Ways to").
   actions.map('map', { buffer = buf, nowait = true, ctx = { map = view }, press = function(row, ctx) row.run(ctx) end })
   local group = api.nvim_create_augroup('desk_map_' .. buf, { clear = true })
+  api.nvim_create_autocmd('CursorMoved', { group = group, buffer = buf, callback = function() M.mark_selected(view) end })
   api.nvim_create_autocmd('BufWipeout', { group = group, buffer = buf, once = true, callback = function()
     stop_polling(view)
     views[buf] = nil
