@@ -164,9 +164,11 @@ assert(before() == 'int preexisting_edit = 2;', 'session diff lost the preexisti
 vim.fn.argv = function() return {'desk-work:file-diff', path, ''} end
 W.open_args()
 assert(before() == 'int committed = 1;', 'all-changes diff did not use HEAD')
+vim.cmd.badd('desk-work:file')   -- what Neovim makes of its first argument at start
 vim.fn.argv = function() return {'desk-work:file', path} end
 W.open_args()
 assert(vim.api.nvim_buf_get_name(0) == path, 'editor changed the literal filename')
+assert(vim.fn.bufnr('desk-work:file') == -1, 'the desk-work:file argument stayed as an empty buffer beside the file')
 vim.fn.argv = original
 ''')
             checked = run_fixture(['nvim', '--headless', '--clean', '-l', str(script)],

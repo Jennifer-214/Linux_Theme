@@ -364,6 +364,11 @@ function M.open_args()
   end
   vim.cmd("silent! argdelete *")
   M.open_action(action, args[2] or "", args[3])
+  -- Neovim opened the "desk-work:ACTION" argument as a buffer of its own: an empty tab beside the item. It goes.
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if buf ~= vim.api.nvim_get_current_buf() and vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t") == args[1]
+      and not vim.bo[buf].modified then pcall(vim.api.nvim_buf_delete, buf, { force = false }) end
+  end
 end
 
 -- One work item in the current window: from open_args, or from desk.bridge in her running editor, which gives it a

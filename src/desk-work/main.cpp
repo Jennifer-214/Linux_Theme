@@ -1973,7 +1973,17 @@ int dispatch(int argc, char** argv) {
             if (action == "file" || action == "file-diff" || action == "suggested-tests" || action == "callgraph") {
                 std::error_code ec;
                 const auto canonical_root = fs::canonical(where, ec); if (ec) return 2;
-                const auto path = fs::weakly_canonical(canonical_root / fs::path(opts["--file"]), ec);
+                // A file named from a folder inside the checkout (the notebook's plan: --root …/plans/v5 --file MASTER.md)
+                // is that folder's: --root moved up to the checkout's top above, and the name read against the top was
+                // a file that is not there, a blank buffer (2026-11-16). Else, as before, against the top.
+                std::error_code here_ec;
+                const auto given = fs::canonical(place, here_ec);
+                auto path = fs::weakly_canonical(canonical_root / fs::path(opts["--file"]), ec);
+                if (!j.is_object() && !here_ec && given != canonical_root) {
+                    std::error_code in_ec;
+                    const auto in_folder = fs::weakly_canonical(given / fs::path(opts["--file"]), in_ec);
+                    if (!in_ec && fs::exists(in_folder, in_ec)) path = in_folder;
+                }
                 const auto relative = path.lexically_relative(canonical_root);
                 if (ec || opts["--file"].empty() || relative.empty() || *relative.begin() == ".." || relative == ".") return 2;
                 // The call graph's line travels as a number, checked here like the path.

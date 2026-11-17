@@ -453,6 +453,16 @@ class Work(unittest.TestCase):
             for line in ('', '0', '12; x', '-3'):
                 self.invoke('open', '--root', self.repo, '--action', 'callgraph', '--file', path.name, '--index', line, code=2)
             self.invoke('open', '--root', self.repo, '--action', 'callgraph', '--file', 'escape.cpp', '--index', '1', code=2)
+            # A file named from a folder of the checkout is that folder's (the notebook's plan: it opened the top's
+            # MASTER.md, a blank buffer, 2026-11-16); a name only the top has still opens there.
+            plans = self.repo / 'plans' / 'v5'
+            plans.mkdir(parents=True)
+            (plans / 'MASTER.md').write_text('# A plan\n')
+            self.invoke('open', '--root', plans, '--action', 'file', '--file', 'MASTER.md')
+            self.assertEqual(json.loads(calls.read_text())[-3:-1], ['desk-work:file', str(plans / 'MASTER.md')])
+            self.invoke('open', '--root', plans, '--action', 'file', '--file', path.name)
+            self.assertEqual(json.loads(calls.read_text())[-3:-1], ['desk-work:file', str(path)])
+            self.invoke('open', '--root', plans, '--action', 'file', '--file', '../../../outside.cpp', code=2)
 
     def test_running_background_job_outlives_its_caller_and_is_visible(self):
         p = subprocess.Popen([str(BIN), "run", "--session", "abc", "--", sys.executable, "-c",
