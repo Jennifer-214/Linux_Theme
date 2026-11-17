@@ -1490,6 +1490,14 @@ M.view_kind = {
   available = function(ctx) if not ctx.remote and ctx.surface == 'map' then return false end end,
   open = open_view,
   render = render_view,
+  -- A file of its checkout saved: desk-work's status read again, so "stale since …" shows here too (on open only before,
+  -- 2026-11-16). It does not follow the cursor.
+  follows = false,
+  follow = function(view, event)
+    if event.type ~= 'saved' or view.timer or not view.status or not api.nvim_buf_is_valid(event.buf) then return end
+    local name, root = api.nvim_buf_get_name(event.buf), view.root or ''
+    if root ~= '' and name:sub(1, #root + 1) == root .. '/' then status(view) end
+  end,
   ctx_for = function(view, ref)
     local win = target_window()
     local ctx = actions.context(win or api.nvim_get_current_win())

@@ -154,6 +154,8 @@ local view = G.open_cursor()
 ok(vim.wait(2000, function() return view.drawn and text(view.drawn.lines):find("callee_of_M.alpha", 1, true) end), "the view draws the graph")
 ok(line_with(view.drawn.lines, "caller_of_M.alpha") < line_with(view.drawn.lines, "║ M.alpha"), "the caller is drawn above the function")
 eq(vim.bo[view.buf].modifiable, false, "the graph is read-only")
+eq(view.graph.read_at and { view.graph.read_at.buf, view.graph.read_at.tick } or {}, { buf, api.nvim_buf_get_changedtick(buf) },
+  "the graph keeps where its centre's file stood when it was read (the edited-since note reads it)")
 eq(api.nvim_buf_get_name(view.buf):match("call graph · .*$"), "call graph · M.alpha", "the tab is named for its function, no buffer number")
 eq(requests, { "textDocument/prepareCallHierarchy", "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls" }, "prepare, then incoming, then outgoing")
 eq(most, 1, "one request in flight at a time")
@@ -415,6 +417,20 @@ ok(not table.concat(wide, "\n"):find("Enter go", 1, true), "no keys in its lines
 local pairs_said = vim.tbl_map(function(p) return p[1] .. " " .. p[2] end, require("desk.popout").key_pairs(pinned_view.footer))
 eq(table.concat(pairs_said, " · "), "j/k/h/l move · Enter go · f go+focus · p follow · ? keys", "its key line: five keys, as she reads them")
 eq(K.render({ graph = graph }, 60, "paper").footer[4].words, "pin", "… p says what it does: pin when following")
+-- Edited since it was read (2026-11-16: it looked current while the lines it names had moved): a note says so, in
+-- the pop-out and in the tab, and goes once the graph is read again.
+do
+  local b = api.nvim_create_buf(true, false)
+  api.nvim_buf_set_lines(b, 0, -1, false, { "local x = 1" })
+  local read = vim.tbl_extend("force", vim.deepcopy(graph), { read_at = { buf = b, tick = api.nvim_buf_get_changedtick(b) } })
+  local function noted(g) return table.concat(K.render({ graph = g }, 90, "paper").lines, "\n"):find("edited since it was read", 1, true) ~= nil end
+  eq({ G.edited_since(read), noted(read) }, { false, false }, "read and not edited: no note")
+  api.nvim_buf_set_lines(b, 0, 0, false, { "-- a line above" })
+  eq({ G.edited_since(read), noted(read) }, { true, true }, "edited since: the pop-out's drawing says so")
+  read.read_at.tick = api.nvim_buf_get_changedtick(b)
+  eq(noted(read), false, "… and read again: the note goes")
+  api.nvim_buf_delete(b, { force = true })
+end
 -- Its state as data and back: the history keeps it all, the layout record a pinned graph's function by file and line.
 local fn_line = line_with(source, "function M.alpha()")
 local saved = K.save({ pinned = true, graph = graph, target = { buf = buf, row = fn_line - 1, name = "M.alpha" } })

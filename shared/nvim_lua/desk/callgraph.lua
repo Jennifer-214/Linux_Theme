@@ -442,6 +442,13 @@ local function left_out(graph)
   return (more.callers or 0) + (more.callees or 0)
 end
 
+-- Its centre's file edited since the graph was read (unsaved: the server answered for the text before the edit).
+function M.edited_since(graph)
+  local at = graph and graph.read_at
+  return at ~= nil and api.nvim_buf_is_valid(at.buf) and api.nvim_buf_get_changedtick(at.buf) ~= at.tick
+end
+M.EDITED = 'edited since it was read: lines may have moved'
+
 -- The graph of target ({buf, row, col} or {buf, item}); one request in flight at a time, in turn. done(graph) or
 -- done(nil, why). Returns a function that cancels what is in flight.
 function M.fetch(client, target, done)
@@ -459,6 +466,9 @@ function M.fetch(client, target, done)
   end
   local function from(raw)
     local graph = { center = M.item(raw, enc) }
+    -- Where its centre's file stood when it was read: edits after it move the lines the graph names (M.edited_since).
+    local file_buf = raw.uri and vim.fn.bufnr(vim.uri_to_fname(raw.uri)) or -1
+    if file_buf > 0 then graph.read_at = { buf = file_buf, tick = api.nvim_buf_get_changedtick(file_buf) } end
     step('callHierarchy/incomingCalls', { item = raw }, function(incoming)
       local more, hidden = {}, {}
       graph.callers, more.callers, hidden.callers = calls(incoming, 'from', enc)
@@ -519,6 +529,7 @@ local function render(view, keep)
   graph.notes = graph.notes or {}
   local symdeps = symdeps_state(view.source)
   if symdeps == 'missing' then graph.notes[#graph.notes + 1] = 'every use by role: requires symdeps' end
+  if M.edited_since(view.graph) then graph.notes[#graph.notes + 1] = M.EDITED .. ' · ' .. M.typed('reload') .. ' reads it again' end
   graph.keys = vim.deepcopy(M.VIEW_KEYS)
   if symdeps == 'loaded' then table.insert(graph.keys, #graph.keys, { M.typed('symdeps'), 'symdeps' }) end
   view.width = api.nvim_win_get_width(view.win)
@@ -1136,6 +1147,8 @@ end
 local function follow_moved(view, win)
   if not code_window(win) or pop().exiting() then return end
   view.followed = win
+  -- Edited since it was read, or read again since: drawn again once, so the note comes and goes.
+  if M.edited_since(view.graph) ~= (view.shown_edited == true) then pop().redraw(view) end
   if view.pinned then return end
   view.timer = view.timer or uv.new_timer()
   view.timer:stop()
@@ -1324,6 +1337,10 @@ end
 local function render_view(view, width, style)
   highlights()
   local graph = view.graph or { message = 'move the cursor into a function' }
+  view.shown_edited = M.edited_since(graph)
+  if view.shown_edited then
+    graph = vim.tbl_extend('force', {}, graph, { notes = vim.list_extend(vim.deepcopy(graph.notes or {}), { M.EDITED .. ' · saving reads it again' }) })
+  end
   local drawn = M.layout(graph, math.max(16, width - 2), style == 'retro')
   local items = {}
   for i, box in ipairs(drawn.boxes) do

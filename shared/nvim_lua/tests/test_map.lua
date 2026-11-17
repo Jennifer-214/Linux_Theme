@@ -555,6 +555,21 @@ local function shown() return K.render(pv, 80, "paper") end
 ok(vim.wait(1000, function() return item_named(shown(), "mod.lua") ~= nil end), "the pop-out's map: the part's files")
 local d = shown()
 eq({ d.title, d.state, d.news }, { "project map · " .. vim.fn.fnamemodify(tab_root, ":t"), "", false }, "its title, and no state: it follows nothing")
+-- A file of its checkout saved: desk-work's status read again, so "stale since …" shows in the pop-out too (it was read
+-- on open only, 2026-11-16); a file elsewhere is not its business.
+do
+  local function status_asks() return #vim.tbl_filter(function(a) return a:find("map status", 1, true) ~= nil end, asked) end
+  local before = status_asks()
+  local inside = vim.fn.bufadd(tab_root .. "/lua/start.lua")
+  local outside = vim.fn.bufadd(vim.fn.tempname() .. ".lua")
+  K.follow(pv, { type = "saved", buf = outside })
+  eq(status_asks(), before, "a file outside its checkout saved: nothing asked")
+  K.follow(pv, { type = "saved", buf = inside })
+  eq(status_asks(), before + 1, "a file of its checkout saved: its status asked again")
+  K.follow(pv, { type = "moved", win = api.nvim_get_current_win() })
+  eq(status_asks(), before + 1, "… and a cursor move asks nothing")
+  ok(vim.wait(1000, function() return pv.status ~= nil end), "… its status kept")
+end
 ok(not table.concat(d.lines, "\n"):find("Enter in", 1, true), "no key line in its lines: the pop-out's window has its own")
 eq(table.concat(vim.tbl_map(function(p) return p[1] .. " " .. p[2] end, P.key_pairs(d.footer)), " · "), "Enter in · - out · r reach · c callers · ? keys",
   "its key line in the pop-out: five keys, as she reads them")

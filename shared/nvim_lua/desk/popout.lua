@@ -368,6 +368,7 @@ end
 --                          or ctx.target (a function she named elsewhere: the notebook)
 --   follow(view, event)    the editor moved: { type = 'moved' or 'unit', win } · { type = 'saved' or 'attached', buf } ·
 --                          { type = 'pin' } (p flipped view.pinned). A kind with news of its own calls M.redraw(view)
+--                          kind.follows = false: it has follow but does not follow the cursor (no ↻ in the header)
 --   ctx_for(view, ref, index) → ctx   what a remote row runs with for that item; ctx.view, ctx.item (the ref),
 --                          ctx.index, ctx.remote and ctx.also are added to it; ctx.origin, when set, is the window
 --                          its Enter moves (H takes the editor back there)
@@ -383,7 +384,7 @@ end
 -- item, and shows that view.
 local SPEC = { name = 'string', title = 'string', about = 'string', menu = 'string', surface = 'string', render = 'function',
   available = 'function', open = 'function', follow = 'function', ctx_for = 'function', attach = 'function', close = 'function',
-  save = 'function', restore = 'function' }
+  save = 'function', restore = 'function', follows = 'boolean' }
 local function kind_problem(spec)
   if type(spec) ~= 'table' then return 'a view kind is a table, not ' .. type(spec) end
   local name = type(spec.name) == 'string' and spec.name or '(no name)'
@@ -471,7 +472,7 @@ local function payload(view)
   return { type = 'view.set', id = view.id, kind = view.kind, surface = kind.surface, title = cut(drawn.title, 200) or kind.title,
     state = cut(drawn.state, 200) or '', lines = lines, marks = marks, hl = definitions(drawn.hl), items = items,
     footer = plain_footer(drawn.footer), strip = num(drawn.strip), news = drawn.news == true,
-    pinned = view.pinned == true, follows = kind.follow ~= nil }, refs, keys
+    pinned = view.pinned == true, follows = kind.follow ~= nil and kind.follows ~= false }, refs, keys
 end
 
 -- Sends a view as it is now, one per view every M.GAP_MS at most (the last state wins). A new generation only when its
