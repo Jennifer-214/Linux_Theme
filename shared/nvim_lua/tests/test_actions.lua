@@ -56,6 +56,27 @@ local count = #T.rows()
 eq(#T.add({ row({ id = "t.one", key = "<leader>Zz", name = "X again" }) }), 1, "the same file adding again (a reload) replaces")
 eq({ #T.rows(), T.get("t.one").name }, { count, "X again" }, "… in place")
 ok(heard("An action was left out"), "a refusal is said out loud")
+-- A surface a plugin declares (actions.surface: symdeps' board for the pop-out); its rows are taken once it is there.
+refused(row({ id = "t.early", on = "board" }), "no surface is called board", "a row on a surface not yet declared")
+eq({ T.surface("board", "a board of cards", nil) }, { true }, "a plugin declares a surface")
+eq({ T.SURFACES.board, T.MODULES.board }, { "a board of cards", nil }, "… in SURFACES, with no module to load")
+eq(#T.add({ row({ id = "t.board", key = "c", on = "board", remote = true }) }), 1, "… and a row on it is taken")
+eq({ T.surface("board", "the board again", "plugin.board") }, { true }, "the same file declaring it again (a reload) replaces it")
+eq({ T.SURFACES.board, T.MODULES.board }, { "the board again", "plugin.board" }, "… its words and its module")
+local declare = load("local T, name = ...; local done, why = T.surface(name, 'mine now'); return done, why", "@/nonexistent/other.lua")
+local taken_, why_ = declare(T, "board")
+ok(taken_ == nil and why_:find("board: already a surface, of ", 1, true), "another file cannot take a surface: " .. tostring(why_))
+taken_, why_ = declare(T, "map")
+ok(taken_ == nil and why_:find("map: already a surface, of ", 1, true) and why_:find("actions.lua", 1, true),
+  "… nor one of the registry's own: " .. tostring(why_))
+eq(T.SURFACES.board, "the board again", "… and the surface stays as it was")
+for _, bad in ipairs({ "two words", "sym.deps", "", string.rep("x", 33) }) do
+  eq((select(2, T.surface(bad, "words")) or ""):match("^a surface is named"), "a surface is named", "a name that is no name is refused: '" .. bad .. "'")
+end
+eq({ T.surface("blank", "  ") }, { nil, "blank: a surface needs its words (what it is)" }, "a surface without its words is refused")
+eq({ T.surface("odd", "words", 3) }, { nil, "odd: module is the name of the Lua module that adds its rows" }, "… and a module that is no name")
+eq({ T.SURFACES.blank, T.SURFACES.odd }, { nil, nil }, "… neither is a surface")
+ok(heard("A surface was left out"), "a refused surface is said out loud")
 
 -- ─── binding: global keys, a surface's buffer, and what a run gets ─────────────────────────────────────────────
 local seen

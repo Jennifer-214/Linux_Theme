@@ -12,8 +12,8 @@
 --   name       a few words: the menu row, and the mapping's description that which-key shows
 --   about      a sentence: the menu's description strip, and the keybinds reference's words for the key
 --   key, mode  the key as typed ('<leader>Cw', ']f') and its mode ('n' when none; 'x', or a list). No key: menus only
---   on         the surface, or a list of them (M.SURFACES). 'editor' rows are global keys: they apply in every window
---              unless that window's surface binds the same key
+--   on         the surface, or a list of them (M.SURFACES; a plugin declares its own with M.surface). 'editor' rows
+--              are global keys: they apply in every window unless that window's surface binds the same key
 --   run        function(ctx): what it does. ctx has surface, buf, win, filetype, file and what the surface passed
 --              (the review, the page)
 --   available  function(ctx): true (or nil) when it can run; why not ('requires symdeps'), shown greyed with that
@@ -46,6 +46,9 @@ M.SURFACES = {
 M.MODULES = { ['review-list'] = 'desk.review', ['review-diff'] = 'desk.review', callgraph = 'desk.callgraph',
   ['callgraph-panel'] = 'desk.callgraph', since = 'desk.since', map = 'desk.map', popout = 'desk.popout', menu = 'desk.menu',
   screens = 'desk.screens' }
+-- The file that declared each surface (M.surface): the same file declaring it again (a reload) replaces it; any
+-- other file is refused. The ones above are this file's.
+local surface_from = {}
 -- The order of the groups in a menu: the views first (Space Space › views opens one), each greyed with why it cannot.
 M.GROUPS = { 'Views', 'Home', 'This function', 'Call graph', 'Project map', 'Review', 'Claude', 'Work', 'Jupyter', 'symdeps',
   'Pop-out' }
@@ -122,6 +125,35 @@ local function caller()
   local path = info and info.source or '?'
   if path:sub(1, 1) ~= '@' then return path end
   return uv.fs_realpath(path:sub(2)) or path:sub(2)
+end
+
+do
+  local info = debug.getinfo(1, 'S')
+  local mine = info.source:sub(1, 1) == '@' and (uv.fs_realpath(info.source:sub(2)) or info.source:sub(2)) or info.source
+  for name in pairs(M.SURFACES) do surface_from[name] = mine end
+end
+
+-- A surface declared by the module that draws it (a plugin's view kind for the pop-out): name (letters, digits, _ and
+-- -, at most 32), words (what it is, for M.SURFACES) and module, the Lua module that adds its rows, which a pop-out
+-- showing a view of that surface loads to have the same keys (nil: none to load there; the pop-out binds its remote
+-- rows from the editor's describe instead). true, or nil and why; a refusal is said out loud, as a refused row is.
+function M.surface(name, words, module)
+  local why
+  if type(name) ~= 'string' or #name > 32 or not name:match('^[%w_-]+$') then
+    why = 'a surface is named with letters, digits, _ and - (at most 32): ' .. tostring(name)
+  elseif type(words) ~= 'string' or vim.trim(words) == '' then why = name .. ': a surface needs its words (what it is)'
+  elseif module ~= nil and (type(module) ~= 'string' or module == '') then why = name .. ': module is the name of the Lua module that adds its rows'
+  else
+    local from = caller()
+    if surface_from[name] and surface_from[name] ~= from then why = name .. ': already a surface, of ' .. surface_from[name]
+    else
+      M.SURFACES[name], M.MODULES[name], surface_from[name] = words, module, from
+      return true
+    end
+  end
+  M.problems[#M.problems + 1] = why
+  tell('A surface was left out: ' .. why, vim.log.levels.ERROR)
+  return nil, why
 end
 
 -- Adds rows; returns the ones taken. A refused row is said out loud and left out, so the rest still work.

@@ -4,8 +4,7 @@
 -- (asks for a pick and words) and z (the editor's only, never in the pop-out). _G.rows_test says what ran.
 local A = require('desk.actions')
 local P = require('desk.popout')
-A.SURFACES['test-rows'] = 'a list of rows (test_popout.lua)'
-A.MODULES['test-rows'] = 'tests.popout_rows'
+assert(A.surface('test-rows', 'a list of rows (test_popout.lua)', 'tests.popout_rows'))
 _G.rows_test = _G.rows_test or { names = { 'alpha', 'beta', 'gamma' } }
 local T = _G.rows_test
 
