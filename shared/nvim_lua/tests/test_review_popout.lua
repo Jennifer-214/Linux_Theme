@@ -340,11 +340,14 @@ press('m')
 ok(wait(3000, function() return #review().checked == 3 end), 'm: the last file checked')
 ok(wait(3000, function() return popped():find('✓ three.lua', 1, true) end), '… shown there')
 settled()
--- The question, asked in the pop-out the way the editor asks it: confirm() with the same letters.
-pop([[vim.fn.confirm = function(question, labels, default)
-  _G.confirmed = labels
-  for i, label in ipairs(vim.split(labels, '\n', { plain = true })) do if label == '&Stay' then return i end end
-  return 0
+-- The question, asked in the pop-out as a menu (vim.ui.select) with the editor's letters as its keys.
+pop([[vim.ui.select = function(items, opts, done)
+  local keys = opts.desk_keys or {}
+  local shown = {}
+  for i, c in ipairs(items) do shown[i] = '&' .. (keys[i] or '?'):upper() .. tostring(c.name):sub(2) end
+  _G.confirmed = table.concat(shown, '\n')
+  for _, c in ipairs(items) do if c.name == 'Stay' then return done(c) end end
+  done(nil)
 end]])
 local editor_labels = host([[local seen
   local real = vim.fn.confirm

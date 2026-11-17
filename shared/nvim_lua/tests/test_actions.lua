@@ -115,7 +115,7 @@ local typed, picked = "hello", 2
 vim.ui.select = function(items, opts, done) prompts[#prompts + 1] = opts.prompt .. #items; done(picked and items[picked] or nil) end
 vim.ui.input = function(opts, done) prompts[#prompts + 1] = opts.prompt; done(typed) end
 local function press_ask() got = nil; vim.fn.maparg("<leader>Za", "n", false, true).callback(); return got end
-eq({ press_ask(), prompts }, { { "hello", "2" }, { "Say: 2", "Say: " } }, "a key with an input: the pick, the words, then it runs with both")
+eq({ press_ask(), prompts }, { { "hello", "2" }, { "X2", "Say: " } }, "a key with an input: the pick, the words, then it runs with both")
 typed = nil
 eq(press_ask(), nil, "Esc at the words runs nothing")
 typed = "   "
@@ -435,21 +435,25 @@ local fifty = "Go to the selected function in the code it came from"
 local narrow = Menu.layout({ { keys = { "c" }, name = fifty, about = "x", group = "g" },
   { keys = { "r" }, name = "Read", about = "y", group = "g", right = "this box is not from the language server yet, so wait" } }, { keys = true })
 ok(narrow.lines[1]:find(fifty, 1, true), "… and at the usual 92 columns a long reason leaves a 50-character description whole: " .. narrow.lines[1])
--- A row's few choices are asked with a letter each, as the editor's own questions are (confirm, "&Next commit");
--- choices whose letters would clash are picked from a list.
+-- A row's choices are asked as the desk menu (vim.ui.select, desk.menu.select), a few with a letter each as their key
+-- there; choices whose letters would clash are rows without one. (confirm() lost its list when asked as a menu closed.)
 do
-  local real_confirm, real_select, seen, listed, got = vim.fn.confirm, vim.ui.select, nil, nil, nil
-  vim.fn.confirm = function(question, labels) seen = { question, labels }; return 2 end
-  vim.ui.select = function(items, opts, done) listed = #items; done(items[1]) end
+  local real_select, got, prompt = vim.ui.select, nil, nil
+  vim.ui.select = function(items, opts, done) prompt = opts.prompt; return Menu.select(items, opts, done) end
   A.ask({ choices = function() return { { id = "next", name = "Next commit" }, { id = "close", name = "Close review" }, { id = "stay", name = "Stay" } } end },
     {}, function(_, choice) got = choice end, "Finish review")
-  eq({ seen, got, listed }, { { "Finish review", "&Next commit\n&Close review\n&Stay" }, "close", nil },
-    "three choices: asked with confirm and their letters, the second picked")
-  seen, got = nil, nil
+  local asked = menu_text()
+  ok(asked:find("Next commit", 1, true) and asked:find("Close review", 1, true) and asked:find("Stay", 1, true), "every choice a row:\n" .. asked)
+  ok(asked:find("  c  Close review", 1, true), "… with its letter")
+  vim.fn.maparg("c", "n", false, true).callback()
+  eq({ prompt, got }, { "Finish review", "close" }, "its letter picks it")
+  got = nil
   A.ask({ choices = function() return { { id = "one", name = "The first" }, { id = "two", name = "The second" } } end }, {},
     function(_, choice) got = choice end)
-  eq({ seen, got, listed }, { nil, "one", 2 }, "… two whose letters clash: from a list")
-  vim.fn.confirm, vim.ui.select = real_confirm, real_select
+  ok(vim.fn.maparg("t", "n") == "", "… two whose letters clash: no letter")
+  ok(press_on("The second"), "… picked from the rows")
+  eq(got, "two", "… with Enter")
+  vim.ui.select = real_select
 end
 local saved_columns = vim.o.columns
 vim.o.columns = 200

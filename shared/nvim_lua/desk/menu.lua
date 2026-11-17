@@ -138,12 +138,15 @@ local function ident(item) return (item.group or '') .. '\0' .. tostring(item.id
 
 -- vim.ui.select drawn as this menu (j/k, Enter or l, / to filter, Esc or q to cancel), so every "choose one" question
 -- in the desktop looks and works the same: on_choice(item, index), or on_choice(nil, nil) when nothing was chosen.
+-- opts.desk_keys: a letter per item (desk.actions.ask), pressed to choose it; the menu's own keys (j k l h q /) stay its.
 function M.select(items, opts, on_choice)
   opts = opts or {}
   local format = opts.format_item or tostring
   local rows = {}
   for i, item in ipairs(items or {}) do
-    rows[i] = { name = tostring(format(item)), run = function() on_choice(item, i) end }
+    local key = opts.desk_keys and opts.desk_keys[i]
+    if key and ('jklhq/'):find(key, 1, true) then key = nil end
+    rows[i] = { name = tostring(format(item)), key = key, run = function() on_choice(item, i) end }
   end
   return M.open(rows, { title = opts.prompt and vim.trim((opts.prompt:gsub(':%s*$', ''))) or 'Choose', memo = false,
                         cancelled = function() on_choice(nil, nil) end })

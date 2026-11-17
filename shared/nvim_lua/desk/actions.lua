@@ -192,19 +192,11 @@ local function choice_keys(choices)
   return keys
 end
 M.choice_keys = choice_keys
--- confirm()'s label of a choice: & before its key's first letter in the name ("&Next commit"), else before the key.
-local function labelled(name, key)
-  name = name:gsub('[\r\n]', ' '):gsub('&', '&&')
-  local at = name:lower():find(key, 1, true)
-  if at then return name:sub(1, at - 1) .. '&' .. name:sub(at) end
-  return '&' .. key .. ' ' .. name
-end
 
 -- Asks what a row's input wants, in the current window: the pick first (choices: a list, or function(ctx) giving one),
 -- then the words (prompt). done(text, choice) once both are given; Esc, or nothing typed, asks no more and runs nothing.
--- A few choices with keys of their own are asked as the editor asks its own questions, with confirm() and a letter
--- each ("[N]ext commit (C)lose review (S)tay"), so the same question takes the same keys in the editor and the pop-out;
--- question: what is asked (the row's name).
+-- Asked as a menu (vim.ui.select); a few choices with letters of their own (choice_keys) take them as keys there, so the
+-- same question takes the same keys in the editor and the pop-out; question: what is asked (the row's name).
 function M.ask(input, ctx, done, question)
   local function words(choice)
     if not input.prompt then return done(nil, choice) end
@@ -219,16 +211,10 @@ function M.ask(input, ctx, done, question)
     choices = ok and value or nil
   end
   if type(choices) ~= 'table' or #choices == 0 then tell('Nothing to choose from here.', vim.log.levels.WARN); return end
-  local keys = choice_keys(choices)
-  if keys then
-    local labels = {}
-    for i, c in ipairs(choices) do labels[i] = labelled(tostring(c.name or c.id), keys[i]) end
-    local ok, pick = pcall(vim.fn.confirm, question or 'Choose', table.concat(labels, '\n'), 1)
-    local choice = ok and type(pick) == 'number' and choices[pick] or nil
-    if type(choice) == 'table' and choice.id ~= nil then words(tostring(choice.id)) end
-    return
-  end
-  vim.ui.select(choices, { prompt = input.prompt or 'Choose', format_item = function(c) return tostring(c.name or c.id) end },
+  -- One way to ask, vim.ui.select (the desk menu: desk.menu.select), each choice's letter its key there. Neovim's own
+  -- confirm() lost its list when asked as a menu closed (2026-11-16: "Move the pop-out" showed only "Type number").
+  vim.ui.select(choices, { prompt = question or 'Choose', format_item = function(c) return tostring(c.name or c.id) end,
+    desk_keys = choice_keys(choices) },
     function(choice) if type(choice) == 'table' and choice.id ~= nil then words(tostring(choice.id)) end end)
 end
 
