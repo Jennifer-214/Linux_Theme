@@ -543,7 +543,7 @@ do
   ok(b[1].x + b[1].w < b[2].x and b[2].x + b[2].w < b[3].x, "… a gap between neighbours, no shared border: " .. vim.inspect(b))
   ok(b[2].w > b[1].w and b[3].h * 2 > b[3].w and b[1].h * 2 < b[1].w, "… in their shapes: the big one wider, the rotated one tall")
   local text = table.concat(d.lines, "\n")
-  ok(text:find("╔", 1, true) and text:find(" pop-out ", 1, true) and text:find("this editor", 1, true),
+  ok(text:find("╔", 1, true) and text:find(" pop-out ", 1, true) and text:find(" here", 1, true) and not text:find("this editor", 1, true),
     "the chosen one doubled with the pop-out in it, the editor's own marked:\n" .. text)
   for _, line in ipairs(d.lines) do ok(vim.fn.strdisplaywidth(line) <= 64, "every line fits: " .. line) end
   eq({ Scr.nav(places, 1, "l"), Scr.nav(places, 2, "l"), Scr.nav(places, 3, "h"), Scr.nav(places, 1, "h"), Scr.nav(places, 1, "j") },

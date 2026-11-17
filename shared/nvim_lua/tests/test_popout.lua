@@ -412,6 +412,11 @@ do
   eq(pop('return vim.api.nvim_win_get_cursor(0)'), before, '… the cursor on the same buffer column: only the screen moved')
   pop('vim.o.columns = ' .. columns)
   ok(wait(3000, function() return state().gutter < 70 end), '… and back')
+  -- A window scrolled sideways (narrowed under a long line) is drawn from its left edge again at the next resize.
+  pop("vim.fn.winrestview({ leftcol = 12 })")
+  pop('vim.o.columns = ' .. (columns - 4))
+  ok(wait(3000, function() return pop('return vim.fn.winsaveview().leftcol') == 0 end), '… and from its left edge, not scrolled sideways')
+  pop('vim.o.columns = ' .. columns)
 end
 
 -- ─── / in the pop-out: every item by its whole name, Enter selects it (2026-11-16) ─────────────────────────────

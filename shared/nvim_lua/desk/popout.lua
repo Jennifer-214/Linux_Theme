@@ -1688,6 +1688,9 @@ local function centre(view)
   local width = view.win and api.nvim_win_is_valid(view.win) and api.nvim_win_get_width(view.win) or vim.o.columns
   local n = M.gutter(lines, width)
   view.gutter = n
+  -- From the left edge: a window that narrowed kept its sideways scroll, and cut the drawing's start (seen in a VM,
+  -- 2026-11-17).
+  if view.win and api.nvim_win_is_valid(view.win) then pcall(api.nvim_win_call, view.win, function() vim.fn.winrestview({ leftcol = 0 }) end) end
   if n == 0 then return end
   local pad = { { string.rep(' ', n), 'Normal' } }
   for i = 0, #lines - 1 do pcall(api.nvim_buf_set_extmark, view.buf, pad_ns, i, 0, { virt_text = pad, virt_text_pos = 'inline', right_gravity = false }) end

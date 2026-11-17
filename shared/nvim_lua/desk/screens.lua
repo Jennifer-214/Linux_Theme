@@ -78,7 +78,8 @@ function M.layout(items, places, selected, cols, rows, retro)
     local inner = b.w - 2
     local item = items[i]
     text(top + 1, left + 1, ' ' .. tostring(item.id or item.name or '?'), inner, on and 'DeskScreensOn' or 'DeskScreensName')
-    if item.here then text(top + 2, left + 1, ' ' .. G.here .. ' this editor', inner, 'DeskScreensHere') end
+    -- Where the keyboard is: the editor's screen, or asked from a pop-out, that pop-out's ("this editor" was wrong there).
+    if item.here then text(top + 2, left + 1, ' ' .. G.here .. ' here', inner, 'DeskScreensHere') end
     -- The pop-out where it will tile, drawn in the one chosen: the rest of the box shaded, its name in the middle.
     if on then
       local from = top + (item.here and 3 or 2)
