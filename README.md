@@ -25,39 +25,56 @@ parts you want through the installer; the setup scripts provide broader defaults
 
 ## Screenshots
 
-The retro-amber desktop (the default theme), with its drawer open:
+**retro-amber**, the default theme: a text-mode bar, the Workbench drawer and
+Neovim, with an amber pixel pointer and square window borders.
 
-![retro-amber desktop with the drawer open](shared/screenshots/retro_desktop.png)
+![retro-amber desktop with the Workbench drawer open](shared/screenshots/retro_desktop.png)
 
 <details>
-<summary>Lock screen, browser, terminal and editor</summary>
+<summary>Terminal, Firefox and lock screen</summary>
 
-![retro-amber lock screen](shared/screenshots/retro_lock.png)
+Kitty's phosphor glow, the DOS-style Zsh prompt, tmux footer and `desk` commands:
 
-![retro-amber Firefox new tab](shared/screenshots/retro_firefox.png)
+![retro-amber terminal with Zsh, tmux and the desk command reference](shared/screenshots/retro_terminal.png)
 
-![Terminal](shared/screenshots/retro_terminal.png)
+Firefox's tabs, address bar and new tab page share the palette and font:
 
-![Neovim](shared/screenshots/retro_nvim.png)
+![retro-amber Firefox new tab page](shared/screenshots/retro_firefox.png)
+
+The BIOS-style lock screen shows a system summary and a keyboard status line:
+
+![retro-amber Hyprlock screen](shared/screenshots/retro_lock.png)
 
 </details>
 
-Reviewing what a coding agent changed, in Neovim: changes grouped by plan, before and after side by side, and each
-plan step against the commits that touched it.
-
-![Review of an agent's changes in Neovim, with plan coverage](shared/screenshots/review.png)
-
 <details>
-<summary>The Claude notebook</summary>
+<summary>Neovim plugins and development workflows</summary>
 
-The pane beside a Claude Code session: what needs you, the last turn, the plan and the work, drawn here from sample
-data by `python3 tests/notebook_preview.py`.
+Neo-tree, syntax highlighting, comment folds, Git signs and the Lualine status bar:
 
-![The Claude notebook's pages](shared/screenshots/notebook.png)
+![retro-amber Neovim with Neo-tree and a C++ source file](shared/screenshots/retro_nvim.png)
+
+Telescope finds project files with a preview, using the same amber dialog borders:
+
+![retro-amber Telescope file picker with a source preview](shared/screenshots/retro_telescope.png)
+
+The built-in review groups working changes and commits beside a before-and-after
+comparison. This example uses a sample queue refactor:
+
+![retro-amber Neovim review with a file list and side-by-side C++ changes](shared/screenshots/review.png)
+
+The Claude notebook shows attention items, the current plan, review progress and
+job results. These pages are drawn from sample data by
+`python3 tests/notebook_preview.py --theme retro-amber`:
+
+![retro-amber Claude notebook pages drawn from sample data](shared/screenshots/notebook.png)
 
 </details>
 
-See [Agent workflows](docs/agent-workflows.md) for both.
+Screenshots use the current repository templates in an isolated desktop preview.
+Bar telemetry and notebook contents include sample data; see the
+[capture notes](shared/screenshots/README.md). See
+[Agent workflows](docs/agent-workflows.md) for the review and notebook controls.
 
 ## Install
 
@@ -117,7 +134,7 @@ Alternative themes have varying levels of completion; read the
 
 ```bash
 ./swap.sh                           # interactive theme picker
-./install.sh Classic --render # render, deploy and refresh a chosen theme
+./install.sh Classic --render       # render, deploy and refresh a chosen theme
 ```
 
 Edit files in `templates/` to keep changes across theme swaps. If you edited live
@@ -130,6 +147,9 @@ configs, `./update.sh` shows how they differ from the templates, to move by hand
 | --- | --- |
 | `Alt+Space` | Find apps, windows, projects and desktop actions |
 | `desktop-menu` | Desktop drawer |
+| `Space e` in Neovim | Neo-tree file explorer |
+| `Space ff` / `Space fg` in Neovim | Telescope file search / project text search |
+| `Space Cw` in Neovim | Review working changes and commits |
 | `desk sys cheatsheet` | Searchable keyboard shortcut reference |
 | `desk theme check` | Deployed desktop configuration and runtime checks |
 | `desk sys doctor` | Configuration diagnostics |
