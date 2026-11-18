@@ -500,6 +500,17 @@ do
     "Followed: `Tick.px` (matched by name on this route).", "", "The live caller checks it; replay drops it.", "" },
     "the question, the revision, each step with its place, the handoff relied on and how it was found, the field, her sentence")
 end
+do
+  -- Findings on this path: only those inside the route's functions, each with its step.
+  local steps = { { label = "tick", file = "e.cpp", line = 11, lines = 32 }, { label = "submit", file = "e.cpp", line = 50, lines = 5 } }
+  local on = Map.findings_on(steps, { { file = "e.cpp", line = 20, severity = "warning", message = "copied by value", tool = "lint" },
+    { file = "/r/e.cpp", line = 52, severity = "error", message = "unchecked result", tool = "lint" },
+    { file = "e.cpp", line = 45, message = "between the two" }, { file = "other.cpp", line = 12, message = "elsewhere" } }, "/r")
+  eq(vim.tbl_map(function(f) return { f.file, f.line, f.step } end, on), { { "e.cpp", 20, "tick" }, { "e.cpp", 52, "submit" } },
+    "findings inside the route's functions only (an absolute path under the checkout read as its own), each with its step")
+  local text = table.concat(Map.layout(Map.level_findings({ on = on, tools = 1 }), 100, false).lines, "\n")
+  ok(text:find("findings on this path · 2 (from 1 tool)", 1, true) and text:find("error  unchecked result  e.cpp:52 · in submit · lint", 1, true), "… drawn with severity, place, step and tool")
+end
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11, to_line = 20 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)
@@ -523,7 +534,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "y", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "y", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -981,6 +992,19 @@ do
     ok(vim.wait(1000, function() return api.nvim_win_get_cursor(0)[1] == 30 end), "who writes it: symdeps' write sites, the one chosen opened")
     package.loaded["fox-symdeps"], package.loaded["fox-symdeps.writers"] = nil, nil
     api.nvim_set_current_win(view.win)
+    -- F: the findings of the checkout's findings tools that fall on this route, a page of their own.
+    local before_f = #view.stack
+    local outer = Map.desk_work
+    Map.desk_work = function(args, done)
+      if args[1] == "tools" and args[2] == "list" then return done({ ok = true, tools = { { id = "lint", name = "lint", gives = "findings" }, { id = "perf", gives = "figures" } } }) end
+      if args[1] == "tools" and args[2] == "result" then return done({ format = "desk-result/1", findings = { { file = "e.cpp", line = 15, severity = "warning", message = "px read twice" } } }) end
+      return outer(args, done)
+    end
+    press("F")
+    ok(vim.wait(1000, function() return #view.stack == before_f + 1 and line_with(view.drawn.lines, "px read twice") end), "F: the findings on this path, a page of their own")
+    Map.desk_work = outer
+    press("<BS>")
+    vim.wait(100, function() return false end)
     -- y: the investigation copied, her sentence in it.
     vim.fn.setreg('"', "")
     vim.ui.input = function(opts, done) eq(opts.prompt, "A sentence to add (optional): ", "y asks for her sentence"); done("Checked the live path.") end
@@ -1252,7 +1276,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.centre", "map.copy", "map.down", "map.expand", "map.handoff-add", "map.handoff-drop", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
+eq(remote_ids, { "map.callers", "map.centre", "map.copy", "map.down", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
   "the pop-out can show more and retains its existing navigation keys")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do

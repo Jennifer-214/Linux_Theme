@@ -1707,6 +1707,7 @@ local function page_of(view)
   if level.kind == 'modules' then return cached(view, 'modules') and M.level_modules(cached(view, 'modules'), level.all) end
   if level.kind == 'query' then return M.level_query(level.answer, level.all, level) end
   if level.kind == 'pick' then return M.level_pick(level) end
+  if level.kind == 'findings' then return M.level_findings(level) end
   local answer = cached(view, 'module:' .. level.module)
   if not answer then return nil end
   if level.kind == 'files' then return M.level_files(answer, level.module, level.all) end
@@ -2560,6 +2561,58 @@ local function needs_reader(ctx)
 end
 -- In the pop-out a key is about the box selected there: Enter needs one, a question to the map a function.
 local function needs_selection(ctx) return not (ctx.view and not ctx.item) or 'nothing is selected' end
+-- Findings inside a route's functions (her pick: "Findings on this path"): pure — the steps' spans (file, first line,
+-- lines) against each finding's file and line (relative to root, or absolute under it). → the findings that fall in a
+-- step, each with its step.
+function M.findings_on(steps, findings, root)
+  local out = {}
+  for _, f in ipairs(findings or {}) do
+    local file = type(f.file) == 'string' and f.file or nil
+    if file and root and file:sub(1, #root + 1) == root .. '/' then file = file:sub(#root + 2) end
+    local line = tonumber(f.line)
+    for _, st in ipairs(steps or {}) do
+      if file and line and st.file == file and st.line and line >= st.line and line < st.line + math.max(1, st.lines or 1) then
+        out[#out + 1] = vim.tbl_extend('force', f, { file = file, line = line, step = st.label })
+        break
+      end
+    end
+  end
+  table.sort(out, function(a, b) return a.file .. string.format('%08d', a.line) < b.file .. string.format('%08d', b.line) end)
+  return out
+end
+local function findings_on_path(view)
+  local top = view.stack[#view.stack]
+  if not (top and top.answer and top.answer.q == 'trace') then return tell('Open a trace first (`t` on a function).') end
+  local steps = top.answer.steps or {}
+  M.desk_work({ 'tools', 'list', '--root', view.root }, function(listed)
+    local tools = vim.tbl_filter(function(t) return t.gives == 'findings' and not t.refused end, listed and listed.tools or {})
+    if #tools == 0 then return tell('No tool here gives findings (declare one in .desk/tools.json or desk.d: docs/desk-tools.md).') end
+    local found, left = {}, #tools
+    for _, tool in ipairs(tools) do
+      M.desk_work({ 'tools', 'result', tool.id, '--root', view.root }, function(answer)
+        for _, f in ipairs(answer and answer.findings or {}) do
+          found[#found + 1] = vim.tbl_extend('force', f, { tool = tool.name or tool.id, at = answer.at })
+        end
+        left = left - 1
+        if left > 0 or not valid(view) then return end
+        push(view, { kind = 'findings', on = M.findings_on(steps, found, view.root), of = top.answer.focus, tools = #tools })
+      end)
+    end
+  end)
+end
+function M.level_findings(level)
+  local list = level.on or {}
+  local sections = { { head = 'findings on this path · ' .. #list .. ' (from ' .. tostring(level.tools) .. (level.tools == 1 and ' tool)' or ' tools)') } }
+  if #list == 0 then sections[#sections + 1] = { parts = { { 'None of their findings falls inside the functions on this route.', nil, true } }, group = 'DeskMapDim' } end
+  for _, f in ipairs(list) do
+    local item = { name = tostring(f.message or f.kind or 'finding'), key = 'finding:' .. f.file .. ':' .. f.line .. ':' .. tostring(f.id or f.message),
+      target = { kind = 'node', node = { id = f.file .. ':' .. f.line, label = tostring(f.step), file = f.file, line = f.line } } }
+    sections[#sections + 1] = { block = { { { tostring(f.severity or 'note') .. '  ', nil, true, f.severity == 'error' and 'DeskMapStale' or 'DeskMapDim' },
+      { tostring(f.message or f.kind or ''), item }, { '  ' .. f.file .. ':' .. f.line .. ' · in ' .. tostring(f.step) .. ' · ' .. tostring(f.tool), nil, nil, 'DeskMapDim' } } } }
+  end
+  return { crumbs = { 'findings' }, sections = sections }
+end
+
 -- A trace as a short note to hand to another person (y on a trace): the question, the checkout's revision, the steps
 -- with their file:line, the handoffs it relies on (inferred or hers), the field followed, and her sentence. Pure.
 function M.investigation_md(answer, revision, sentence, field)
@@ -2801,6 +2854,9 @@ local ROWS = actions.add({
   row('handoff-add', 'a', 'Add a handoff from this step',
     'On a trace: this function hands its data on to the one you name (a queue or a callback the map missed), so the trace goes on through it',
     add_handoff, needs_trace_step, { remote = true, input = { prompt = 'Hands off to: ' } }),
+  row('findings', 'F', 'Findings on this path',
+    "On a trace: the findings of the checkout's tools (desk-work's, docs/desk-tools.md) that fall inside the route's functions, each with its tool; Enter opens its line",
+    findings_on_path, needs_trace, THERE),
   row('copy', 'y', 'Copy this investigation as Markdown',
     'On a trace: its question, the checkout\'s revision, each step with its file:line, the handoffs it relies on and a sentence of yours, as Markdown for a review, an issue or the notebook',
     copy_investigation, needs_trace, THERE),
