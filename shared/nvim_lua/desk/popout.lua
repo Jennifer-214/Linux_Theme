@@ -432,6 +432,7 @@ end
 --   follow(view, event)    the editor moved: { type = 'moved' or 'unit', win } · { type = 'saved' or 'attached', buf } ·
 --                          { type = 'pin' } (p flipped view.pinned). A kind with news of its own calls M.redraw(view)
 --                          kind.follows = false: it has follow but does not follow the cursor (no ↻ in the header)
+--                          view.follows = true: this view follows although its kind does not (the map, on a trace)
 --   ctx_for(view, ref, index, line) → ctx   what a remote row runs with for that item; ctx.view, ctx.item (the ref),
 --                          ctx.index, ctx.remote and ctx.also are added to it, and ctx.surface when it names none
 --                          (the kind's surface: without it describe offers none of that surface's rows, and Enter, f
@@ -592,10 +593,12 @@ local function payload(view)
   return { type = 'view.set', id = view.id, kind = view.kind, surface = kind.surface, title = cut(drawn.title, 200) or kind.title,
     state = cut(drawn.state, 200) or '', lines = lines, marks = marks, hl = definitions(drawn.hl), items = items,
     footer = plain_footer(drawn.footer), strip = num(drawn.strip), news = drawn.news == true,
-    pinned = view.pinned == true, follows = kind.follow ~= nil and kind.follows ~= false,
+    pinned = view.pinned == true, follows = kind.follow ~= nil and (kind.follows ~= false or view.follows == true),
     tick = kind.mirror and (drawn.tick or 0) or nil, total = kind.mirror and #drawn.lines or nil,
     lang = drawn.lang, cursor = drawn.cursor }, refs, keys, drawn.lines
 end
+
+M._payload = payload -- a view's view.set message, for tests
 
 -- One queue per view. Send the rest of a snapshot first, then the edits that arrived while it was in flight.
 function M.mirror_changed(view)

@@ -357,7 +357,7 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `D` in the map | Everything a function reaches, down the calls (a count before `D` is the depth; 3 without one) |
 | `U` in the map | Who calls a function, up the calls, transitively (a count before `U` is the depth) |
 | `c` in the map | The call graph centred on the selected function, where the map is: a graph tab here, the call graph in the pop-out (`Ctrl+o` there comes back to the map) |
-| `t` in the map | The lane through the selected function: up to where it starts, down to where it ends; each step with its parameters (how each is passed, and whether the callee can change it) and what it is called with |
+| `t` in the map | The lane through the selected function: up to where it starts, down to where it ends; each step with its parameters (how each is passed, and whether the callee can change it) and what it is called with. In the pop-out it follows the function at the cursor (`p` pins it) |
 | `e` in the map | On a trace: down to the function you name instead of where the chain ends |
 | `S` in the map | On a trace: up from the function you name (a thread body, the live path) instead of the farthest start |
 | `gs` in the map | The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph |

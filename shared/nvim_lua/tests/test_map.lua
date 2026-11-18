@@ -673,6 +673,9 @@ do
   Map.desk_work = function(args, done)
     if args[2] == "query" and args[6] == "trace" then
       traced_args[#traced_args + 1] = table.concat(args, " ")
+      if traced_args[#traced_args]:find("--line 99 ", 1, true) then
+        return vim.defer_fn(function() done({ ok = false, message = "no function at e.cpp:99" }, { code = 1, stdout = "", stderr = "" }) end, 5)
+      end
       return vim.defer_fn(function() done(trace_answer, { code = 0, stdout = "", stderr = "" }) end, 5)
     end
     return fake_before(args, done)
@@ -681,6 +684,59 @@ do
   cursor_on("M.alpha")
   press("t")
   ok(vim.wait(1000, function() return line_with(view.drawn.lines, "╔═ tick ") end), "t: the trace page, drawn")
+  -- Following (the pop-out's): once the cursor rests in a code window of the checkout, outside the traced function.
+  do
+    local code = view.root .. "/e.cpp"
+    local text = {}
+    for i = 1, 120 do text[i] = "// line " .. i end
+    vim.fn.writefile(text, code)
+    local here = api.nvim_get_current_win()
+    vim.cmd("split " .. vim.fn.fnameescape(code))
+    local cw = api.nvim_get_current_win()
+    api.nvim_set_current_win(here)
+    local n, depth, rest = #traced_args, #view.stack, Map.FOLLOW_MS + 250
+    local function moved(line) api.nvim_win_set_cursor(cw, { line, 0 }); Map.view_kind.follow(view, { type = "moved", win = cw }) end
+    eq({ Map.view_kind.render(view, 90, "paper") and view.follows, Map.view_kind.follows }, { true, false }, "a trace page follows (↻), the map's kind does not")
+    moved(20)
+    vim.wait(rest, function() return false end)
+    eq(#traced_args, n, "following: the cursor inside the traced function asks nothing")
+    moved(60)
+    ok(vim.wait(rest + 1000, function() return #traced_args == n + 1 end), "… out of it and resting: the trace asked again")
+    ok((traced_args[n + 1] or ""):find("--q trace --file e.cpp --line 60 --from", 1, true), "… for the function under the cursor: " .. tostring(traced_args[n + 1]))
+    vim.wait(200, function() return false end)
+    eq(#view.stack, depth, "… in place: no page added")
+    moved(61); moved(62); moved(63)
+    ok(vim.wait(rest + 1000, function() return #traced_args == n + 2 end), "moves in a row: asked once, when the cursor rests")
+    vim.wait(rest, function() return false end)
+    eq(#traced_args, n + 2, "… and only once")
+    view.pinned = true
+    moved(70)
+    vim.wait(rest, function() return false end)
+    eq(#traced_args, n + 2, "pinned: nothing asked")
+    view.pinned = false
+    moved(72)
+    view.pinned = true
+    vim.wait(rest, function() return false end)
+    eq(#traced_args, n + 2, "pinned while the cursor was settling: nothing asked")
+    view.pinned = false
+    Map.view_kind.follow(view, { type = "pin" })
+    ok(vim.wait(1000, function() return #traced_args == n + 3 end), "p again: it follows from where the cursor is")
+    local said, real_notify = {}, vim.notify
+    vim.notify = function(m) said[#said + 1] = m end
+    moved(99)
+    ok(vim.wait(rest + 1000, function() return #traced_args == n + 4 end), "the cursor in no function: asked")
+    vim.wait(200, function() return false end)
+    vim.notify = real_notify
+    eq({ said, #view.stack, line_with(view.drawn.lines, "╔═ tick ") ~= nil }, { {}, depth, true }, "… and quiet: nothing said, the trace kept")
+    local outside = vim.fn.tempname() .. ".cpp"
+    vim.fn.writefile({ "int x;" }, outside)
+    api.nvim_win_call(cw, function() vim.cmd("edit " .. vim.fn.fnameescape(outside)) end)
+    moved(1)
+    vim.wait(rest, function() return false end)
+    eq(#traced_args, n + 4, "a file outside the checkout: nothing asked")
+    api.nvim_win_close(cw, true)
+    for i = #traced_args, n + 1, -1 do table.remove(traced_args, i) end -- the checks below count from t's ask
+  end
   -- Enter on a fold's header opens it there, the cursor staying on the header.
   local fold_row, fold_line = line_with(view.drawn.lines, "other callers (1)")
   api.nvim_win_set_cursor(view.win, { fold_row, (fold_line:find("other callers", 1, true)) })
@@ -941,6 +997,10 @@ local function shown() return K.render(pv, 80, "paper") end
 ok(vim.wait(1000, function() return item_named(shown(), "mod.lua") ~= nil end), "the pop-out's map: the part's files")
 local d = shown()
 eq({ d.title, d.state, d.news }, { "project map · " .. vim.fn.fnamemodify(tab_root, ":t"), "", false }, "its title, and no state: it follows nothing")
+eq(P._payload(pv).follows, false, "the map's pages do not follow the cursor (no ↻ sent)")
+pv.stack[#pv.stack + 1] = { kind = "query", answer = trace_answer, args = {} }
+eq(P._payload(pv).follows, true, "… a trace does (↻ sent)")
+pv.stack[#pv.stack] = nil
 -- A file of its checkout saved: desk-work's status read again, so "stale since …" shows in the pop-out too (it was read
 -- on open only, 2026-11-16); a file elsewhere is not its business.
 do

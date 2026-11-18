@@ -1857,13 +1857,15 @@ end
 -- asks which one, then asks desk-work again with its id (in the pop-out the reason is said instead: what she names
 -- there is asked once). from: the box it was asked from, in the pop-out. again: r on that answer's page: the new
 -- answer replaces it.
-query = function(view, args, from, again)
+query = function(view, args, from, again, quiet)
   local full = { 'map', 'query', '--root', view.root }
   vim.list_extend(full, args)
   view.asked = (view.asked or 0) + 1
   local asked = view.asked
   M.desk_work(full, function(answer, out)
     if asked ~= view.asked or not valid(view) then return end
+    -- a page asked by following the cursor says nothing when there is no answer (the cursor in no function)
+    if quiet and (not answer or answer.ok == false) then return end
     view.news = true
     if answer and answer.ok == false and type(answer.candidates) == 'table' and #answer.candidates > 0 and not view.out then
       local flag = (answer.message or ''):find('^To: ') and '--to' or '--from'
@@ -2303,7 +2305,7 @@ local ROWS = actions.add({
     'The call graph centred on the selected function, where the map is: a graph tab here, the call graph in the pop-out (`Ctrl+o` there comes back to the map)',
     centre, needs_function, THERE),
   row('trace', 't', 'Trace through this function',
-    'The lane through the selected function: up to where it starts, down to where it ends; each step with its parameters (how each is passed, and whether the callee can change it) and what it is called with',
+    'The lane through the selected function: up to where it starts, down to where it ends; each step with its parameters (how each is passed, and whether the callee can change it) and what it is called with. In the pop-out it follows the function at the cursor (`p` pins it)',
     trace_from, needs_function, THERE),
   row('trace-to', 'e', 'Trace to a chosen function', 'On a trace: down to the function you name instead of where the chain ends',
     trace_to, needs_trace, { remote = true, input = { prompt = 'Trace to: ' } }),
@@ -2393,6 +2395,11 @@ local FOOTER = { { ids = { 'map.in' }, words = 'in' }, { ids = { 'map.out' }, wo
   { ids = { 'map.callers' }, words = 'callers' }, { ids = { 'popout.keys' }, words = 'keys' } }
 -- The page for the pop-out's width: the tab's, without its key line (the pop-out's window has its own), each box and
 -- named part an item (its ref the map's own item: what the keys there are about).
+-- The view's page is a trace (the one page that follows the cursor in the pop-out).
+local function tracing(view)
+  local top = view.stack and view.stack[#view.stack]
+  return top and top.kind == 'query' and top.answer and top.answer.q == 'trace' and top or nil
+end
 local function render_view(view, width, style)
   highlights()
   local retro = style == 'retro'
@@ -2409,6 +2416,8 @@ local function render_view(view, width, style)
   end
   local footer = view.has_more and vim.list_extend(vim.list_slice(FOOTER), { { ids = { 'map.more' }, words = 'show more' } })
     or FOOTER
+  view.follows = tracing(view) ~= nil
+  if view.follows then footer = vim.list_extend(vim.list_slice(footer), { { ids = { 'popout.pin' }, words = 'pin/follow' } }) end
   return { title = 'project map · ' .. vim.fn.fnamemodify(view.root or '', ':t'), state = '',
     lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer, news = view.news == true }
 end
@@ -2437,6 +2446,35 @@ local function restore_view(view, saved)
   refresh(view)
 end
 
+-- Following, a trace in the pop-out (her ask, 2026-11-18: the trace "should be able to be used in the pop out"): once
+-- the cursor rests in a code window of the same checkout and has left the traced function, the trace is asked again for
+-- the function under it — in place, no page added, quiet when the cursor is in no function. p pins it. Only a trace
+-- follows; the map's other pages stay where they are (view.follows says which, for the pop-out's ↻).
+M.FOLLOW_MS = 300
+local function follow_trace(view, win)
+  local top = tracing(view)
+  if not top or view.pinned or view.gone or not valid(view) or not (win and api.nvim_win_is_valid(win)) then return end
+  local buf = api.nvim_win_get_buf(win)
+  if vim.bo[buf].buftype ~= '' or views[buf] or api.nvim_win_get_config(win).relative ~= '' then return end
+  local name = api.nvim_buf_get_name(buf)
+  name = uv.fs_realpath(name) or name
+  local root = view.root or ''
+  if root == '' or name:sub(1, #root + 1) ~= root .. '/' then return end
+  local rel, line = name:sub(#root + 2), api.nvim_win_get_cursor(win)[1]
+  for _, st in ipairs(top.answer.steps or {}) do
+    if st.id == top.answer.focus and st.file == rel and st.line and line >= st.line and line < st.line + math.max(1, st.lines or 1) then return end
+  end
+  query(view, { '--q', 'trace', '--file', rel, '--line', tostring(line), '--from', '' }, nil, top, true)
+end
+local function follow_soon(view, win)
+  view.follow_win = win
+  if view.pinned or not tracing(view) then return end
+  view.follow_timer = view.follow_timer or uv.new_timer()
+  view.follow_timer:stop()
+  view.follow_timer:start(M.FOLLOW_MS, 0, vim.schedule_wrap(function() follow_trace(view, win) end))
+end
+M._follow_trace = follow_trace
+
 M.view_kind = {
   name = 'map', title = 'project map', surface = 'map',
   about = 'The project map in the pop-out, a window of its own on the other screen: `Enter` there zooms in, or goes to a function here while the keyboard stays there; `-` and `Backspace` go back out',
@@ -2445,9 +2483,14 @@ M.view_kind = {
   open = open_view,
   render = render_view,
   -- A file of its checkout saved: desk-work's status read again, so "stale since …" shows here too (on open only before,
-  -- 2026-11-16). It does not follow the cursor.
+  -- 2026-11-16). Only a trace follows the cursor (view.follows, set as it draws).
   follows = false,
   follow = function(view, event)
+    if event.type == 'moved' or event.type == 'unit' then return follow_soon(view, event.win) end
+    if event.type == 'pin' then
+      if not view.pinned and view.follow_win then follow_trace(view, view.follow_win) end
+      return
+    end
     if event.type ~= 'saved' or view.timer or not view.status or not api.nvim_buf_is_valid(event.buf) then return end
     local name, root = api.nvim_buf_get_name(event.buf), view.root or ''
     if root ~= '' and name:sub(1, #root + 1) == root .. '/' then status(view) end
@@ -2464,7 +2507,10 @@ M.view_kind = {
     if win then pcall(api.nvim_set_current_win, win) end
     M.open(view.root, view)
   end,
-  close = function(view) stop_polling(view) end,
+  close = function(view)
+    stop_polling(view)
+    if view.follow_timer then view.follow_timer:stop(); view.follow_timer:close(); view.follow_timer = nil end
+  end,
   save = save_view,
   restore = restore_view,
 }
