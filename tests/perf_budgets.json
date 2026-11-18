@@ -2,5 +2,7 @@
   "nvim.start": { "max": 350, "unit": "ms", "why": "Neovim with the full config starts in ~200 ms on her laptop (2026-11-18)" },
   "nvim.move": { "max": 8, "unit": "ms", "why": "j must take well under one frame (16 ms); 0.4 ms on her laptop, 121 ms with rainbow-delimiters' local mode" },
   "nvim.move.p95": { "max": 16, "unit": "ms", "why": "the slow moves still inside one frame" },
+  "review.unread": { "max": 700, "unit": "ms", "why": "next unread in a 300-file review, every file read: 280 ms on her laptop (2026-11-18), 1.4 s with a git show per file" },
+  "review.unread.again": { "max": 40, "unit": "ms", "why": "pressed again, nothing changed: 25 ms on her laptop; vim.fn.bufnr per file took 49 ms here with 4 buffers, more with hers" },
   "nvim.scroll": { "max": 8, "unit": "ms", "why": "Ctrl+e and the mouse wheel well under one frame; 0.3 ms on her laptop" }
 }

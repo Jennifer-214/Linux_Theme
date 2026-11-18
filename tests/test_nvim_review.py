@@ -1869,6 +1869,35 @@ assert(r.files[1].right:find('local value = 2', 1, true), 'the snapshot after th
 C.close()
 ''')
 
+    def test_next_unread_reads_every_committed_copy_in_one_git_call(self):
+        # Codex's review, 2026-11-18: next unread loaded each file with its own git show (300 files: 1.4 s). One git
+        # cat-file reads them all now; every side must be exactly git's, renamed and awkwardly named files included.
+        self.run_lua(r'''
+local system, shows, batches = vim.system, 0, 0
+vim.system = function(argv, ...)
+  if argv[5] == 'show' then shows = shows + 1 end
+  if argv[5] == 'cat-file' then batches = batches + 1 end
+  return system(argv, ...)
+end
+C.open_review(vim.tbl_extend('force', row, { files = nil }), root)
+local r = R.current
+assert(#r.files >= 4, 'the commit has its files: ' .. #r.files)
+shows = 0
+R.unread()
+assert(batches == 1 and shows == 0, ('one cat-file and no git show: %d, %d'):format(batches, shows))
+vim.system = system
+local function git_show(spec)
+  local out = vim.system({ 'git', '-C', root, 'show', spec }, { text = false }):wait()
+  return out.code == 0 and out.stdout or ''
+end
+for _, f in ipairs(r.files) do
+  assert(not f.error, f.rel .. ' read')
+  if f.status ~= 'A' then assert(f.left == git_show(parent .. ':' .. f.old), 'the before side of ' .. f.rel) end
+  if f.status ~= 'D' then assert(f.right == git_show(sha .. ':' .. f.rel), 'the after side of ' .. f.rel) end
+end
+C.close()
+''')
+
     def test_live_review_labels_an_emptied_file_and_text_in_an_empty_one_as_changed(self):
         # Codex's review, 2026-11-18: emptied showed "deleted", text added to an empty file showed "added".
         (self.repo / 'empty-now.txt').write_text('was here\n')

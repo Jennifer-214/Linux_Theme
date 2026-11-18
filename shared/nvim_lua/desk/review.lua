@@ -63,6 +63,14 @@ local function git(root, args)
   local result = job:wait(3000)
   return result.code == 0 and result.stdout or nil
 end
+-- The buffer holding `path`, or -1: names compared as they are. vim.fn.bufnr reads its argument as a pattern (0.4 ms a
+-- file, and wrong for a name with [ or *), and the review asks for every file on every refresh.
+local function buffer_of(path)
+  for _, buf in ipairs(api.nvim_list_bufs()) do
+    if api.nvim_buf_get_name(buf) == path then return buf end
+  end
+  return -1
+end
 local function lines(text)
   return vim.split((text or ''):gsub('\n$', ''), '\n', { plain = true })
 end
@@ -253,6 +261,47 @@ local function blob(r, revision, rel, absent)
   if r.blobs[key] == nil then r.blobs[key] = git(r.root, { 'show', key }) end
   return r.blobs[key]
 end
+-- Every committed copy these files will ask for, read with one git cat-file instead of a git show each (300 files took
+-- a second that way, most of it starting processes). What it finds goes where blob() looks first; what it does not
+-- (a new file) blob() asks for as before.
+local function prefetch(r, files)
+  local keys, head = {}, nil
+  for _, f in ipairs(files) do
+    if not f.loaded then
+      if r.row.kind == 'commit' then
+        if f.status ~= 'A' and r.row.parent and f.old then keys[#keys + 1] = r.row.parent .. ':' .. f.old end
+        if f.status ~= 'D' and r.row.sha and f.rel then keys[#keys + 1] = r.row.sha .. ':' .. f.rel end
+      elseif not r.row.snapshots and not (r.row.before or {})[f.path] then
+        head = head or head_of(r)
+        local rel = r.row.kind == 'working' and f.old or f.rel
+        if head and rel then keys[#keys + 1] = head .. ':' .. rel end
+      end
+    end
+  end
+  r.blobs = r.blobs or {}
+  local ask = {}
+  for _, key in ipairs(keys) do if r.blobs[key] == nil then ask[#ask + 1] = key end end
+  if #ask < 2 then return end
+  local ok, job = pcall(vim.system, { 'git', '--no-optional-locks', '-C', r.root, 'cat-file', '--batch', '-z' },
+    { stdin = table.concat(ask, '\0') .. '\0', text = false })
+  if not ok then return end
+  local out = job:wait(10000)
+  if out.code ~= 0 or not out.stdout then return end
+  local text, at = out.stdout, 1
+  for _, key in ipairs(ask) do
+    local eol = text:find('\n', at, true)
+    if not eol then return end
+    local size = text:sub(at, eol - 1):match('^%x+ blob (%d+)$')
+    if size then
+      size = tonumber(size)
+      r.blobs[key] = text:sub(eol + 1, eol + size)
+      at = eol + size + 2
+    else
+      at = eol + 1   -- "<key> missing" (or not a blob): blob() asks for it itself
+    end
+  end
+end
+
 -- What a working or live file was read from: its size and modification time on disk, an unsaved draft's change count,
 -- the commit its before side came from. A refresh skips a file whose stamp is unchanged (every work event and focus
 -- used to re-read and re-diff every loaded file). A file modified in the last second gets no stamp: a second write
@@ -261,7 +310,7 @@ local function stamp_of(r, file)
   if r.row.snapshots or r.row.kind == 'commit' then return nil end
   local stat = uv.fs_stat(file.path)
   if stat and stat.mtime.sec >= os.time() - 1 then return nil end
-  local buf = vim.fn.bufnr(file.path)
+  local buf = buffer_of(file.path)
   local draft = buf >= 0 and api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified and api.nvim_buf_get_changedtick(buf) or 0
   local head = (r.row.before or {})[file.path] and '' or (head_of(r) or '')
   if not stat then return table.concat({ 'absent', draft, head, file.old or '' }, ':') end
@@ -303,7 +352,7 @@ local function load_file(r, file, refresh)
         if r.blobs[key] then left, left_absent = '', true end
       end
     end
-    local buf = vim.fn.bufnr(file.path)
+    local buf = buffer_of(file.path)
     if buf >= 0 and api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
       right = table.concat(api.nvim_buf_get_lines(buf, 0, -1, false), '\n') .. (vim.bo[buf].endofline and '\n' or '')
     else right = read(file.path) end
@@ -1160,7 +1209,7 @@ local function unit_here(r, root, buf, s)
 end
 -- The language server attached to the working file's buffer, when it is loaded and has one; false otherwise.
 local function ask_server(r, job, done)
-  local buf = vim.fn.bufnr(job.f.path)
+  local buf = buffer_of(job.f.path)
   if buf < 0 or not api.nvim_buf_is_loaded(buf) then return false end
   local G = require('desk.callgraph')
   local client = G.clients(buf)[1]
@@ -1263,7 +1312,7 @@ function M.reach(r, f, s)
   local got = reach[key]
   if got and got.pending == r then return end
   if got and not got.pending then
-    local buf = vim.fn.bufnr(f.path)
+    local buf = buffer_of(f.path)
     local loaded = buf >= 0 and api.nvim_buf_is_loaded(buf)
     if got.source == 'lsp' and loaded and got.buf == buf then
       local tick = api.nvim_buf_get_changedtick(buf)
@@ -2025,6 +2074,7 @@ function M.unread()
   local r = M.current
   if not r then return end
   M.refresh_requests(true)
+  prefetch(r, r.files)
   for _, f in ipairs(r.files) do load_file(r, f, r.row.kind ~= 'commit') end
   -- What needs the most care comes first: an unread file with a risk mark, then the rest in order.
   for pass = 1, 2 do
@@ -2322,7 +2372,7 @@ function M.actions()
       add('Open API review', 'Open the saved API review of this file; its path:line citations become a jump list.', M.api_open, { group = 'api', bind = M.bind('api') })
     end
   end
-  if vim.fn.filereadable(file.path) == 1 or vim.fn.bufnr(file.path) >= 0 then
+  if vim.fn.filereadable(file.path) == 1 or buffer_of(file.path) >= 0 then
     add('Open working file', 'Open the editable working file at this change; keep the review available in its own tab.',
       function() api.nvim_set_current_win(r.right_win); M.open_source() end, { group = 'inspect', bind = M.bind('source') })
   end
@@ -2474,7 +2524,7 @@ function M.open_source()
   if not r then return false end
   if api.nvim_get_current_win() == r.panel_win and not M.enter(true) then return end
   local file = r.files[r.index]
-  if vim.fn.filereadable(file.path) ~= 1 and vim.fn.bufnr(file.path) < 0 then tell('This historical file is absent from the working copy.'); return false end
+  if vim.fn.filereadable(file.path) ~= 1 and buffer_of(file.path) < 0 then tell('This historical file is absent from the working copy.'); return false end
   local current = api.nvim_get_current_win()
   local cursor = (current == r.left_win or current == r.right_win) and api.nvim_win_get_cursor(current) or nil
   local line = cursor and cursor[1] or r.symbol and r.symbol.line

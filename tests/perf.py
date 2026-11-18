@@ -12,6 +12,8 @@ Figures (medians; a move or scroll is the key plus the handlers its event runs, 
   nvim.move       ms  j in a 3 000-line Lua file, CursorMoved's handlers included
   nvim.move.p95   ms  the slow end of those moves
   nvim.scroll     ms  Ctrl+e in the same file, WinScrolled's handlers included
+  review.unread   ms  "next unread" in a live review of 300 changed files, the first press (every file read)
+  review.unread.again  ms  the same, pressed again
 Each has a ceiling in tests/perf_budgets.json; over one, the run fails and names it. desk-work keeps the figures
 run to run (.desk/tools.json declares this as a figures tool; `desk-work metrics` and the notebook show what got
 worse). A machine slower than hers can scale every ceiling with DESK_PERF_SLACK (2 doubles them)."""
@@ -25,6 +27,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import time
 
 import sealed_env
 
@@ -109,6 +112,54 @@ def config(base, theme):
             (data / part).symlink_to(DATA / part)
 
 
+REVIEW_PROBE = r"""
+package.path = vim.env.DESK_LUA .. '/?.lua;' .. package.path
+vim.notify = function() end
+local C, R = require('desk.claude'), require('desk.review')
+local root = vim.env.DESK_REVIEW_ROOT
+local files = vim.fn.globpath(root, 'src/*/*.cpp', false, true)
+C.open_review({ kind = 'live', sid = 'perf1', name = 'perf', short = 'perf', files = files }, root)
+local t0 = vim.uv.hrtime(); R.unread()
+local t1 = vim.uv.hrtime(); R.unread()
+io.stdout:write(vim.json.encode({ first = (t1 - t0) / 1e6, again = (vim.uv.hrtime() - t1) / 1e6, files = #files }) .. "\n")
+vim.cmd('qa!')
+"""
+
+
+def review(env, base):
+    """300 changed files of 400 lines, a change every 37 lines, committed then edited: a large working change."""
+    repo = base / "review"
+    def git(*args):
+        subprocess.run(["git", "-C", str(repo), "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", *args],
+                       check=True, capture_output=True, env=env, timeout=60)
+    repo.mkdir()
+    git("init", "-q")
+    git("config", "user.name", "perf")
+    git("config", "user.email", "perf@example.invalid")
+    for i in range(300):
+        (repo / f"src/m{i % 10}").mkdir(parents=True, exist_ok=True)
+        (repo / f"src/m{i % 10}/f{i}.cpp").write_text("".join(f"int v{i}_{n} = {n};\n" for n in range(400)))
+    git("add", ".")
+    git("commit", "-qm", "base")
+    for i in range(300):
+        path = repo / f"src/m{i % 10}/f{i}.cpp"
+        text = path.read_text().splitlines(True)
+        for n in range(0, 400, 37):
+            text[n] = text[n].replace("=", "= 1 +")
+        path.write_text("".join(text))
+        # Edited a minute ago: the review reads again any file written within the last second (its stamp could repeat).
+        os.utime(path, (time.time() - 60, time.time() - 60))
+    (base / "review.lua").write_text(REVIEW_PROBE)
+    time_env = dict(env, DESK_LUA=str(ROOT / "shared/nvim_lua"), DESK_REVIEW_ROOT=str(repo))
+    run = sealed_env.run(["nvim", "--headless", "--clean", "-l", str(base / "review.lua")], time_env, timeout=300)
+    found = [l for l in run.stdout.splitlines() if l.startswith("{")]
+    if not found:
+        sys.exit("perf: the review probe gave no answer:\n" + run.stdout[-2000:] + run.stderr[-2000:])
+    probe = json.loads(found[-1])
+    return [{"name": "review.unread", "value": round(probe["first"], 1), "unit": "ms"},
+            {"name": "review.unread.again", "value": round(probe["again"], 1), "unit": "ms"}]
+
+
 def nvim(args, env, base, timeout=120):
     """Neovim under bwrap with the installed plugins and parsers read-only."""
     sealed = ["bwrap", "--dev-bind", "/", "/", "--ro-bind", str(DATA), str(DATA), "--chdir", str(base), "--"]
@@ -136,7 +187,7 @@ def measure(theme):
         if not probe["treesitter"]:
             print("perf: treesitter did not attach to the fixture (no lua parser installed?): moves are measured without it",
                   file=sys.stderr)
-        return [{"name": "nvim.start", "value": round(statistics.median(starts), 1), "unit": "ms"},
+        return review(env, base) + [{"name": "nvim.start", "value": round(statistics.median(starts), 1), "unit": "ms"},
                 {"name": "nvim.move", "value": round(probe["move"], 2), "unit": "ms"},
                 {"name": "nvim.move.p95", "value": round(probe["move_p95"], 2), "unit": "ms"},
                 {"name": "nvim.scroll", "value": round(probe["scroll"], 2), "unit": "ms"}]
