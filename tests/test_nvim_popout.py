@@ -6,6 +6,8 @@
   desk-drawer and desk-work first on PATH). Never her sockets, tmux, Hyprland or terminal.
 - init.lua's desk-popout block, rendered for every theme: in a pop-out it switches the language servers off, in the
   main editor it leaves them alone; and the work modules init.lua sets up start nothing in a pop-out.
+- init.lua's fox-symdeps spec, rendered for every theme: lazy.nvim never loads it in a pop-out (its cond), so its keys
+  are not mapped there; in the main editor it loads, on Space dm and Space dd.
 - The Hyprland rule for the pop-out's class, in rules.lua and its rules.conf twin, loaded under every theme.
 """
 import json
@@ -83,19 +85,54 @@ io.stdout:write(vim.json.encode(out))
 '''
 
 
+# The fox-symdeps spec of a rendered init.lua (POPOUT_INIT), read as lazy.nvim reads it: its table evaluated (what it
+# reads of the palette, the paper mode and the role model stood in for: any value will do), then its cond as lazy's
+# resolve checks it (false, or a function that returns false: never loaded, and none of its keys mapped). Run with
+# --cmd 'let g:desk_popout=1' for a pop-out, as kitty starts one: set before init.lua runs.
+SPEC_RUN = r'''
+local source = assert(io.open(os.getenv('POPOUT_INIT'))):read('*a')
+local name_at = assert(source:find('name = "fox-symdeps",', 1, true), 'the rendered init.lua has no fox-symdeps spec')
+local open, from = nil, 1
+while true do
+  local at = source:find('\n  {\n', from, true)
+  if not at or at > name_at then break end
+  open, from = at, at + 1
+end
+local text = assert(source:sub(assert(open, 'its spec opens a table') + 1):match('^%s*(%b{})'), 'its spec is one table')
+local function any() return setmetatable({}, { __index = function() return any() end, __call = function() return any() end }) end
+local env = setmetatable({ P = any(), Paper = any(), role_model = function() return 'model' end }, { __index = _G })
+local spec = setfenv(assert(loadstring('return ' .. text)), env)()
+local cond = spec.cond
+local keys = {}
+for _, key in ipairs(spec.keys or {}) do keys[#keys + 1] = key[1] end
+io.stdout:write(vim.json.encode({ name = spec.name, keys = keys,
+  loads = not (cond == false or (type(cond) == 'function' and not cond({ name = spec.name }))) }))
+'''
+
+
+def rendered_inits(temp):
+    """Every theme's init.lua, rendered by desk-render-fast into temp: {theme: its path}."""
+    out = {}
+    for palette in sorted((ROOT / 'themes').glob('*/palette.sh')):
+        folder = Path(temp) / palette.parent.name
+        subprocess.run([str(RENDER), str(palette), str(ROOT / 'templates/nvim'), str(folder)], check=True, capture_output=True,
+                       timeout=120)
+        out[palette.parent.name] = folder / 'init.lua'
+    return out
+
+
 @requires(shutil.which('nvim'), 'nvim')
 class InitBlock(unittest.TestCase):
+    maxDiff = None   # a failure names each theme and window
+
     @requires(os.access(RENDER, os.X_OK), 'a built desk-render-fast (make)')
     def test_the_pop_out_block_in_every_theme(self):
         blocks = {}
         with tempfile.TemporaryDirectory(prefix='popout-render-') as temp:
-            for palette in sorted((ROOT / 'themes').glob('*/palette.sh')):
-                out = Path(temp) / palette.parent.name
-                subprocess.run([str(RENDER), str(palette), str(ROOT / 'templates/nvim'), str(out)], check=True, capture_output=True,
-                               timeout=120)
-                found = re.search(r'^-- >>> desk-popout\n(.*?)^-- <<< desk-popout$', (out / 'init.lua').read_text(), re.S | re.M)
-                self.assertIsNotNone(found, f'{palette.parent.name}: the rendered init.lua has no desk-popout block')
-                blocks[palette.parent.name] = found.group(1)
+            for theme, init in rendered_inits(temp).items():
+                found = re.search(r'^-- >>> desk-popout\n(.*?)^-- <<< desk-popout$', init.read_text(), re.S | re.M)
+                self.assertIsNotNone(found, f'{theme}: the rendered init.lua has no desk-popout block')
+                blocks[theme] = found.group(1)
             self.assertGreater(len(blocks), 1)
             self.assertEqual(len(set(blocks.values())), 1, 'the block reads the same in every theme')
             block = Path(temp) / 'block.lua'
@@ -114,6 +151,32 @@ class InitBlock(unittest.TestCase):
         # The pop-out's tab line is its header and each status line a view's keys: lualine draws none of them there.
         self.assertEqual(hidden, {'1': [{'place': ['statusline', 'tabline', 'winbar'], 'unhide': False}], '0': []},
                          'a pop-out hides lualine for good; the main editor keeps it')
+
+    # 2026-11-17: the spec's keys (Space dm, Space dd) were mapped in the pop-out too, so pressing one there loaded
+    # symdeps inside it (its setup, a foxtag run) and opened that copy's menu for the pop-out's scratch buffer.
+    @requires(os.access(RENDER, os.X_OK), 'a built desk-render-fast (make)')
+    def test_symdeps_never_loads_in_a_pop_out(self):
+        seen = {}
+        with tempfile.TemporaryDirectory(prefix='popout-spec-') as temp:
+            script = Path(temp) / 'spec.lua'
+            script.write_text(SPEC_RUN)
+            inits = rendered_inits(temp)
+            self.assertGreater(len(inits), 1)
+            sealed = sealed_env.environment(temp)
+            self.addCleanup(sealed_env.stop, sealed)
+            for theme, init in inits.items():
+                for window, cmd in (('pop-out', ['--cmd', 'let g:desk_popout=1']), ('editor', [])):
+                    ran = sealed_env.run(['nvim', '--headless', '--clean', *cmd, '-l', str(script)],
+                                         sealed | {'POPOUT_INIT': str(init)}, 60)
+                    self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                    said = json.loads(ran.stdout.strip().splitlines()[-1])
+                    seen[(theme, window)] = (said['name'], said['loads'], said['keys'])
+        want = {}
+        for theme in inits:
+            want[(theme, 'pop-out')] = ('fox-symdeps', False, ['<leader>dm', '<leader>dd'])
+            want[(theme, 'editor')] = ('fox-symdeps', True, ['<leader>dm', '<leader>dd'])
+        self.assertEqual(seen, want, 'lazy.nvim never loads symdeps in a pop-out (cond), so Space dm and Space dd map nothing '
+                                     'there; the main editor loads it on them')
 
     def test_the_work_modules_start_nothing_in_a_pop_out(self):
         with tempfile.TemporaryDirectory(prefix='popout-modules-') as temp:

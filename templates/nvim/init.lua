@@ -2322,6 +2322,10 @@ local plugins = {
     enabled = function()
       return vim.fn.isdirectory(vim.fn.expand("~/code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim")) == 1
     end,
+    -- Never in the pop-out (g:desk_popout, set by --cmd before this file runs): there the keys below loaded symdeps on
+    -- the first press (its setup, a foxtag run) and opened that copy's menu for the pop-out's scratch buffer (2026-11-17).
+    -- The pop-out draws the editor's board; its own Space dm and Space dd say what they do there (desk.popout).
+    cond = function() return not vim.g.desk_popout end,
     name = "fox-symdeps",
     ft = { "c", "cpp" },
     -- the menu and the HUD from ANY buffer (her ask, 2026-10-21: "it would be nice to have everywhere"): lazy maps these
