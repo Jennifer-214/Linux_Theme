@@ -1121,6 +1121,7 @@ local function jump(view, node, origin)
   -- The window the map came from when that is code; never a view's (from the review it was the review's list).
   local ok, why = require('desk.nav').open_code(path, node.line, nil, origin or (not view.out and view.origin) or nil)
   if not ok then tell('Could not open ' .. node.file .. ': ' .. tostring(why)) end
+  return ok
 end
 
 -- The box a key is about: in the pop-out the one selected there (ctx.item), here the one under the cursor.
@@ -1239,6 +1240,22 @@ local function centre(view, ctx)
   -- In the map's own pop-out, with several open: the first was taking it (seen in a VM, 2026-11-17).
   if view.out then return pop().show('graph', { target = target }, { pop = view.pop or 1 }) end
   G.open(target)
+end
+
+-- gs: the function in symdeps' card (C and C++), as gs in the call graph: its code, the cursor on its NAME, then the
+-- card. On the line's first text (`int norm(…)`) symdeps would read the return type.
+local function in_symdeps(view, ctx)
+  local item = about_item(view, ctx)
+  local node = item and item.target and item.target.node
+  if not node then return tell('Put the cursor on a function first.') end
+  if not actions.symdeps() then return tell('Requires symdeps (an optional plugin for C and C++ symbols).') end
+  local inspect = actions.symdeps_card()
+  if not inspect then return tell('This symdeps version does not expose its card.') end
+  if not jump(view, node, ctx and ctx.origin) then return end
+  local name = tostring(node.label or ''):match('([%w_~]+)$')
+  local at = name and api.nvim_get_current_line():find('%f[%w_~]' .. vim.pesc(name) .. '%f[^%w_]')
+  if at then pcall(api.nvim_win_set_cursor, 0, { api.nvim_win_get_cursor(0)[1], at - 1 }) end
+  inspect()
 end
 
 -- P: the ways from one function to another. Its key here asks for both, the box under the cursor the default; asked
@@ -1430,6 +1447,19 @@ local function needs_function(ctx)
   local t = ctx.item and ctx.item.target
   return (t and t.kind == 'node') or 'select a function first'
 end
+local function needs_c_function(ctx)
+  if not actions.symdeps() then return 'requires symdeps' end
+  local why = needs_function(ctx)
+  if why ~= true then return why end
+  -- The box it is about: selected in the pop-out, under the cursor here.
+  local view = ctx and ctx.map
+  local item = ctx and (ctx.item or (valid(view) and not view.out and here(view)) or nil)
+  local node = item and item.target and item.target.node
+  if node and node.file and not ({ c = true, cpp = true })[vim.filetype.match({ filename = node.file }) or ''] then
+    return 'requires a C or C++ function'
+  end
+  return true
+end
 local function row(id, key, name, about, run, needs, extra)
   local r = { id = 'map.' .. id, group = GROUP, name = name, about = about, key = key, on = 'map', available = needs,
     run = function(ctx)
@@ -1507,6 +1537,8 @@ local ROWS = actions.add({
   row('centre', 'c', 'The call graph of this function',
     'The call graph centred on the selected function, where the map is: a graph tab here, the call graph in the pop-out (`Ctrl+o` there comes back to the map)',
     centre, needs_function, THERE),
+  row('symdeps', 'gs', 'This function in symdeps', "The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph",
+    in_symdeps, needs_c_function, THERE),
   row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_function,
     { remote = true, input = { prompt = 'Ways to: ' } }),
   row('more', 'm', 'Show more boxes and calls',

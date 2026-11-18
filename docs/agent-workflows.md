@@ -465,7 +465,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
 - **Queries**: `D` what a function reaches, down the calls (a count before the key sets the depth; 3 without one),
   `U` what calls it, up the calls, transitively, `P` the ways from one function to another (shortest first, at most
   20). Where the map says `+N more`, `m` shows the remaining boxes and connections from the loaded answer.
-  `M` picks a part of the checkout from a menu (`/` filters it by name). `r` reads the page again where it is, as in a
+  `M` picks a part of the checkout from a menu (`/` filters it by name). `gs` on a C or C++ function shows it in
+  symdeps' card, as in the call graph (requires symdeps). `r` reads the page again where it is, as in a
   call graph: desk-work's status and the level shown, a query's answer asked again (`R` rebuilds the map). `c` opens
   the call graph centred on the function, as `c` centres a graph: a graph tab here, the call graph in the pop-out. The box
   under the cursor is the default answer to the prompt. On caller and reach pages, `+` reads one more level and `-`

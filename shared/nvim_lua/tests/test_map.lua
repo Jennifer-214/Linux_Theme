@@ -202,7 +202,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -453,6 +453,40 @@ eq({ graph_tab ~= nil, graph_tab and api.nvim_buf_get_name(graph_tab.buf):match(
   graph_tab and api.nvim_get_current_win() == graph_tab.win }, { true, true, true }, "c: the graph tab, centred on the function under the cursor")
 CG.close_view(graph_tab.buf)
 api.nvim_set_current_win(view.win)
+-- gs: the function in symdeps' card, as gs in the call graph, with the cursor on its NAME (2026-11-18: on
+-- `int norm(…)` the line's first text is the return type, which symdeps would read). A fake symdeps says where it was asked.
+do
+  local card_at, said_gs, real_notify_gs, real_input, fake_before = nil, {}, vim.notify, vim.ui.input, Map.desk_work
+  package.loaded["fox-symdeps"] = {}
+  package.loaded["fox-symdeps.card"] = { inspect_cursor = function() card_at = { vim.fn.expand("%:t"), vim.fn.expand("<cword>") } end }
+  vim.notify = function(msg) said_gs[#said_gs + 1] = msg end
+  cursor_on("M.alpha")
+  press("gs")
+  eq({ card_at, said_gs[#said_gs] }, { nil, "Requires a C or C++ function." }, "gs on a Lua function: no card, and why")
+  local norm = contents.outside[1]
+  Map.desk_work = function(args, done)
+    if args[2] == "query" and args[6] == "reach" and args[8] == norm.id then
+      return vim.defer_fn(function() done({ ok = true, q = "reach", depth = 1, from = norm, more = 0, steps = {},
+        nodes = { vim.tbl_extend("force", norm, { depth = 0 }) } }, { code = 0, stdout = "", stderr = "" }) end, 5)
+    end
+    return fake_before(args, done)
+  end
+  vim.ui.input = function(_, done) done(norm.id) end
+  cursor_on("use")
+  press("D")
+  ok(vim.wait(1000, function() return line_with(view.drawn.lines, "║ norm") end), "a page with the C function norm")
+  local row, ln = line_with(view.drawn.lines, "║ norm")
+  if row then
+    api.nvim_win_set_cursor(view.win, { row, (ln:find("norm", 1, true)) })
+    press("gs")
+    eq(card_at, { "util.c", "norm" }, "gs on norm: its card, asked with the cursor on norm in util.c (not on `int`)")
+  end
+  api.nvim_set_current_win(view.win)
+  press("<BS>")
+  ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "… and back to the page it was on")
+  Map.desk_work, vim.ui.input, vim.notify = fake_before, real_input, real_notify_gs
+  package.loaded["fox-symdeps"], package.loaded["fox-symdeps.card"] = nil, nil
+end
 before_r = #asked
 local function box_here() local c = api.nvim_win_get_cursor(view.win); local it = Map.item_at(view.drawn, c[1], c[2]); return it and it.name end
 local box_before = box_here()
@@ -612,7 +646,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.up" },
+eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.up" },
   "the pop-out can show more and retains its existing navigation keys")
 local views_row = A.get("popout.view.map")
 eq(views_row and { views_row.group, views_row.name, views_row.remote }, { "Views", "Pop out the project map", true },

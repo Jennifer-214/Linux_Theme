@@ -658,6 +658,14 @@ end
 -- ─── its own rows: the home key, and symdeps ──────────────────────────────────────────────────────────────────────
 -- symdeps (fox-symdeps.nvim) is optional. Asking for it loads it when it is installed, as the review's menus do; in a
 -- pop-out it is only whether it is loaded: a pop-out never loads symdeps (lazy.nvim would run its setup there).
+-- symdeps' "card of the unit at the cursor": fox-symdeps.card's, else the plugin's own (an older symdeps); nil when this
+-- symdeps has neither. The one lookup: the editor's row below, the call graph's gs and the map's gs.
+function M.symdeps_card()
+  local found, card = pcall(require, 'fox-symdeps.card')
+  if found and type(card) == 'table' and type(card.inspect_cursor) == 'function' then return card.inspect_cursor end
+  local plugin = package.loaded['fox-symdeps']
+  if type(plugin) == 'table' and type(plugin.inspect_cursor) == 'function' then return plugin.inspect_cursor end
+end
 function M.symdeps()
   if package.loaded['fox-symdeps'] ~= nil then return true end
   local pop = vim.g.desk_popout
@@ -684,10 +692,7 @@ local OWN = M.add({
       return (ctx.filetype == 'c' or ctx.filetype == 'cpp') or 'requires a C or C++ file'
     end,
     run = function()
-      local found, card = pcall(require, 'fox-symdeps.card')
-      local plugin = package.loaded['fox-symdeps']
-      local inspect = found and type(card) == 'table' and type(card.inspect_cursor) == 'function' and card.inspect_cursor
-        or type(plugin) == 'table' and type(plugin.inspect_cursor) == 'function' and plugin.inspect_cursor or nil
+      local inspect = M.symdeps_card()
       if not inspect then tell('This symdeps version does not expose its card.'); return end
       inspect()
     end },

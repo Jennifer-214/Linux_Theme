@@ -1540,11 +1540,8 @@ local ROWS = actions.add({
       local view = ctx.graph
       local center = view.graph and view.graph.center
       if not center or not center.uri then return end
-      local loaded, plugin = pcall(require, 'fox-symdeps')
-      if not loaded then tell('Requires symdeps (an optional plugin for C and C++ symbols).'); return end
-      local ok, card = pcall(require, 'fox-symdeps.card')
-      local inspect = ok and type(card) == 'table' and type(card.inspect_cursor) == 'function' and card.inspect_cursor
-        or type(plugin) == 'table' and type(plugin.inspect_cursor) == 'function' and plugin.inspect_cursor or nil
+      if not actions.symdeps() then tell('Requires symdeps (an optional plugin for C and C++ symbols).'); return end
+      local inspect = actions.symdeps_card()
       if not inspect then tell('This symdeps version does not expose its card.'); return end
       jump(center, view.origin)
       inspect()
@@ -1788,10 +1785,7 @@ end
 popout_symdeps = function(ctx)
   if not ctx.item then return end
   jump(ctx.item, ctx.origin)
-  local found, card = pcall(require, 'fox-symdeps.card')
-  local plugin = package.loaded['fox-symdeps']
-  local inspect = (found and type(card) == 'table' and type(card.inspect_cursor) == 'function' and card.inspect_cursor)
-    or (type(plugin) == 'table' and type(plugin.inspect_cursor) == 'function' and plugin.inspect_cursor) or nil
+  local inspect = actions.symdeps_card()
   if not inspect then return tell('This symdeps version does not expose its card.') end
   inspect()
 end
