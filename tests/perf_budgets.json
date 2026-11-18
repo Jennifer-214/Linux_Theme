@@ -1,0 +1,6 @@
+{
+  "nvim.start": { "max": 350, "unit": "ms", "why": "Neovim with the full config starts in ~200 ms on her laptop (2026-11-18)" },
+  "nvim.move": { "max": 8, "unit": "ms", "why": "j must take well under one frame (16 ms); 0.4 ms on her laptop, 121 ms with rainbow-delimiters' local mode" },
+  "nvim.move.p95": { "max": 16, "unit": "ms", "why": "the slow moves still inside one frame" },
+  "nvim.scroll": { "max": 8, "unit": "ms", "why": "Ctrl+e and the mouse wheel well under one frame; 0.3 ms on her laptop" }
+}

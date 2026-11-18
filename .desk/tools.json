@@ -1,0 +1,4 @@
+{ "version": 1,
+  "tools": [
+    { "id": "perf", "name": "Editor speed", "gives": "figures", "format": "json",
+      "argv": ["python3", "-B", "tests/perf.py", "--json"], "timeout_ms": 600000 } ] }

@@ -78,6 +78,11 @@ test: $(addprefix test-,$(TOOLS)) test-scripts
 test-fast:
 	@python3 -B tests/run_changed.py
 
+# How fast the editor feels: figures against the ceilings in tests/perf_budgets.json (tests/perf.py). Not part of
+# `make test`: timings belong to one machine; DESK_PERF_SLACK=2 doubles every ceiling on a slower one.
+perf: build-desk-render
+	@python3 -B tests/perf.py
+
 # Required release check: missing Claude/TypeScript/engine types are failures, never skips.
 test-claude: build-desk-render
 	@FOXML_REQUIRE_MOD_CHECKS=1 python3 -B tests/test_claude_mod.py
@@ -105,4 +110,4 @@ list:
 	@printf "Discovered tools:\n"
 	@for t in $(TOOLS); do printf "  - %s\n" "$$t"; done
 
-.PHONY: all install clean test test-fast test-claude test-work-integrations list $(addprefix build-,$(TOOLS)) $(addprefix install-,$(TOOLS)) $(addprefix clean-,$(TOOLS)) $(addprefix test-,$(TOOLS))
+.PHONY: all install clean test test-fast test-claude perf test-work-integrations list $(addprefix build-,$(TOOLS)) $(addprefix install-,$(TOOLS)) $(addprefix clean-,$(TOOLS)) $(addprefix test-,$(TOOLS))
