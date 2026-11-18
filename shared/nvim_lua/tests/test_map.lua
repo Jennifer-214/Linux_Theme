@@ -299,9 +299,9 @@ local lay = { ["e.cpp::tick|layout"] = true }
 ok(line_with(Map.layout(Map.trace_page(trace_answer, lay), 90, false).lines, "opening asks symdeps to lay this file out"), "layout open before an answer: says what it will do")
 ok(line_with(Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { pending = true } }), 90, false).lines, "symdeps is laying this file out…"), "… while symdeps works")
 local laid = Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { records = {
-  { name = "tt::Tick<double>", size = 24, align = 8, fields = { { name = "px", type = "double", off = 0 }, { name = "seq", type = "long", off = 8 }, { name = "ts", type = "long", off = 16 } } } } } }), 90, false)
-ok(line_with(laid.lines, "║     t  Tick  24 B, align 8 · 1 line") and line_with(laid.lines, "║         touches  px@0 · ts@16 · seq@8"),
-  "… its size, alignment, cache lines, and the fields this function touches with their offsets")
+  { name = "tt::Tick<double>", size = 24, align = 8, fields = { { name = "px", type = "double", off = 0, size = 8 }, { name = "seq", type = "long", off = 8 }, { name = "ts", type = "long", off = 16 } } } } } }), 90, false)
+ok(line_with(laid.lines, "║     t  Tick  24 B, align 8 · 1 line") and line_with(laid.lines, "║         touches  px@0 8 B · ts@16 · seq@8"),
+  "… its size, alignment, cache lines, and the fields this function touches with their offsets (and sizes where symdeps knows them)")
 ok(line_with(Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { error = "requires symdeps (an optional plugin for C and C++ layouts)" } }), 90, false).lines,
   "requires symdeps (an optional plugin"), "… and without symdeps, says so")
 local traced_retro = Map.layout(Map.trace_page(trace_answer), 90, true)
@@ -655,7 +655,23 @@ do
   press("<CR>")
   ok(vim.wait(1000, function() return line_with(view.drawn.lines, "Ring  16 B, align 8") end), "Enter on layout: symdeps lays the file out, the page shows it")
   eq(censused, { "e.cpp" }, "… asked once, of the step's file")
-  package.loaded["fox-symdeps"], package.loaded["fox-symdeps.recordlayout"] = nil, nil
+  package.loaded["fox-symdeps.recordlayout"] = nil
+  -- A symdeps with layoutof: asked for the step's parameter types only, and its field sizes shown.
+  local asked_of
+  package.loaded["fox-symdeps.layoutof"] = { of = function(path, names, done)
+    asked_of = { vim.fn.fnamemodify(path, ":t"), names }
+    vim.defer_fn(function() done({ records = { Ring = { name = "tt::Ring", size = 16, align = 8, fields = { { name = "head", off = 0, size = 8 } } } } }) end, 5)
+  end }
+  local top = view.stack[#view.stack]
+  top.layouts = nil
+  local tick_lay_row, tick_lay_line
+  for i, l in ipairs(view.drawn.lines) do if l:find("layout (", 1, true) then tick_lay_row, tick_lay_line = i, l; break end end
+  api.nvim_win_set_cursor(view.win, { tick_lay_row, (tick_lay_line:find("layout", 1, true)) })
+  press("<CR>")
+  press("<CR>")
+  ok(vim.wait(1000, function() return asked_of ~= nil end), "with layoutof: symdeps is asked through it")
+  eq(asked_of, { "e.cpp", { "Ring" } }, "… for the step's file and its parameters' types only")
+  package.loaded["fox-symdeps"], package.loaded["fox-symdeps.layoutof"] = nil, nil
   ok(traced_args[1] and traced_args[1]:find("--q trace --from lua/mod.lua::M.alpha", 1, true), "… asked through the box's function: " .. tostring(traced_args[1]))
   vim.ui.input = function(opts, done) eq(opts.prompt, "Trace to: ", "e asks where to"); done("submit") end
   press("e")

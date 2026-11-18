@@ -1125,12 +1125,16 @@ function M.trace_page(answer, folds, layouts)
         for _, prm in ipairs(params) do
           local rec = by[base_type(prm.type) or '']
           if rec then
-            local touched, offset = {}, {}
-            for _, f in ipairs(rec.fields or {}) do offset[f.name] = f.off end
+            local touched, field = {}, {}
+            for _, f in ipairs(rec.fields or {}) do field[f.name] = f end
             for _, list in ipairs({ prm.reads or {}, prm.writes or {} }) do
               for _, path in ipairs(list) do
                 local head = path:match('^[^.]+')
-                if offset[head] and not touched[head] then touched[head] = true; touched[#touched + 1] = head .. '@' .. offset[head] end
+                local f = field[head]
+                if f and f.off and not touched[head] then
+                  touched[head] = true
+                  touched[#touched + 1] = head .. '@' .. f.off .. (f.size and (' ' .. f.size .. ' B') or '')
+                end
               end
             end
             local lines_ = rec.size and math.ceil(rec.size / 64) or nil
@@ -1659,19 +1663,35 @@ function M.lay_out(view, top, id)
   if not (step and step.file) then return end
   top.layouts = top.layouts or {}
   if top.layouts[step.file] then return end
-  local ok, census = pcall(require, 'fox-symdeps.recordlayout')
-  if not (actions.symdeps() and ok and type(census) == 'table' and type(census.census) == 'function') then
+  local path = view.root .. '/' .. step.file
+  local function done(got)
+    top.layouts[step.file] = got and got.records and { records = got.records } or { error = (got and got.error) or 'symdeps could not lay it out' }
+    if valid(view) and view.stack[#view.stack] == top then load(view) end
+  end
+  -- symdeps' layoutof (a file's structs laid out once, cached; only those asked), else its census (every record, a
+  -- compile each time) from an older symdeps.
+  local has_of, layoutof = pcall(require, 'fox-symdeps.layoutof')
+  local has_census, census = pcall(require, 'fox-symdeps.recordlayout')
+  if not actions.symdeps() or not ((has_of and type(layoutof) == 'table' and type(layoutof.of) == 'function')
+      or (has_census and type(census) == 'table' and type(census.census) == 'function')) then
     top.layouts[step.file] = { error = 'requires symdeps (an optional plugin for C and C++ layouts)' }
     return
   end
-  local path = view.root .. '/' .. step.file
-  local buf = vim.fn.bufadd(path)
-  pcall(vim.fn.bufload, buf)
   top.layouts[step.file] = { pending = true }
-  local fine = pcall(census.census, buf, function(got)
-    top.layouts[step.file] = got and got.records and { records = got.records } or { error = (got and got.error) or 'symdeps could not lay it out' }
-    if valid(view) and view.stack[#view.stack] == top then load(view) end
-  end)
+  local fine
+  if has_of and type(layoutof) == 'table' and type(layoutof.of) == 'function' then
+    local names = {}
+    for _, prm in ipairs(step.params or {}) do names[#names + 1] = base_type(prm.type) end
+    fine = pcall(layoutof.of, path, names, function(got)
+      local list = {}
+      for _, rec in pairs(got and got.records or {}) do list[#list + 1] = rec end
+      done(got and got.records and { records = list } or got)
+    end)
+  else
+    local buf = vim.fn.bufadd(path)
+    pcall(vim.fn.bufload, buf)
+    fine = pcall(census.census, buf, done)
+  end
   if not fine then top.layouts[step.file] = { error = 'symdeps could not lay it out' } end
 end
 
