@@ -3559,7 +3559,7 @@ require("lualine").setup({
         color = function()
           local ok, work = pcall(require, "desk.work_events")
           local state = ok and work.tests_state()
-          local pending = state == "running" or state == "stale" or state == "unavailable"
+          local pending = state == "running" or state == "stale" or state == "unverified" or state == "unavailable"
           return { fg = state == "passed" and P.green or state == "failed" and P.red or pending and P.yellow or P.comment }
         end,
       },

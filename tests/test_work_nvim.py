@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from fixture_process import run as run_fixture
+import sealed_env
 
 ROOT = Path(__file__).resolve().parents[1]
 BIN = ROOT / "src/desk-work/desk-work"
@@ -335,6 +336,8 @@ vim.fn.writefile({ '{broken' }, vim.env.FAKE_RUN)
 assert(shown(false, 'last pass · unavailable'))
 fixture({ state = 'passed', stale = true, tests = { passed = 128, failed = 0 } })
 assert(shown(true, 'LAST PASS · STALE') and W.tests_state() == 'stale', 'a pass for older source stayed green')
+fixture({ state = 'passed', stale = true, freshness = 'unverified', tests = { passed = 128, failed = 0 } })
+assert(shown(true, 'LAST PASS · UNVERIFIED') and W.tests_state() == 'unverified', 'a pass desk-work cannot verify did not say so')
 assert(vim.uv.fs_rename(vim.env.FAKE_TOOL, vim.env.FAKE_TOOL .. '.held'))
 assert(shown(true, 'LAST PASS · UNAVAILABLE') and W.tests_state() == 'unavailable')
 assert(vim.uv.fs_rename(vim.env.FAKE_TOOL .. '.held', vim.env.FAKE_TOOL))
@@ -395,6 +398,53 @@ vim.cmd('qa!')
             self.assertIn('work status: idle without desk-work', checked.stdout + checked.stderr)
         init = (ROOT/'templates/nvim/init.lua').read_text()
         self.assertIn('work.tests_status(DeskStyle == "retro")', init, 'the status line does not show the test run')
+
+    def test_status_line_reads_desk_works_word_for_a_pass_it_cannot_verify(self):
+        # Review of 2026-11-17, G2: where the source snapshot is never complete (a checkout in claude-private-repos
+        # here) every pass read "last pass · stale" for good. With desk-work itself: a pass on a clean tree that is still
+        # there reads as a pass; one begun on a dirty tree reads desk-work's word for it, unverified.
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            repo = folder/'repo'
+            repo.mkdir()
+            env = sealed_env.environment(folder, PATH=str(BIN.parent) + os.pathsep + '/usr/bin:/bin', FOXML_WORK_NOTIFY='0',
+                                         TEST_WORK_LUA=str(ROOT/'shared/nvim_lua'), TEST_SOURCE=str(repo/'a.cpp'))
+            self.addCleanup(sealed_env.stop, env)
+            (Path(env['XDG_CONFIG_HOME'])/'foxml').mkdir(parents=True)
+            (Path(env['XDG_CONFIG_HOME'])/'foxml/claude-private-repos').write_text(str(repo) + '\n')
+            def git(*args):
+                subprocess.run(['git', '-C', str(repo), *args], env=env, capture_output=True, text=True, check=True)
+            git('init', '-q')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            (repo/'a.cpp').write_text('int a;\n')
+            git('add', '.')
+            git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'initial')
+            script = folder/'status.lua'
+            script.write_text(r'''
+local W = dofile(vim.env.TEST_WORK_LUA .. '/desk/work_events.lua')
+local system, ended = vim.system, 0
+vim.system = function(argv, opts, on_exit)
+  return system(argv, opts, function(out) on_exit(out); vim.schedule(function() ended = ended + 1 end) end)
+end
+vim.cmd('edit ' .. vim.fn.fnameescape(vim.env.TEST_SOURCE))
+W.tests_status(true)
+assert(vim.wait(10000, function() return ended > 0 end, 20), 'desk-work tests never answered')
+io.stdout:write(('status: %s · %s\n'):format(W.tests_status(true), tostring(W.tests_state())))
+vim.cmd('qa!')
+''')
+            def status_after_a_pass():
+                ran = subprocess.run([str(BIN), 'run', '--', sys.executable, '-c', "print('1 passed')"], cwd=repo, env=env,
+                                     capture_output=True, text=True, timeout=30)
+                self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                shown = run_fixture(['nvim', '--headless', '--clean', '-l', str(script)], cwd=repo, env=env,
+                                    capture_output=True, text=True, timeout=60)
+                self.assertEqual(shown.returncode, 0, shown.stdout + shown.stderr)
+                return shown.stdout.strip()
+            self.assertEqual(status_after_a_pass(), 'status:      √   1 · passed', 'a pass on the clean tree it tested')
+            (repo/'a.cpp').write_text('int dirty;\n')
+            self.assertEqual(status_after_a_pass(), 'status: LAST PASS · UNVERIFIED · unverified',
+                             'a pass begun on a dirty tree, which an incomplete snapshot cannot vouch for')
 
     def test_status_line_shows_nothing_when_no_run_is_recorded_and_desk_work_fails(self):
         # Review of 2026-11-17, G1: with no recorded run, a failed or slow desk-work read "tests unavailable" (before

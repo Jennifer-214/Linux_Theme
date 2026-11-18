@@ -280,6 +280,40 @@ class Work(unittest.TestCase):
         self.assertEqual(self.latest()["snapshot"]["files"], {})
         self.assertIsNone(self.data("notebook")["tests"]["changedFiles"])
 
+    def test_an_incomplete_snapshot_alone_does_not_make_a_run_stale(self):
+        # Review of 2026-11-17, G2: a checkout whose snapshot is never complete (here one in claude-private-repos) read
+        # every pass as stale, and as changed while it ran. As the review tree reads a run, git's tree ids decide: a run
+        # begun on a clean tree is current while no source file differs from that tree; one begun on a dirty tree
+        # cannot be told (desk-work's word: unverified).
+        config = Path(self.env["XDG_CONFIG_HOME"]) / "foxml"
+        config.mkdir(parents=True)
+        (config / "claude-private-repos").write_text(str(self.repo) + "\n")
+        def fresh():
+            run = self.data("tests", "--root", self.repo)
+            return run["freshness"], run["stale"]
+        self.execute("print('1 passed')")
+        run = self.data("tests", "--root", self.repo)
+        self.assertEqual((run["state"], run["freshness"], run["stale"], run.get("changedDuringRun", False), run["changedFiles"]),
+                         ("passed", "same", False, False, None), "a clean tree, nothing changed since or during the run")
+        self.assertFalse(self.data("notebook")["tests"]["stale"], "the notebook reads it the same")
+        overview = self.data("overview", "--root", self.repo, "--fresh", "yes")["jobs"][0]
+        self.assertEqual((overview["freshness"], overview["stale"]), ("same", False), "so does the drawer's overview")
+        (self.repo / "build.log").write_text("ignored\n")
+        (self.repo / "notes.md").write_text("not source\n")
+        self.assertEqual(fresh(), ("same", False), "an ignored file and a file that is not source")
+        self.git("add", "notes.md")
+        self.git("commit", "-qm", "notes")
+        self.assertEqual(fresh(), ("same", False), "a commit since that changes no source file")
+        (self.repo / "sample.cpp").write_text("int edited = 2;\n")
+        self.assertEqual(fresh(), ("stale", True), "a source file edited since")
+        self.git("commit", "-qam", "edit")
+        self.assertEqual(fresh(), ("stale", True), "… and committed")
+        self.execute("from pathlib import Path; Path('sample.cpp').write_text('int during = 3;\\n'); print('2 passed')")
+        self.assertTrue(self.latest()["changedDuringRun"], "a source file changed while it ran is still seen")
+        self.execute("print('3 passed')")
+        self.assertEqual(fresh(), ("unverified", True), "begun on a dirty tree: it cannot be told, and is not called stale")
+        self.assertNotIn("changedDuringRun", self.latest(), "… nor changed while it ran")
+
     def test_attention_failure_clears_after_same_command_succeeds(self):
         script = "from pathlib import Path; import sys; sys.exit(Path('broken').exists())"
         (self.repo / "broken").touch()

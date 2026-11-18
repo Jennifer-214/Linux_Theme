@@ -613,10 +613,14 @@ disqualify it as a baseline. Snapshots exclude secret paths, hidden files,
 symlinks, binary files and ignored build outputs. They stop at 4,000 files,
 1 MiB per file and 32 MiB total; an incomplete snapshot cannot establish a
 passing baseline. Repos in `claude-private-repos` get no source copies.
+Without a complete snapshot, git's tree ids decide, as they do for the review tree: a run begun on a clean tree
+stays current while no source file differs from that tree, and a run begun with uncommitted edits cannot be
+checked, which desk-work calls unverified, not stale.
 External dependencies and environment changes are outside this source check.
 Neovim labels a cached pass **last pass · unavailable** when it cannot refresh
-the test records and **last pass · stale** when the recorded source differs from
-the checkout. Both labels use the theme's warning color. The pass count returns when a refresh
+the test records, **last pass · stale** when the recorded source differs from
+the checkout and **last pass · unverified** when desk-work cannot tell (the drawer's test results say
+"unverified" too). All three use the theme's warning color. The pass count returns when a refresh
 verifies the same result or a newer one. A checkout with no recorded run shows nothing there, whether or not
 desk-work answers.
 

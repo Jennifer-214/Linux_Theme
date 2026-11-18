@@ -221,7 +221,11 @@ local function evidence_state(entry)
   -- (2026-11-17: every checkout without a run read "tests unavailable" while desk-work failed or took over 3 s).
   if entry.error then return run and 'unavailable' or nil end
   if not run then return end
-  if run.stale == true and (run.state == 'passed' or run.state == 'failed') then return 'stale' end
+  -- desk-work's word for a result that is not current: stale (the source changed), unverified (it cannot tell: an
+  -- incomplete snapshot, and git's trees cannot say). An older desk-work says stale only.
+  if run.stale == true and (run.state == 'passed' or run.state == 'failed') then
+    return run.freshness == 'unverified' and 'unverified' or 'stale'
+  end
   return run.state
 end
 
@@ -232,7 +236,7 @@ function M.tests_status(retro)
   local root = current_root()
   local entry = root and tests.runs[root]
   local state = evidence_state(entry)
-  if state == 'unavailable' or state == 'stale' then
+  if state == 'unavailable' or state == 'stale' or state == 'unverified' then
     local known = entry.run and entry.run.state
     local label = known == 'passed' and ('last pass · ' .. state) or known == 'failed' and ('last fail · ' .. state) or 'tests unavailable'
     return retro and label:upper() or label

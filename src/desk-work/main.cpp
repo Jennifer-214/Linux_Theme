@@ -361,9 +361,67 @@ bool same_source(const J& a, const J& b) {
     return a.is_object() && b.is_object() && a.value("complete", false) && b.value("complete", false)
         && str(a, "fingerprint") == str(b, "fingerprint");
 }
-void freshness(J& job, const J& current) {
+J source_of(const std::string& root, const J& snap);
+// The checkout as git sees it now, for tree_freshness: HEAD's tree ("" when git cannot say) and the files git status
+// lists, changed or untracked (source_of keeps at most 200 of each: cut, a list may be longer).
+struct TreeNow { std::string tree; std::vector<std::string> listed; bool cut = false; };
+TreeNow tree_now(const std::string& root) {
+    TreeNow out;
+    auto now = source_of(root, J::object());
+    for (const char* key : {"tracked", "untracked"}) {
+        for (const auto& p : now[key]) if (p.is_string()) out.listed.push_back(p.get<std::string>());
+        out.cut = out.cut || now[key].size() >= 200;
+    }
+    const auto fingerprint = str(now, "fingerprint");
+    if (fingerprint.rfind("tree:", 0) == 0) out.tree = fingerprint.substr(5);
+    // Files listed: git status answered; source_of reads HEAD's tree only for a clean checkout.
+    else if (!out.listed.empty()) out.tree = trim(query({"git", "--no-optional-locks", "-C", root, "rev-parse", "--verify", "--quiet", "HEAD^{tree}"}));
+    return out;
+}
+// A run's source against the checkout now, when the content snapshots cannot say (one is incomplete: a checkout in
+// claude-private-repos, a linked source file or one over 1 MiB, over 4000 files or 32 MiB). As the review tree reads a
+// run, by git's tree ids: one that began on a clean tree ("tree:" in its source) tested exactly that tree, so the
+// checkout holds the same source while no source file differs from it, between the trees or in what git status lists.
+// "same", "stale", or "unverified" when the run did not begin on a clean tree or git cannot say.
+std::string tree_freshness(const std::string& root, const J& tested, std::map<std::string, TreeNow>& seen) {
+    const auto then = str(tested, "fingerprint");
+    if (root.empty() || then.rfind("tree:", 0) != 0) return "unverified";
+    auto at = seen.find(root);
+    if (at == seen.end()) at = seen.emplace(root, tree_now(root)).first;
+    const auto& now = at->second;
+    if (now.tree.empty()) return "unverified";
+    auto paths = now.listed;
+    if (now.tree != then.substr(5)) {
+        A args{"git", "--no-optional-locks", "-C", root, "diff", "--no-renames", "--name-only", "-z", then.substr(5), now.tree, "--"};
+        if (sh::have("timeout")) args.insert(args.begin(), {"timeout", "-k", "1", "5"});
+        std::string diff;
+        if (!sh::capture(args, diff)) return "unverified";
+        for (const auto& p : split(diff, '\0')) paths.push_back(p);
+    }
+    for (const auto& p : paths) if (source(p)) return "stale";
+    return now.cut ? "unverified" : "same";
+}
+// Whether the checkout holds the source a run tested: "same", "stale" or "unverified". The content snapshots decide
+// when both are complete; else git's tree ids (tree_freshness): an incomplete snapshot alone never makes a run stale.
+std::string source_now(const J& job, const J& current, std::map<std::string, TreeNow>& seen) {
+    static const J none;
+    const auto snap = job.find("snapshot"), tested = job.find("source");
+    const J& captured = snap != job.end() ? *snap : none;
+    if (captured.is_object() && current.is_object() && captured.value("complete", false) && current.value("complete", false))
+        return same_source(captured, current) ? "same" : "stale";
+    return tree_freshness(str(job, "root"), tested != job.end() ? *tested : none, seen);
+}
+// freshness, desk-work's word for it: "same", "stale" (the source changed since, or while it ran) or "unverified".
+// stale is anything but "same", so a reader of stale alone never takes an unverified run for a current one;
+// changedFiles, by content, only when both snapshots are complete. trees: git's view of each checkout, kept across
+// the runs of one listing.
+void freshness(J& job, const J& current, std::map<std::string, TreeNow>* trees = nullptr) {
+    std::map<std::string, TreeNow> seen;
+    auto state = source_now(job, current, trees ? *trees : seen);
+    if (job.value("changedDuringRun", false)) state = "stale";
+    job["freshness"] = state;
+    job["stale"] = state != "same";
     const auto& captured = job["snapshot"];
-    job["stale"] = job.value("changedDuringRun", false) || !same_source(captured, current);
     job["changedFiles"] = nullptr;
     if (!captured.is_object() || !captured.value("complete", false) || !current.value("complete", false)
         || !captured.contains("files") || !captured["files"].is_object()) return;
@@ -608,7 +666,9 @@ bool finish(J& j, int code, bool truncated, const J& said = J::object()) {
                       : parse_tests(log, str(j, "root"), str(j, "cwd"));
     j["metrics"] = tool ? tool_figures(j) : extract_metrics(log, str(j, "root"), j["tests"]);
     j["testRun"] = !tool && (str(j, "kind") == "tests" || !j["tests"]["passed"].is_null() || !j["tests"]["failed"].is_null());
-    if (!same_source(j["snapshot"], snapshot(str(j, "root")))) j["changedDuringRun"] = true;
+    // Changed while it ran only when that can be told: an incomplete snapshot alone said so of every run.
+    std::map<std::string, TreeNow> seen;
+    if (source_now(j, snapshot(str(j, "root")), seen) == "stale") j["changedDuringRun"] = true;
     if (unknown || !complete || j.value("changedDuringRun", false) || num(j["tests"], "failed") > 0) j["baselineEligible"] = false;
     else j["baselineEligible"] = j["testRun"].get<bool>() && code == 0 && num(j["tests"], "passed") > 0 && j["snapshot"].value("complete", false);
     if (!save_run(run_dir(str(j, "id")), j)) return false;
@@ -1452,6 +1512,7 @@ J aside_record(const std::string& root) {
 J overview(const A& requested, bool fresh = false, bool include_history = false) {
     auto all = runs(); J todo = J::array(), review = J::array(); int running = 0, finished = 0, failed = 0;
     std::map<std::string, J> snapshots;
+    std::map<std::string, TreeNow> trees;
     std::set<std::string> roots;
     for (const auto& r : requested) { const auto root = root_of(r); if (!root.empty()) roots.insert(root); }
     for (const auto& root : roots_in_use(all)) roots.insert(root);
@@ -1468,7 +1529,10 @@ J overview(const A& requested, bool fresh = false, bool include_history = false)
         if (fresh && r.value("testRun", false)) {
             const auto root = str(r, "root");
             if (!snapshots.count(root)) snapshots[root] = snapshot(root);
-            r["stale"] = r.value("changedDuringRun", false) || !same_source(load_run(str(r, "id")).value("snapshot", J()), snapshots[root]);
+            // The rule freshness() gives `desk-work tests`; its word too.
+            const auto state = r.value("changedDuringRun", false) ? std::string("stale") : source_now(load_run(str(r, "id")), snapshots[root], trees);
+            r["freshness"] = state;
+            r["stale"] = state != "same";
         }
         r.erase("snapshot");
     }

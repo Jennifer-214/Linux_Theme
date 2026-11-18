@@ -2560,7 +2560,8 @@ void work_rows(const Json& config, const std::string& page, Json& rows, bool* ob
             const auto passed = whole(*test, "passed"), failed = whole(*test, "failed");
             if (passed >= 0) detail += " · ✓ " + std::to_string(passed) + " passed";
             if (failed >= 0) detail += " · " + std::to_string(failed) + " failed";
-            if (truth(j, "stale")) detail += " · stale";
+            // desk-work's word: stale (the source changed), or unverified (it cannot tell).
+            if (truth(j, "stale")) detail += text(j, "freshness") == "unverified" ? " · unverified" : " · stale";
         }
         if (truth(j, "observed")) detail += " · status only; fjob captures output";
         rows.push_back(work_row(page == "test-results" ? "work-tests" : "work-open", text(j, "title", text(j, "command")), id, detail));

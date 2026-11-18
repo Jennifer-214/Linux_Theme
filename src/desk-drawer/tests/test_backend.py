@@ -319,6 +319,11 @@ class BackendTests(unittest.TestCase):
         results=self.invoke('view','test-results')['items']
         self.assertEqual(results[0]['id'],'work-tests')
         self.assertIn('stale',results[0]['detail'])
+        # desk-work's word for a pass it cannot verify (an incomplete snapshot, and git cannot tell): not "stale".
+        job.update(freshness='unverified')
+        self.state={'commands':{'desk-work':{'stdout':json.dumps(overview)}}}
+        detail=self.invoke('view','test-results')['items'][0]['detail']
+        self.assertTrue('· unverified' in detail and '· stale' not in detail, detail)
         today=self.invoke('view','root')['today']
         self.assertEqual((today['jobsFinished'],today['jobsFailed'],today['nextStep']),(1,1,'rerun the sanitizer'))
         steps=self.invoke('view','next-steps')['items']

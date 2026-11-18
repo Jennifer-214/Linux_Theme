@@ -62,6 +62,7 @@ J suggested_tests(const std::string& root, const std::string& file) {
     if (!review_file_ok(file)) return J::array();
     J result = J::array(); std::set<std::string> commands;
     const auto source = snapshot(root);
+    std::map<std::string, TreeNow> trees;
     const auto stem = fs::path(file).stem().string();
     for (const auto& row : runs(root)) {
         const auto cwd = str(row, "cwd");
@@ -79,7 +80,7 @@ J suggested_tests(const std::string& root, const std::string& file) {
         const auto counts = row.value("tests", J::object());
         for (const auto& failure : counts.value("failures", J::array()))
             if (str(failure, "filename") == (fs::path(root) / file).string()) { reason = "The captured result reported a failure in this file"; rank = 0; }
-        auto run = load_run(str(row, "id")); freshness(run, source);
+        auto run = load_run(str(row, "id")); freshness(run, source, &trees);
         result.push_back(J{{"id", str(row, "id")}, {"root", root}, {"cwd", cwd}, {"command", str(row, "command")},
             {"label", str(row, "title", str(row, "command"))}, {"reason", reason}, {"rank", rank},
             {"stale", run.value("stale", true)}, {"state", str(row, "state")},
