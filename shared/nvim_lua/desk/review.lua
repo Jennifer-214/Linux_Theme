@@ -248,8 +248,10 @@ local function blob(r, revision, rel, absent)
   if not commit then return nil end
   r.blobs = r.blobs or {}
   local key = commit .. ':' .. rel
-  if r.blobs[key] == nil then r.blobs[key] = git(r.root, { 'show', key }) or false end
-  return r.blobs[key] or nil
+  -- Only a read that worked is kept: a failed git show (a timeout, a lock) is asked again on the next refresh, as
+  -- "Snapshot unavailable" tells her to do.
+  if r.blobs[key] == nil then r.blobs[key] = git(r.root, { 'show', key }) end
+  return r.blobs[key]
 end
 -- What a working or live file was read from: its size and modification time on disk, an unsaved draft's change count,
 -- the commit its before side came from. A refresh skips a file whose stamp is unchanged (every work event and focus
@@ -278,6 +280,9 @@ local function load_file(r, file, refresh)
     left = blob(r, r.row.parent, file.old, file.status == 'A')
     right = blob(r, r.row.sha, file.rel, file.status == 'D')
   else
+    -- Whether each side exists, apart from its text: an emptied file is changed, not deleted, and text added to an
+    -- empty one is changed, not added.
+    local left_absent = false
     local dir = vim.env.XDG_RUNTIME_DIR
     local copy = (r.row.before or {})[file.path]
     if dir and copy and copy:match('^%d+%.txt$') and (r.row.sid or ''):match('^[%w_-]+$') then
@@ -293,17 +298,18 @@ local function load_file(r, file, refresh)
         r.blobs = r.blobs or {}
         if r.blobs[key] == nil then
           local tree = head and git(r.root, { 'ls-tree', '-z', head, '--', ':(literal)' .. file.rel })
-          r.blobs[key] = head == nil or tree == ''
+          if head == nil or tree ~= nil then r.blobs[key] = head == nil or tree == '' end   -- a failed ls-tree asks again
         end
-        if r.blobs[key] then left = '' end
+        if r.blobs[key] then left, left_absent = '', true end
       end
     end
     local buf = vim.fn.bufnr(file.path)
     if buf >= 0 and api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
       right = table.concat(api.nvim_buf_get_lines(buf, 0, -1, false), '\n') .. (vim.bo[buf].endofline and '\n' or '')
     else right = read(file.path) end
-    if right == nil and left ~= nil and uv.fs_stat(file.path) == nil then right = '' end
-    if r.row.kind ~= 'working' then file.status = left == '' and 'A' or right == '' and 'D' or 'M' end
+    local right_absent = right == nil and uv.fs_stat(file.path) == nil
+    if right_absent and left ~= nil then right = '' end
+    if r.row.kind ~= 'working' then file.status = left_absent and 'A' or right_absent and 'D' or 'M' end
   end
   file.error = left == nil or right == nil
   file.binary = (left or ''):find('\0', 1, true) ~= nil or (right or ''):find('\0', 1, true) ~= nil

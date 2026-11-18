@@ -1850,6 +1850,47 @@ assert(worst < ''' + str(limit) + r''', ('the editor stalled for %.0f ms during 
 C.close()
 ''')
 
+    def test_a_snapshot_that_failed_to_read_is_read_again_on_refresh(self):
+        # Codex's review, 2026-11-18: a failed git show was kept for that commit and path, so "Refresh to retry"
+        # never asked git again.
+        self.run_lua(r'''
+local system, failed = vim.system, 0
+vim.system = function(argv, ...)
+  if argv[5] == 'show' and failed == 0 then failed = 1; argv = {'false'} end
+  return system(argv, ...)
+end
+C.open_review(row, root)
+local r = R.current
+assert(failed == 1 and r.files[1].error, 'the first read must have failed: ' .. vim.inspect(r.files[1].error))
+vim.system = system
+R.select(1, true)
+assert(not r.files[1].error, 'r (refresh) must read the snapshot again')
+assert(r.files[1].right:find('local value = 2', 1, true), 'the snapshot after the retry: ' .. r.files[1].right)
+C.close()
+''')
+
+    def test_live_review_labels_an_emptied_file_and_text_in_an_empty_one_as_changed(self):
+        # Codex's review, 2026-11-18: emptied showed "deleted", text added to an empty file showed "added".
+        (self.repo / 'empty-now.txt').write_text('was here\n')
+        (self.repo / 'was-empty.txt').write_text('')
+        self.git('add', '.')
+        self.commit('two files')
+        (self.repo / 'empty-now.txt').write_text('')
+        (self.repo / 'was-empty.txt').write_text('now text\n')
+        (self.repo / 'brand-new.txt').write_text('new\n')
+        self.run_lua(r'''
+C.open_review({kind='live',sid='empty1',name='example',short='example',
+  files={root..'/empty-now.txt',root..'/was-empty.txt',root..'/brand-new.txt'}},root)
+local r = R.current
+for _, rel in ipairs({'empty-now.txt','was-empty.txt','brand-new.txt'}) do R.select(find(rel)) end
+local seen = {}
+for _, f in ipairs(r.files) do seen[f.rel] = f.status end
+assert(seen['empty-now.txt'] == 'M', 'an emptied file is changed, not deleted: ' .. vim.inspect(seen))
+assert(seen['was-empty.txt'] == 'M', 'text in an empty file is changed, not added: ' .. vim.inspect(seen))
+assert(seen['brand-new.txt'] == 'A', 'a file with no committed copy is still added: ' .. vim.inspect(seen))
+C.close()
+''')
+
 
 @unittest.skipUnless(shutil.which('nvim') and shutil.which('git'), 'Neovim and Git required')
 class ReviewInThePopOut(unittest.TestCase):
