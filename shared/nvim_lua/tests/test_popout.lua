@@ -312,7 +312,7 @@ ok(pop([=[local G = require('desk.callgraph'); local a = vim.api.nvim_buf_get_ex
   return a[1] and a[1][2] + 1 == vim.api.nvim_win_get_cursor(0)[1]]=]), 'the gauge marks the selected layer in the pop-out')
 pop("vim.g.desk_style = 'retro'")
 host("vim.g.desk_style = 'retro'; local P = require('desk.popout'); P.redraw(P.view_of('graph'))")
-ok(wait(3000, function() return popped():find('LAYERS -1 … +2', 1, true) end), 'the pop-out draws the Retro graph')
+ok(wait(3000, function() return popped():find('LAYERS -1 .. +2', 1, true) end), 'the pop-out draws the Retro graph')
 ok(pop([=[
   local G = require('desk.callgraph')
   local marks = vim.api.nvim_buf_get_extmarks(0, G.gauge_ns, 0, -1, { details = true })
