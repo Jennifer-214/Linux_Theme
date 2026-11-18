@@ -82,11 +82,9 @@ function M.gauge(drawn, bands, retro, group, active_group)
     end
   end
   local gutter = M.gauge_width(retro)
-  -- The axis the layers' planes sit on, from the first to the last. Only the layers': the map's parts page also has its
-  -- zoom levels (labelled bands) at the top of the same gutter, a stack of its own (seen in a VM, 2026-11-18).
-  local layers = vim.tbl_filter(function(b) return not b.label end, bands)
-  if retro and #layers > 1 then
-    for line = layers[1].first, math.min(layers[#layers].last, layers[#layers].first + 1) do
+  -- The axis the planes sit on, from the first to the last.
+  if retro and #bands > 1 then
+    for line = bands[1].first, math.min(bands[#bands].last, bands[#bands].first + 1) do
       if not rail[line] or rail[line]:match('^%s*$') then rail[line] = pad('  │', gutter) end
     end
   end
