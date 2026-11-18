@@ -1520,7 +1520,7 @@ local ROWS = actions.add({
       popout_symdeps({ item = item, origin = ctx.graph == panel and panel.source_win or (ctx.graph and ctx.graph.origin) })
     end },
   -- t: the trace through the selected box's function (desk.map's trace page: up to where it starts, down to where it ends).
-  { id = 'callgraph.trace', group = 'Call graph', name = 'Trace through this function', key = 't', on = BOTH, remote = true, subject = subject,
+  { id = 'callgraph.trace', group = 'Call graph', name = 'Trace a possible path through this function', key = 't', on = BOTH, remote = true, subject = subject,
     about = "The project map's trace through the selected function: up to where it starts, down to where it ends, each step with its parameters and the arguments it is called with",
     available = function(ctx)
       local item = selected_item(ctx)

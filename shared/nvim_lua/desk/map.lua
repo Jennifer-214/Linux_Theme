@@ -1298,6 +1298,15 @@ function M.trace_page(answer, folds, layouts, field)
   local focus
   for _, st in ipairs(steps) do if st.id == answer.focus then focus = st end end
   local sections = { { head = 'trace through ' .. code(focus and focus.label) .. ' · ' .. #steps .. (#steps == 1 and ' function' or ' functions') } }
+  -- A possible path, not the only one: its ends, and who chose each (her e and S, or the map: the farthest start, the
+  -- end of the calls) — a backtest's route then says so before it is read as the live one.
+  if #steps > 1 then
+    local first, last = steps[1], steps[#steps]
+    sections[#sections + 1] = { block = { { { 'from ' .. tostring(first.label), nil, nil, 'DeskMapName' },
+      { answer.start and ' (your choice)' or ' (picked by the map: the farthest start)', nil, true, 'DeskMapDim' },
+      { ' · to ' .. tostring(last.label), nil, nil, 'DeskMapName' },
+      { answer.to and ' (your choice)' or ' (picked by the map: where the calls end)', nil, true, 'DeskMapDim' } } }, group = 'DeskMapDim' }
+  end
   if focus and focus.before then
     sections[#sections + 1] = { block = { { { '▲ ' .. focus.before, walk_item(focus, 'callers', focus.before) }, { ' before · ', nil, true },
       { '▼ ' .. (focus.after or 0), walk_item(focus, 'reach', focus.after or 0) }, { ' after it in the map', nil, true } } }, group = 'DeskMapDim' }
@@ -2675,7 +2684,7 @@ local function moving(how, key, name, line, doc)
     end }
 end
 local ROWS = actions.add({
-  { id = 'map.trace-here', group = GROUP, name = 'Trace through this function', key = '<leader>cp', on = 'editor', remote = true,
+  { id = 'map.trace-here', group = GROUP, name = 'Trace a possible path through this function', key = '<leader>cp', on = 'editor', remote = true,
     about = 'The path through the function at the cursor, up to where it starts and down to where it ends, with each step\'s parameters and the arguments it is called with (in the pop-out\'s map when it shows one)',
     run = function() M.trace_here() end },
   { id = 'map.open', group = GROUP, name = 'Project map', key = '<leader>cm', on = 'editor', remote = true, also = '`:ProjectMap`',
@@ -2718,7 +2727,7 @@ local ROWS = actions.add({
   row('centre', 'c', 'The call graph of this function',
     'The call graph centred on the selected function, where the map is: a graph tab here, the call graph in the pop-out (`Ctrl+o` there comes back to the map)',
     centre, needs_function, ON_IT),
-  row('trace', 't', 'Trace through this function',
+  row('trace', 't', 'Trace a possible path through this function',
     'The lane through the selected function: up to where it starts, down to where it ends; each step with its parameters (how each is passed, and whether the callee can change it) and what it is called with. In the pop-out it follows the function at the cursor (`p` pins it)',
     trace_from, needs_function, ON_IT),
   row('trace-to', 'e', 'Trace to a chosen function', 'On a trace: down to the function you name instead of where the chain ends',

@@ -467,6 +467,15 @@ do
   ok(line_with(cpage.lines, "┄ no call from tick to submit: the route came back through a cycle here") and not line_with(cpage.lines, ":11   Order"),
     "two steps with no call between them: said, not drawn as a call")
 end
+do
+  -- A possible path: its ends, and who chose each.
+  local text = table.concat(Map.layout(Map.trace_page(trace_answer), 120, false).lines, "\n")
+  ok(text:find("from hot (picked by the map: the farthest start) · to submit (picked by the map: where the calls end)", 1, true), "the route's ends, each picked by the map")
+  local chosen = vim.tbl_extend("force", vim.deepcopy(trace_answer), { to = "e.cpp::submit", start = "e.cpp::hot" })
+  text = table.concat(Map.layout(Map.trace_page(chosen), 120, false).lines, "\n")
+  ok(text:find("from hot (your choice) · to submit (your choice)", 1, true), "… or chosen by her (S and e)")
+  eq(require("desk.actions").get("map.trace").name, "Trace a possible path through this function", "t says what it answers: a possible path")
+end
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11, to_line = 20 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)
