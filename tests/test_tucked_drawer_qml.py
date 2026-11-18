@@ -69,7 +69,9 @@ EXERCISE = r'''
         if (!root.drawerHost || !keyboard.activeFocus || panel.visible) throw new Error("bar return did not restore the attached drawer");
         root.hide();
     }}
-    Timer { interval:2100; running:true; onTriggered: {
+    Timer { interval:2100; running:true; property int tries:0; onTriggered: {
+        // As at 2700: the close animates; wait for it, up to 250 ms.
+        if (root.drawerVisible && tries++ < 10) { interval=25; restart(); return; }
         if (root.drawerVisible) throw new Error("drawer remained visible");
         root.show("calendar");
     }}
@@ -99,7 +101,9 @@ EXERCISE = r'''
             throw new Error("g in the calendar did not open the garden at the launcher");
         root.hide();
     }}
-    Timer { interval:2700; running:true; onTriggered: {
+    Timer { interval:2700; running:true; property int tries:0; onTriggered: {
+        // Closing animates (160-220 ms, software-rendered here): wait for it to end, up to 250 ms, before calling it kept.
+        if ((root.drawerVisible || keyboard.enabled) && tries++ < 10) { interval=25; restart(); return; }
         if (root.drawerVisible || keyboard.enabled) throw new Error("calendar close kept its sheet or keyboard");
         root.showFromBar("calendar",desktopBar.item.windows[0].screen.name,"custom/clock");
     }}

@@ -324,7 +324,10 @@ EXERCISE = r'''
         root.hide();
     }}
     Timer { interval:6000; running:true; onTriggered: root.show("agents") }
-    Timer { interval:6100; running:true; onTriggered: {
+    Timer { interval:6100; running:true; property int tries: 0; onTriggered: {
+        // The page is the backend's answer (a process, ~55 ms to start): wait for it, until the next stage at 6250, rather
+        // than look once 100 ms after asking — on a busy machine it was not there yet ("root 1", "agents 0").
+        if ((root.page !== "agents" || root.entries.length !== 2) && tries++ < 6) { interval = 20; restart(); return; }
         var hearts = testFind(itemList, "context-hearts");
         if (root.entries.length !== 2 || !hearts || !hearts.visible || hearts.filled !== 2)
             throw new Error("a Claude session row lost its context hearts: " + root.page + " " + root.entries.length + " " + (hearts ? hearts.visible + "/" + hearts.filled : "none"));
