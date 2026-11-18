@@ -384,6 +384,43 @@ do
   local col = firstl and firstl:find("field_number_1 ", 1, true)
   ok(col and next_line:find("field_number_", 1, true) == col, "… the next line under the list's start: " .. tostring(next_line))
 end
+do
+  -- The layout fold in either order (the second step once found no struct: the file's answer was the first's alone).
+  local real_sd, real_of = package.loaded["fox-symdeps"], package.loaded["fox-symdeps.layoutof"]
+  package.loaded["fox-symdeps"] = {}
+  local asks, answers = {}, {}
+  local LAYOUTS = { Tick = { name = "tt::Tick", size = 8, align = 8, complete = true, members = { { kind = "field", name = "px", off = 0, size = 8 } } },
+                    Order = { name = "tt::Order", size = 16, align = 8, complete = true, members = { { kind = "field", name = "qty", off = 0, size = 16 } } } }
+  package.loaded["fox-symdeps.layoutof"] = { of = function(_, names, done)
+    asks[#asks + 1] = table.concat(names, ",")
+    answers[#answers + 1] = function()
+      local recs = {}
+      for _, n in ipairs(names) do recs[n] = LAYOUTS[n] end
+      done({ records = recs })
+    end
+  end }
+  local function opened(order)
+    asks, answers = {}, {}
+    local top = { answer = trace_answer }
+    local fake_view = { root = "/r", stack = {}, buf = -1, win = -1 }
+    for _, id in ipairs(order) do Map.lay_out(fake_view, top, id) end
+    for _, a in ipairs(answers) do a() end
+    local folds = { ["e.cpp::tick|layout"] = true, ["e.cpp::submit|layout"] = true }
+    local text = table.concat(Map.layout(Map.trace_page(trace_answer, folds, top.layouts), 100, false).lines, "\n")
+    return { text:find("t  Tick  8 B", 1, true) ~= nil, text:find("order  Order  16 B", 1, true) ~= nil, #asks }
+  end
+  eq(opened({ "e.cpp::tick", "e.cpp::submit" }), { true, true, 2 }, "tick then submit: both structs laid out, each asked once")
+  eq(opened({ "e.cpp::submit", "e.cpp::tick" }), { true, true, 2 }, "… submit then tick: the same two answers")
+  eq(opened({ "e.cpp::tick", "e.cpp::tick" }), { true, false, 1 }, "a type already on the way is waited for, not asked twice")
+  local top = { answer = trace_answer }
+  asks, answers = {}, {}
+  Map.lay_out({ root = "/r", stack = {}, buf = -1, win = -1 }, top, "e.cpp::tick")
+  local waiting = table.concat(Map.layout(Map.trace_page(trace_answer, { ["e.cpp::tick|layout"] = true, ["e.cpp::submit|layout"] = true }, top.layouts), 100, false).lines, "\n")
+  ok(waiting:find("symdeps is laying this file out", 1, true) and waiting:find("no struct it is passed is laid out", 1, true) == nil,
+    "… and while it is, its step says so (not \"no struct\")")
+  ok(waiting:find("opening asks symdeps to lay this file out", 1, true), "… and a step of the file not asked yet says opening asks, not \"no struct\"")
+  package.loaded["fox-symdeps"], package.loaded["fox-symdeps.layoutof"] = real_sd, real_of
+end
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)

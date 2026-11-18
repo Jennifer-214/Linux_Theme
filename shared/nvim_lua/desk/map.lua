@@ -1253,8 +1253,18 @@ function M.trace_page(answer, folds, layouts)
       fold('layout', 'layout', #params, function()
         local got = layouts[st.file]
         if not got then return { { { '    ' }, { 'opening asks symdeps to lay this file out', nil, true, 'DeskMapDim' } } } end
-        if got.pending then return { { { '    ' }, { 'symdeps is laying this file out' .. ellipsis, nil, true, 'DeskMapDim' } } } end
-        if got.error then return { { { '    ' }, { got.error, nil, nil, 'DeskMapDim' } } } end
+        -- What this step asks of the file's answer (merged from every step that asked: by file and type, not first come)
+        local waiting, asked = got.pending == true, got.all or got.records ~= nil and got.asked == nil
+        for _, prm in ipairs(params) do
+          local t = base_type(prm.type)
+          if t and got.pending_types and got.pending_types[t] then waiting = true end
+          if t and got.asked and got.asked[t] then asked = true end
+        end
+        if not waiting and not asked and not got.error then
+          return { { { '    ' }, { 'opening asks symdeps to lay this file out', nil, true, 'DeskMapDim' } } }
+        end
+        if waiting then return { { { '    ' }, { 'symdeps is laying this file out' .. ellipsis, nil, true, 'DeskMapDim' } } } end
+        if got.error and #(got.records or {}) == 0 then return { { { '    ' }, { got.error, nil, nil, 'DeskMapDim' } } } end
         local by = {}
         for _, rec in ipairs(got.records or {}) do
           local base = base_type(rec.name)
@@ -1864,10 +1874,26 @@ function M.lay_out(view, top, id)
   for _, st in ipairs(top.answer and top.answer.steps or {}) do if st.id == id then step = st end end
   if not (step and step.file) then return end
   top.layouts = top.layouts or {}
-  if top.layouts[step.file] then return end
+  -- One answer per file, merged as steps ask: the records found, the types asked, those still on the way. A second step
+  -- in the file asks only for its own new types, and one already on the way is waited for, not asked twice.
+  local entry = top.layouts[step.file] or { records = {}, asked = {}, pending_types = {} }
+  top.layouts[step.file] = entry
+  if entry.all or entry.unavailable then return end
+  local missing = {}
+  for _, prm in ipairs(step.params or {}) do
+    local t = base_type(prm.type)
+    if t and not entry.asked[t] and not entry.pending_types[t] and not vim.tbl_contains(missing, t) then missing[#missing + 1] = t end
+  end
+  if #missing == 0 then return end
   local path = view.root .. '/' .. step.file
-  local function done(got)
-    top.layouts[step.file] = got and got.records and { records = got.records } or { error = (got and got.error) or 'symdeps could not lay it out' }
+  local function merge(list)
+    local have = {}
+    for _, r in ipairs(entry.records) do have[r.name] = true end
+    for _, r in ipairs(list or {}) do if not have[r.name] then have[r.name] = true; entry.records[#entry.records + 1] = r end end
+  end
+  local function settle(got, types)
+    for _, t in ipairs(types) do entry.pending_types[t] = nil; entry.asked[t] = true end
+    if got and got.error then entry.error = got.error end
     if valid(view) and view.stack[#view.stack] == top then load(view) end
   end
   -- symdeps' layoutof (a file's structs laid out once, cached; only those asked), else its census (every record, a
@@ -1876,41 +1902,40 @@ function M.lay_out(view, top, id)
   local has_census, census = pcall(require, 'fox-symdeps.recordlayout')
   if not actions.symdeps() or not ((has_of and type(layoutof) == 'table' and type(layoutof.of) == 'function')
       or (has_census and type(census) == 'table' and type(census.census) == 'function')) then
-    top.layouts[step.file] = { error = 'requires symdeps (an optional plugin for C and C++ layouts)' }
+    entry.error, entry.unavailable = 'requires symdeps (an optional plugin for C and C++ layouts)', true
     return
   end
-  top.layouts[step.file] = { pending = true }
+  for _, t in ipairs(missing) do entry.pending_types[t] = true end
   local fine
   if has_of and type(layoutof) == 'table' and type(layoutof.of) == 'function' then
-    local names = {}
-    for _, prm in ipairs(step.params or {}) do names[#names + 1] = base_type(prm.type) end
-    fine = pcall(layoutof.of, path, names, function(got)
+    fine = pcall(layoutof.of, path, missing, function(got)
       local list = {}
       for _, rec in pairs(got and got.records or {}) do vim.list_extend(list, rec.variants or { rec }) end
-      done(got and got.records and { records = list } or got)
+      merge(list)
+      settle(got, missing)
     end)
   else
     -- an older symdeps' census: offsets and type names only, no member sizes and no bit-fields, so never complete
-    -- (its gaps are not drawn as padding); a base's or the vtable pointer's line has no plain name and is left out
+    -- (its gaps are not drawn as padding); a base's or the vtable pointer's line has no plain name and is left out.
+    -- It answers every record of the file at once.
     local buf = vim.fn.bufadd(path)
     pcall(vim.fn.bufload, buf)
     fine = pcall(census.census, buf, function(got)
-      if got and got.records then
-        local list = {}
-        for _, rec in ipairs(got.records) do
-          local members = {}
-          for _, f in ipairs(rec.fields or {}) do
-            if f.name:match('^[%a_][%w_]*$') then members[#members + 1] = { kind = 'field', name = f.name, type = f.type, off = f.off } end
-          end
-          list[#list + 1] = { name = rec.name, size = rec.size, align = rec.align, members = members, complete = false,
-            why = 'an older symdeps gives no member sizes' }
+      local list = {}
+      for _, rec in ipairs(got and got.records or {}) do
+        local members = {}
+        for _, f in ipairs(rec.fields or {}) do
+          if f.name:match('^[%a_][%w_]*$') then members[#members + 1] = { kind = 'field', name = f.name, type = f.type, off = f.off } end
         end
-        got = { records = list }
+        list[#list + 1] = { name = rec.name, size = rec.size, align = rec.align, members = members, complete = false,
+          why = 'an older symdeps gives no member sizes' }
       end
-      done(got)
+      merge(list)
+      if got and got.records then entry.all = true end
+      settle(got, missing)
     end)
   end
-  if not fine then top.layouts[step.file] = { error = 'symdeps could not lay it out' } end
+  if not fine then settle({ error = 'symdeps could not lay it out' }, missing) end
 end
 
 local function ask(prompt, default, done)
