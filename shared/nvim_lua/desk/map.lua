@@ -158,12 +158,99 @@ function M.signature(node, src)
   return { params = params, returns = type_node and written(has_const(node, src), type_node, marks, src) or nil }
 end
 -- A call's arguments as written (at most 12, each on one line, at most 80 characters).
-local function call_args(node, src)
-  local list, out = node:field('arguments')[1], {}
+local function list_texts(list, src)
+  local out = {}
   for child in (list and list:iter_children() or function() end) do
     if child:named() and not child:type():find('comment', 1, true) and #out < 12 then out[#out + 1] = one_line(text_of(child, src)):sub(1, 80) end
   end
   return out
+end
+local function call_args(node, src) return list_texts(node:field('arguments')[1], src) end
+
+-- ─── handoffs: where data or control moves without a call between the two functions ───
+-- Seen while reading: a push or a pop on an object (its last name: `&core->tick_ring` is tick_ring; a method's
+-- receiver, else the call's first argument), a function passed by name to a call (a thread start, a callback), and a
+-- function pointer set (field → the function named). Joined once every file is read (M.handoff_edges).
+local PUSHES, POPS = { 'push', 'enqueue', 'publish', 'submit_to' }, { 'pop', 'dequeue', 'consume', 'drain' }
+local function last_name(text)
+  local name = tostring(text or ''):gsub('[%s%(%)%*&]', ''):match('([%a_][%w_]*)$')
+  return name
+end
+local function is_op(short, words)
+  local lower = short:lower()
+  for _, w in ipairs(words) do if lower:find(w, 1, true) then return true end end
+  return false
+end
+function M.note_handoff(ops, passed, owner, full, short, args, line)
+  local op = is_op(short, PUSHES) and 'push' or is_op(short, POPS) and 'pop' or nil
+  if op then
+    local receiver = full:sub(1, #full - #short):gsub('[%.:]+$', '')
+    local object = last_name(receiver ~= '' and receiver or (args or {})[1])
+    if object and object ~= 'this' and object ~= 'self' then ops[#ops + 1] = { owner = owner, object = object, op = op, line = line } end
+  end
+  for _, arg in ipairs(args or {}) do
+    local name = arg:gsub('^&', '')
+    if name:match('^[%a_][%w_:]*$') then passed[#passed + 1] = { owner = owner, name = name, via = short, line = line } end
+  end
+end
+function M.note_pointer(pointers, field, value, line)
+  local name = tostring(value):gsub('^&', '')
+  if field:match('^[%a_][%w_]*$') and name:match('^[%a_][%w_:]*$') then
+    pointers[field] = pointers[field] or {}
+    table.insert(pointers[field], { name = name, line = line })
+  end
+end
+-- The handoff edges: a push to the functions popping the same object (both sides at most 4 functions: a name more
+-- functions use is too common to mean one ring), a function passed by name (one function of that name), and a call
+-- through a field a function pointer was set into. Each says what it went through; none is a call. units, by_short
+-- and the caller's family as the call edges use them; seen: the pairs with an edge already.
+function M.handoff_edges(units, by_short, ops, passed, pointers, calls, seen, cap)
+  local edges = {}
+  local function unit_named(name, family)
+    local pick = by_short[name:match('([%w_~]+)$') or name] or {}
+    pick = vim.tbl_filter(function(k) return units[k].family == family and units[k].kind == 'function' end, pick)
+    return #pick == 1 and pick[1] or nil
+  end
+  local function add(from, to, label, line)
+    if from == to or #edges >= cap then return end
+    -- A direct call between the two says it already.
+    if seen[units[from].id .. '\0' .. units[to].id] then return end
+    local key = units[from].id .. '\0' .. units[to].id .. '\0handoff'
+    if seen[key] then return end
+    seen[key] = true
+    edges[#edges + 1] = { from = units[from].id, to = units[to].id, kind = 'handoff', label = label:sub(1, 80), line = line }
+  end
+  local by_object = {}
+  for _, o in ipairs(ops) do
+    local slot = by_object[o.object] or { push = {}, pop = {} }
+    by_object[o.object] = slot
+    slot[o.op][o.owner] = slot[o.op][o.owner] or o.line
+  end
+  for object, slot in pairs(by_object) do
+    local pushers, poppers = vim.tbl_keys(slot.push), vim.tbl_keys(slot.pop)
+    table.sort(pushers); table.sort(poppers)
+    if #pushers >= 1 and #pushers <= 4 and #poppers >= 1 and #poppers <= 4 then
+      for _, a in ipairs(pushers) do
+        for _, b in ipairs(poppers) do
+          add(a, b, object .. ': push :' .. slot.push[a] .. ' → pop :' .. slot.pop[b], slot.push[a])
+        end
+      end
+    end
+  end
+  for _, h in ipairs(passed) do
+    local to = unit_named(h.name, units[h.owner].family)
+    if to then add(h.owner, to, 'passed to ' .. h.via, h.line) end
+  end
+  for _, c in ipairs(calls) do
+    local set = pointers[c.short]
+    if set and not by_short[c.short] then
+      for _, target in ipairs(set) do
+        local to = unit_named(target.name, units[c.from].family)
+        if to then add(c.from, to, 'through ' .. c.short .. ' (set at :' .. target.line .. ')', c.line) end
+      end
+    end
+  end
+  return edges
 end
 
 -- request: { root, files = { rel… }, limits = { nodes, edges } }. Returns the map's graph shape plus spans (each
@@ -175,6 +262,8 @@ function M.syntax_graph(request)
   local limits = type(request.limits) == 'table' and request.limits or {}
   local max_nodes, max_edges = tonumber(limits.nodes) or 50000, tonumber(limits.edges) or 200000
   local units, calls, spans = {}, {}, vim.empty_dict()
+  -- Handoffs (C and C++): pushes and pops by the object they act on, functions passed by name, function pointers set.
+  local ops, passed, pointers = {}, {}, {}
   local stats = { files = 0, parsed = 0, functions = 0, types = 0, calls = 0, edges = 0, ambiguous = 0, outside = 0 }
   local no_parser, parsers, complete, why = {}, {}, true, nil
   local function has_parser(lang)
@@ -236,6 +325,39 @@ function M.syntax_graph(request)
           local fine, args = pcall(call_args, node, src)
           calls[#calls + 1] = { from = owner, full = full, short = short, line = node:start() + 1, args = fine and args or nil }
           stats.calls = stats.calls + 1
+          if (FAMILY[lang] or lang) == 'c' and fine then M.note_handoff(ops, passed, owner, full, short, args, node:start() + 1) end
+        end
+      end
+      if (FAMILY[lang] or lang) == 'c' and owner then
+        -- A function pointer set: `x.submit = &f;`, `.submit = f` in an initializer; and `std::thread t(f, …)`.
+        if t == 'assignment_expression' then
+          local left, right = node:field('left')[1], node:field('right')[1]
+          local field = left and left:type() == 'field_expression' and left:field('field')[1]
+          if field and right then M.note_pointer(pointers, one_line(text_of(field, src)), one_line(text_of(right, src)), node:start() + 1) end
+        elseif t == 'initializer_pair' then
+          local designator, value = node:field('designator')[1], node:field('value')[1]
+          if designator and value then
+            M.note_pointer(pointers, (one_line(text_of(designator, src)):gsub('^%.', '')), one_line(text_of(value, src)), node:start() + 1)
+          end
+        elseif t == 'init_declarator' then
+          -- `std::thread t(f, …)` and `std::jthread j{f}`: an object made with a function passed to it.
+          local value = node:field('value')[1]
+          if value and (value:type() == 'argument_list' or value:type() == 'initializer_list') then
+            local fine, args = pcall(list_texts, value, src)
+            local ty = node:parent() and node:parent():field('type')[1]
+            local made = ty and last_name(one_line(text_of(ty, src))) or 'its constructor'
+            if fine then M.note_handoff(ops, passed, owner, made, made, args, node:start() + 1) end
+          end
+        elseif t == 'declaration' and units[owner].kind == 'function' then
+          -- Inside a function, `std::thread hot(HotThreadBody, core);` reads as a function declared (C++'s most vexing
+          -- parse): its "parameters" are the arguments it is made with.
+          local declarator, ty = node:field('declarator')[1], node:field('type')[1]
+          local list = declarator and declarator:type() == 'function_declarator' and declarator:field('parameters')[1]
+          if list then
+            local fine, args = pcall(list_texts, list, src)
+            local made = ty and last_name(one_line(text_of(ty, src))) or 'its constructor'
+            if fine then M.note_handoff(ops, passed, owner, made, made, args, node:start() + 1) end
+          end
         end
       end
       local children = {}
@@ -299,6 +421,9 @@ function M.syntax_graph(request)
       end
     end
   end
+  local handoffs = M.handoff_edges(units, by_short, ops, passed, pointers, calls, seen, math.max(0, max_edges - #edges))
+  for _, e in ipairs(handoffs) do edges[#edges + 1] = e end
+  stats.handoffs = #handoffs
   local notes = {}
   if stats.ambiguous > 0 then
     notes[#notes + 1] = stats.ambiguous .. (stats.ambiguous == 1 and ' call' or ' calls') .. ' could not be told apart by name'
@@ -828,7 +953,11 @@ function M.trace_page(answer)
     end
     if #block > 0 then sections[#sections + 1] = { block = block } end
     local call, after = calls[k], steps[k + 1]
-    if call and after then
+    if call and after and call.kind == 'handoff' then
+      -- No call between the two: what one gives, the other takes (a ring's push and pop, a thread started with it, a
+      -- function pointer). Inferred from the code, and said so.
+      sections[#sections + 1] = { block = { { { '══[ ' .. (call.label or 'handoff') .. ' ]══' }, { '  inferred', nil, true } } }, group = 'DeskMapFocus' }
+    elseif call and after then
       sections[#sections + 1] = { arrow = true }
       local flow, into = {}, after.params or {}
       for i, arg in ipairs(call.args or {}) do

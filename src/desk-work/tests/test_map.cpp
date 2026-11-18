@@ -279,6 +279,16 @@ int main(int, char** argv) {
         CHECK(lane(to_x).back() == "x" && to_x["reached"] == true, "--to: down the shortest way to the chosen function");
         const auto to_s = desk_map::trace(g, g.at.at("F"), 16, static_cast<long>(g.at.at("s")));
         CHECK(lane(to_s).back() == "F" && to_s["reached"] == false, "… and says so when it is not below");
+        // A handoff (end → consumer, through a ring): walked like a call, said as a handoff with its label.
+        J handed = doc;
+        handed["nodes"].push_back(J{{"id", "consumer"}, {"label", "consumer"}, {"kind", "function"}, {"file", "f.cpp"}, {"line", 40}});
+        handed["edges"].push_back(J{{"from", "end"}, {"to", "consumer"}, {"kind", "handoff"}, {"label", "ring: push :3 → pop :41"}, {"line", 3}});
+        const desk_map::Graph hg(desk_map::clean_graph(handed));
+        const auto ht = desk_map::trace(hg, hg.at.at("F"), 16);
+        CHECK(lane(ht).back() == "consumer", "a handoff carries the lane on past the end of the calls");
+        CHECK(ht["calls"].back()["kind"] == "handoff" && ht["calls"].back()["label"] == "ring: push :3 → pop :41",
+              "… said as a handoff, with what it went through");
+        CHECK(desk_map::paths(hg, hg.at.at("entry"), hg.at.at("consumer"), 16, 5)["paths"].size() == 1, "… and the map's ways go through it");
         CHECK(lane(desk_map::trace(g, g.at.at("F"), 1)) == std::vector<std::string>({"s", "F", "x"}),
               "depth bounds each way; within it a real start and end win (s and x) over a and b, which go on");
     }

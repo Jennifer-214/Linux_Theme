@@ -44,6 +44,17 @@ local sources = {
   ["lua/a/one.lua"] = { "local function pick() return 1 end", "return pick" },
   ["lua/a/two.lua"] = { "local function choose() return pick() end", "return choose" },
   ["lua/b/three.lua"] = { "local function pick() return 3 end", "return pick" },
+  ["csrc/pipe.cpp"] = { "struct Tick { int px; };", "struct Ring { int head; };", "struct Order { int qty; };",
+                        "struct Adapter { bool (*submit_market_buy)(const Order&); };",
+                        "static void Ring_Push(Ring* r, const Tick& t) { r->head = t.px; }",
+                        "static bool Ring_Pop(Ring* r, Tick* out) { out->px = r->head; return true; }",
+                        "static bool Binance_Submit(const Order& o) { return o.qty > 0; }",
+                        "struct Core { Ring tick_ring; Adapter adapter; };",
+                        "void FanOut(Core* core, const Tick& tick) { Ring_Push(&core->tick_ring, tick); }",
+                        "void HotThreadBody(Core* core) { Tick t{0}; while (Ring_Pop(&core->tick_ring, &t)) { Order o{t.px}; core->adapter.submit_market_buy(o); } }",
+                        "void Setup(Core* core) { core->adapter.submit_market_buy = &Binance_Submit; std::thread hot(HotThreadBody, core); }",
+                        "void Drainer() {}", "void Sender(int n) {}",
+                        "void StartAll(Pool& workers) { std::jthread j{Drainer}; workers.emplace_back(Sender, 2); }" },
   ["csrc/queue.cpp"] = { "#include <vector>", "namespace fox {", "class Queue {", "public:", "    void push(int x) { grow(); items.push_back(x); }",
                          "    int size() const;", "private:", "    void grow() {}", "    std::vector<int> items;", "};",
                          "int Queue::size() const { return static_cast<int>(items.size()); }", "int run(Queue& q) { q.push(1); return q.size(); }", "}" },
@@ -79,7 +90,7 @@ local chose = {}
 for _, e in ipairs(graph.edges) do if ids[e.from].label == "choose" then chose[#chose + 1] = e.to end end
 eq(chose, { "lua/a/one.lua::pick" }, "two functions of one name in other files: the caller's own folder wins")
 ok(not ids["../outside.lua"] and graph.stats.files == #files - 2, "paths outside the root are refused")
-for _, e in ipairs(graph.edges) do ok(e.kind == "call-by-name" or e.kind == "contains", "every edge says it is by name (or a class's member): " .. e.kind) end
+for _, e in ipairs(graph.edges) do ok(e.kind == "call-by-name" or e.kind == "contains" or e.kind == "handoff", "every edge says it is by name, a class's member, or a handoff: " .. e.kind) end
 eq(graph.complete, true, "complete when nothing was capped")
 
 ok(by_label["square"] and by_label["norm"] and by_label["find"] and by_label["point"], "C: functions, a pointer-returning one, a struct with a body")
@@ -121,6 +132,18 @@ if has_parser("cpp") then
     "C++: a reference parameter the callee may change")
   eq(by_label["fox::Queue::push"].params, { { name = "x", type = "int", pass = "value", dir = "in" } }, "… a method's value parameter")
   eq(call_of("fox::run", "fox::Queue::push").args, { "1" }, "… and what it is called with")
+  -- Handoffs: where data or control moves without a call between the two functions.
+  local function handoff(from, to)
+    for _, e in ipairs(graph.edges) do
+      if e.kind == "handoff" and ids[e.from] and ids[e.to] and ids[e.from].label == from and ids[e.to].label == to then return e.label end
+    end
+  end
+  eq(handoff("FanOut", "HotThreadBody"), "tick_ring: push :9 → pop :10", "a push and a pop on one object (its last name), two functions")
+  eq(handoff("HotThreadBody", "Binance_Submit"), "through submit_market_buy (set at :11)", "a call through a function pointer set elsewhere")
+  eq({ handoff("Setup", "HotThreadBody"), handoff("StartAll", "Drainer"), handoff("StartAll", "Sender") },
+    { "passed to thread", "passed to jthread", "passed to emplace_back" },
+    "a thread started with a function: std::thread t(f, …) (read as a declaration), jthread{f}, emplace_back(f, …)")
+  ok(not handoff("FanOut", "Ring_Push") and edge("FanOut", "Ring_Push"), "a direct call is a call, not also a handoff")
 else skipped[#skipped + 1] = "cpp (no parser)" end
 
 -- The same headless, as desk-work runs it: a request file in, the answer written to a file.
@@ -243,6 +266,11 @@ ok(line_with(traced_retro.lines, "IN     CONST REF  const Tick &  t") and line_w
   "retro: the words in capitals, the code as typed")
 local unreached = Map.layout(Map.trace_page(vim.tbl_extend("force", trace_answer, { to = "e.cpp::flush", reached = false })), 90, false)
 ok(line_with(unreached.lines, "tick does not reach flush within 16 calls"), "e to a function it does not reach: says so")
+local handed = vim.deepcopy(trace_answer)
+handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11 }
+local handed_page = Map.layout(Map.trace_page(handed), 90, false)
+ok(line_with(handed_page.lines, "══[ tick_ring: push :11 → pop :20 ]══  inferred"), "a handoff between steps: what it went through, said as inferred")
+ok(not line_with(handed_page.lines, ":11   Order{t.px}"), "… with no call's arguments, as there is no call")
 local way_row, way = line_with(ways.lines, "use → M.alpha → M.beta")
 ok(way_row and way:find("(by name)", 1, true), "a way, with the part found by name said")
 eq(Map.item_at(ways, way_row, way:find("M.alpha", 1, true)).target.node.id, "lua/mod.lua::M.alpha", "each name on a way is a hit")

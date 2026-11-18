@@ -45,6 +45,9 @@ inline const J& list(const J& j, const char* key) {
     return it != j.end() && it->is_array() ? *it : empty;
 }
 inline bool call_kind(const std::string& kind) { return kind == "call" || kind == "call-by-name"; }
+// A handoff (the syntax reader's: a push to a pop on one object, a function passed by name, a call through a function
+// pointer set): no call between the two, yet what one gives the other takes. Walked like a call; said as what it is.
+inline bool walked_kind(const std::string& kind) { return call_kind(kind) || kind == "handoff"; }
 
 // ─── names ──────────────────────────────────────────────────────────────────────────────────────────────────────
 // A copy the compiler made of a function (its cold part, a specialised or partial copy) is that function:
@@ -423,6 +426,7 @@ inline J clean_graph(const J& raw) {
         for (const auto& e : raw["edges"]) {
             if (!e.is_object() || !ids.count(text(e, "from")) || !ids.count(text(e, "to")) || text(e, "kind").empty()) continue;
             J edge{{"from", text(e, "from")}, {"to", text(e, "to")}, {"kind", text(e, "kind").substr(0, 32)}};
+            if (!text(e, "label").empty()) edge["label"] = text(e, "label").substr(0, 80);
             // A call's line and its arguments as written (at most 12, each at most 80 characters): what flows in.
             if (number(e, "line") > 0) edge["line"] = number(e, "line");
             if (e.contains("args") && e["args"].is_array()) {
@@ -531,7 +535,7 @@ struct Graph {
     std::vector<J> nodes;
     std::vector<std::string> module;
     std::unordered_map<std::string, size_t> at;
-    // Call edges only, one per pair: the kinds as bits (1 call, 2 call-by-name).
+    // Call edges and handoffs, one per pair: the kinds as bits (1 call, 2 call-by-name, 4 handoff).
     std::vector<std::vector<std::pair<size_t, int>>> out, in;
     std::vector<std::tuple<size_t, size_t, std::string>> all;   // every edge, contains included
     // The first call between two functions, as the syntax reader saw it: its line and arguments (the trace's).
@@ -553,11 +557,12 @@ struct Graph {
                 if (a == at.end() || b == at.end()) continue;
                 const auto kind = text(e, "kind");
                 all.emplace_back(a->second, b->second, kind);
-                if (call_kind(kind)) bits[{a->second, b->second}] |= kind == "call" ? 1 : 2;
-                if (call_kind(kind) && (e.contains("line") || e.contains("args")) && !calls.count({a->second, b->second})) {
+                if (walked_kind(kind)) bits[{a->second, b->second}] |= kind == "call" ? 1 : kind == "call-by-name" ? 2 : 4;
+                if (walked_kind(kind) && (e.contains("line") || e.contains("args") || e.contains("label")) && !calls.count({a->second, b->second})) {
                     J facts = J::object();
                     if (e.contains("line")) facts["line"] = e["line"];
                     if (e.contains("args")) facts["args"] = e["args"];
+                    if (e.contains("label")) facts["label"] = e["label"];
                     calls[{a->second, b->second}] = facts;
                 }
             }
@@ -571,7 +576,7 @@ struct Graph {
     J node(size_t i) const { J n = nodes[i]; n["module"] = module[i]; return n; }
 };
 
-inline std::string kinds_of(int mask) { return mask & 1 ? "call" : "call-by-name"; }
+inline std::string kinds_of(int mask) { return mask & 1 ? "call" : mask & 2 ? "call-by-name" : "handoff"; }
 
 // A name typed by a person (or the id a view sends) to one node: the id, else the label, else the label without its
 // parameters, else a unique last part ("push" for Queue::push). Several: refused, with the candidates to pick from.
