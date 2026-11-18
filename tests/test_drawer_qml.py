@@ -15,9 +15,26 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 EXERCISE = r'''
-    Timer {
-        interval: 450; running: true
-        onTriggered: {
+    function testFind(item, name) {
+        if (item.objectName === name) return item;
+        for (var child of item.children || []) {
+            var found = testFind(child, name);
+            if (found) return found;
+        }
+        return null;
+    }
+    function testFindAll(item, name, found) {
+        found = found || [];
+        if (item.objectName === name) found.push(item);
+        for (var child of item.children || []) testFindAll(child, name, found);
+        return found;
+    }
+    // The stages, run in order: each runs its gap (the difference of their `at`s) after the one before it has run, never
+    // on a clock of its own: on a loaded machine a late stage ran after the next one ("the hearts line did not open the
+    // garden sheet: agents", 2026-11-18, 10 of 12 runs at four at once). A stage with `ready` waits for it first (every
+    // 20 ms, 3 s at most: the drawer's backend is a process) and then runs either way, its checks saying what is wrong.
+    property var testStages: [
+        { at: 450, run: function() {
             var entries = root.entries, page = root.page;
             root.entries = [];
             root.page = "library";
@@ -35,11 +52,8 @@ EXERCISE = r'''
             root.pageLoading = false;
             root.page = page;
             root.entries = entries;
-        }
-    }
-    Timer {
-        interval: 700; running: true
-        onTriggered: {
+        } },
+        { at: 700, run: function() {
             if (root.groups.length !== 6 || root.entries.length !== 3) throw new Error("views missing");
             if (!barStyle.text().includes("#custom-battery")) throw new Error("sound drawer did not mark the bar");
             root.step(1);
@@ -56,11 +70,8 @@ EXERCISE = r'''
             root.groupIndex = 3;
             root.requestView();
             groupProcess.running = true;
-        }
-    }
-    Timer {
-        interval: 1300; running: true
-        onTriggered: {
+        } },
+        { at: 1300, run: function() {
             if (root.focusArea !== "groups" || root.groupIndex !== 3) {
                 console.error("Background page/group refresh moved the keyboard's group selection");
                 Qt.exit(1);
@@ -110,11 +121,8 @@ EXERCISE = r'''
             var close = {key: Qt.Key_Q, modifiers: 0, accepted: false}; root.key(close);
             if (root.opened) throw new Error("q in the Find results did not close the drawer");
             root.show("root");
-        }
-    }
-    Timer {
-        interval: 1600; running: true
-        onTriggered: {
+        } },
+        { at: 1600, run: function() {
             if (root.page !== "root" || root.focusArea !== "groups" || root.groupIndex !== 0 || root.groups[0].id !== "today") {
                 console.error("Home did not open on Today in the top-level list");
                 Qt.exit(1);
@@ -130,11 +138,8 @@ EXERCISE = r'''
             root.groupIndex = 2;
             root.step(1);
             previewTimer.stop();  // the sidebar preview has its own stage at 4800
-        }
-    }
-    Timer {
-        interval: 2000; running: true
-        onTriggered: {
+        } },
+        { at: 2000, run: function() {
             if (root.page !== "root" || root.entries.length !== 1 || root.entries[0].value !== 42)
                 throw new Error("home favorites were not populated with live values");
             if (!itemList.visible) throw new Error("favorite rows are hidden on the home panel");
@@ -158,11 +163,8 @@ EXERCISE = r'''
                 throw new Error("project terminal key lost its selected path");
             root.hide();
             if (!root.drawerVisible || keyboard.enabled) throw new Error("closing lost its reveal or kept keyboard input");
-        }
-    }
-    Timer {
-        interval: 2700; running: true
-        onTriggered: {
+        } },
+        { at: 2700, run: function() {
             if (root.drawerVisible) throw new Error("closed drawer did not finish hiding");
             if (barStyle.text().includes("#custom-logo")) throw new Error("hidden drawer left its bar marker active");
             root.opened = true;
@@ -174,11 +176,8 @@ EXERCISE = r'''
             if (JSON.stringify(actionProcess.command.slice(-3)) !== JSON.stringify(["run", "project-bookmark", "/a literal project"]) || actionProcess.item.close)
                 throw new Error("bookmark key lost the selected project or closes the drawer");
             root.hide();
-        }
-    }
-    Timer {
-        interval: 3400; running: true
-        onTriggered: {
+        } },
+        { at: 3400, run: function() {
             root.opened = true;
             root.page = "library";
             root.focusArea = "items";
@@ -195,11 +194,8 @@ EXERCISE = r'''
             if (JSON.stringify(actionProcess.command.slice(-4)) !== JSON.stringify(["run", "drive-eject", "/dev/sda", "--confirm"]))
                 throw new Error("confirmed eject lost its device or confirmation");
             root.hide();
-        }
-    }
-    Timer {
-        interval: 4100; running: true
-        onTriggered: {
+        } },
+        { at: 4100, run: function() {
             root.opened = true;
             root.page = "downloads";
             root.focusArea = "items";
@@ -209,43 +205,34 @@ EXERCISE = r'''
             if (JSON.stringify(actionProcess.command.slice(-3)) !== JSON.stringify(["run", "download-folder", "/a literal download.txt"]))
                 throw new Error("folder key lost its selected download path");
             root.hide();
-        }
-    }
-    function testFind(item, name) {
-        if (item.objectName === name) return item;
-        for (var child of item.children || []) {
-            var found = testFind(child, name);
-            if (found) return found;
-        }
-        return null;
-    }
-    Timer { interval:4300; running:true; onTriggered: {
+        } },
+        { at: 4300, run: function() {
         root.opened=true; root.page="bookmarks"; root.focusArea="items"; root.itemIndex=0;
         root.entries=Array.from({length:12},function(_,i){return {id:"fixture-"+i,label:"Page "+i,kind:"action"};});
         itemList.positionViewAtBeginning();
-    }}
-    Timer { interval:4400; running:true; onTriggered: {
+        } },
+        { at: 4400, run: function() {
         var marker=testFind(itemScroll,"page-edge-marker");
         if (!itemScroll.visible || !marker || Math.abs(marker.mapToItem(itemList,0,0).y)>4)
             throw new Error("page-edge marker did not start at the top");
         itemList.contentY=itemList.originY+(itemList.contentHeight-itemList.height)*.5;
-    }}
-    Timer { interval:4500; running:true; onTriggered: {
+        } },
+        { at: 4500, run: function() {
         var marker=testFind(itemScroll,"page-edge-marker");
         if (Math.abs(marker.mapToItem(itemList,0,0).y-(itemList.height-marker.height)*.5)>4)
             throw new Error("page-edge marker did not follow the middle of the page");
         // Native ScrollBar position remains two-way connected to the view.
         itemScroll.position=1-itemScroll.size;
-    }}
-    Timer { interval:4600; running:true; onTriggered: {
+        } },
+        { at: 4600, run: function() {
         var marker=testFind(itemScroll,"page-edge-marker");
         if (Math.abs(marker.mapToItem(itemList,0,0).y+marker.height-itemList.height)>4
             || Math.abs(itemList.contentY-itemList.originY-itemList.contentHeight+itemList.height)>4.5)
             throw new Error("native scrollbar did not reach the page bottom");
         root.itemIndex=0;
         root.entries=[{id:"media-play-pause",label:"A track",detail:"An artist · Paused",mediaState:"Paused",kind:"action",presentation:"media",artwork:Qt.resolvedUrl("paper-sprig.png")}];
-    }}
-    Timer { interval:4700; running:true; onTriggered: {
+        } },
+        { at: 4700, run: function() {
         var cover=testFind(itemList,"media-artwork"), tape=testFind(cover,"media-washi-tape");
         if (itemScroll.visible || !cover.ready || !tape.visible)
             throw new Error("media artwork/tape did not load or a short page kept its scrollbar");
@@ -258,9 +245,9 @@ EXERCISE = r'''
         cover.source="";
         if (cover.ready || tape.visible) throw new Error("empty artwork did not restore its fallback");
         root.hide();
-    }}
-    Timer { interval:4800; running:true; onTriggered: root.show("root") }
-    Timer { interval:5000; running:true; onTriggered: {
+        } },
+        { at: 4800, run: function() { root.show("root");} },
+        { at: 5000, run: function() {
         var texts = todaySheet.tags.map(function(tag) { return tag.text; });
         if (texts[0] !== "✉ Paper notebook is waiting" || texts[1] !== "⋯ 2 working" || texts.indexOf("80%") !== 2)
             throw new Error("Today lost its waiting agent, working count or battery tag: " + JSON.stringify(texts));
@@ -286,24 +273,24 @@ EXERCISE = r'''
         if (root.focusArea !== "groups") throw new Error("Esc from the favorites did not reach the sidebar");
         root.step(1);
         if (root.page !== "root" || root.groupIndex !== 1) throw new Error("the preview loaded before the pause");
-    }}
-    Timer { interval:5300; running:true; onTriggered: {
+        } },
+        { at: 5300, run: function() {
         if (root.page !== "desk" || root.focusArea !== "groups") throw new Error("moving through the sidebar did not preview the drawer: " + root.page);
         var serial = root.navigationSerial;
         root.key({key: Qt.Key_Return, modifiers: 0, accepted: false});
         if (root.focusArea !== "items" || root.page !== "desk" || root.navigationSerial !== serial) throw new Error("Enter reloaded a previewed drawer");
         root.show("root");
         root.openTag(todaySheet.tags[0]);
-    }}
+        } },
     // The garden is the last Today tag, so the keyboard reaches it like any other.
-    Timer { interval:5650; running:true; onTriggered: {
+        { at: 5650, run: function() {
         root.show("root");
         root.focusArea = "tags"; root.tagIndex = 0;
         for (var n = 0; n < todaySheet.tags.length; n++) root.key({key: Qt.Key_L, modifiers: 0, accepted: false});
         if (root.todayTags[root.tagIndex].page !== "garden" || todaySheet.selectedTag !== root.tagIndex) throw new Error("l did not reach the garden tag");
         root.key({key: Qt.Key_Return, modifiers: 0, accepted: false});
-    } }
-    Timer { interval:5900; running:true; onTriggered: {
+        } },
+        { at: 5900, ready: function() { return root.page === "garden" && root.gardenLayout && gardenSheet.visible; }, run: function() {
         if (root.page !== "garden" || !root.gardenLayout || !gardenSheet.visible || itemList.visible || emptyNote.visible)
             throw new Error("the hearts line did not open the garden sheet: " + root.page + " " + root.gardenLayout + " " + gardenSheet.visible + " " + itemList.visible + " " + emptyNote.visible);
         if (gardenSheet.counts.length !== 371 || root.gardenIndex !== 370) throw new Error("the garden did not start on today");
@@ -322,12 +309,11 @@ EXERCISE = r'''
         root.key({key: Qt.Key_Escape, modifiers: 0, accepted: false});
         if (root.page !== "root" || !root.opened) throw new Error("Esc did not take the garden back to Today, where it opened from");
         root.hide();
-    }}
-    Timer { interval:6000; running:true; onTriggered: root.show("agents") }
-    Timer { interval:6100; running:true; property int tries: 0; onTriggered: {
-        // The page is the backend's answer (a process, ~55 ms to start): wait for it, until the next stage at 6250, rather
-        // than look once 100 ms after asking — on a busy machine it was not there yet ("root 1", "agents 0").
-        if ((root.page !== "agents" || root.entries.length !== 2) && tries++ < 6) { interval = 20; restart(); return; }
+        } },
+        { at: 6000, run: function() { root.show("agents");} },
+        // The page is the backend's answer (a process, ~55 ms to start): waited for, rather than looked at once 100 ms after
+        // asking — on a busy machine it was not there yet ("root 1", "agents 0").
+        { at: 6100, ready: function() { return root.page === "agents" && root.entries.length === 2; }, run: function() {
         var hearts = testFind(itemList, "context-hearts");
         if (root.entries.length !== 2 || !hearts || !hearts.visible || hearts.filled !== 2)
             throw new Error("a Claude session row lost its context hearts: " + root.page + " " + root.entries.length + " " + (hearts ? hearts.visible + "/" + hearts.filled : "none"));
@@ -337,15 +323,9 @@ EXERCISE = r'''
         if (JSON.stringify(actionProcess.command.slice(-3)) !== JSON.stringify(["run","claude-jump","%4"]))
             throw new Error("picking a session did not jump to its pane: " + JSON.stringify(actionProcess.command));
         root.hide();
-    }}
-    function testFindAll(item, name, found) {
-        found = found || [];
-        if (item.objectName === name) found.push(item);
-        for (var child of item.children || []) testFindAll(child, name, found);
-        return found;
-    }
+        } },
     // The landing page comes back as it last read, at once; `?` opens the drawer's keys; digits jump to groups.
-    Timer { interval:6250; running:true; onTriggered: {
+        { at: 6250, run: function() {
         root.show("root");
         if (root.entries.length !== 1 || root.pageLoading || itemList.viewPage !== "root" || root.today.battery !== "80%" || !root.drawerReady)
             throw new Error("the landing page blinked empty on open: " + root.entries.length + " " + root.pageLoading + " " + itemList.viewPage);
@@ -354,8 +334,8 @@ EXERCISE = r'''
             throw new Error("? did not open the drawer keys: " + root.page + " " + root.keysFilter + " " + JSON.stringify(root.trail));
         if (JSON.stringify(viewProcess.command.slice(-3)) !== JSON.stringify(["view", "cheatsheet", "quickshell drawers"]))
             throw new Error("the drawer keys were not filtered: " + JSON.stringify(viewProcess.command));
-    }}
-    Timer { interval:6600; running:true; onTriggered: {
+        } },
+        { at: 6600, run: function() {
         if (root.pageTitle !== "drawer keys" || !root.entries.length) throw new Error("the keys page is not titled drawer keys: " + root.pageTitle);
         root.goBack();
         if (root.page !== "root" || root.keysFilter !== "") throw new Error("h from the keys did not return to Today");
@@ -366,8 +346,8 @@ EXERCISE = r'''
         if (root.page !== "root" || root.groupIndex !== 0) throw new Error("1 did not return to Today: " + root.page);
         root.page = "sound";
         root.entries = [{id: "wifi", label: "With keys", kind: "page", page: "wifi", keys: "alt ⇧ n"}, {id: "plain-row", label: "No keys", kind: "action"}];
-    }}
-    Timer { interval:6700; running:true; onTriggered: {
+        } },
+        { at: 6700, run: function() {
         var labels = testFindAll(itemList, "item-keys");
         var shown = labels.filter(function(row) { return row.visible; });
         if (labels.length !== 2 || shown.length !== 1 || JSON.stringify(shown[0].caps) !== JSON.stringify(["alt", "⇧", "n"]))
@@ -383,10 +363,8 @@ EXERCISE = r'''
             throw new Error("an empty song slip: " + levelSlip.detail + " / " + levelSlip.artUrl);
         levelSlip.showVolume(40, false);
         if (levelSlip.heading !== "a little sound." || !testFind(levelSlip.artwork, "level-slip-glyph").visible) throw new Error("volume after a song kept the song layout");
-    }}
-    Timer {
-        interval: 7000; running: true
-        onTriggered: {
+        } },
+        { at: 7000, run: function() {
             var base = Quickshell.env("XDG_RUNTIME_DIR");
             root.showPicker(base + "/foxml-picker-abc123/request.json");
             if (!root.pickerActive || root.entries.length !== 2 || groupList.visible)
@@ -413,6 +391,19 @@ EXERCISE = r'''
             if (!JSON.parse(pickerReply.text()).cancel) throw new Error("Escape did not cancel picker");
             console.log("DRAWER_UI_ASSERTIONS_PASSED");
             Qt.quit();
+        } },
+    ]
+    property int testStage: 0
+    property int testWaits: 0
+    Timer {
+        running: true; interval: root.testStages[0].at
+        onTriggered: {
+            var s = root.testStages[root.testStage];
+            if (s.ready && !s.ready() && root.testWaits++ < 150) { interval = 20; start(); return; }
+            root.testWaits = 0;
+            root.testStage++;
+            if (root.testStage < root.testStages.length) { interval = Math.max(1, root.testStages[root.testStage].at - s.at); start(); }
+            s.run();
         }
     }
 '''
