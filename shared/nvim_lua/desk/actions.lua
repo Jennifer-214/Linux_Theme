@@ -218,6 +218,24 @@ function M.voice(retro)
   end
 end
 
+-- Text cut to w display columns, the cut marked: `..` in retro (Big Blue Term has no …), … otherwise. One search over
+-- the length, not a remeasure per dropped character (a 1 024-character label took 310 ms in a 24-row menu that way).
+function M.clip(s, w, retro)
+  s = tostring(s or '')
+  if w <= 0 then return '' end
+  if vim.fn.strdisplaywidth(s) <= w then return s end
+  if retro == nil then retro = vim.g.desk_style == 'retro' end
+  local mark = retro and '..' or '…'
+  local room = w - vim.fn.strdisplaywidth(mark)
+  if room <= 0 then return mark:sub(1, w) end
+  local lo, hi = 0, vim.fn.strchars(s)
+  while lo < hi do
+    local mid = math.floor((lo + hi + 1) / 2)
+    if vim.fn.strdisplaywidth(vim.fn.strcharpart(s, 0, mid)) <= room then lo = mid else hi = mid - 1 end
+  end
+  return vim.fn.strcharpart(s, 0, lo) .. mark
+end
+
 -- The keys of a few choices (2 to 5), one letter each: a choice's own key, else the first letter of its name; nil when
 -- two would share one (a longer list, or names alike, is picked from a list).
 local function choice_keys(choices)

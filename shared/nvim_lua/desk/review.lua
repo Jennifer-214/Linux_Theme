@@ -732,9 +732,7 @@ local draw_notes   -- defined with the margin notes, below
 local function width_of(s) return vim.fn.strdisplaywidth(s) end
 local function fit(s, w)
   if w <= 1 then return '' end
-  if width_of(s) <= w then return s end
-  while width_of(s) > w - 1 and #s > 0 do s = vim.fn.strcharpart(s, 0, vim.fn.strchars(s) - 1) end
-  return s .. '…'
+  return actions.clip(s, w)
 end
 local function spread(left, right, w)
   left = fit(left, math.max(4, w - width_of(right) - 1))

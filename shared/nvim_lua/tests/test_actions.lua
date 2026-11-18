@@ -670,6 +670,22 @@ do
   api.nvim_set_hl(0, "FoxSymdepsSelection", {})
 end
 
+-- ─── clip: text cut to a width, the cut marked (menus, the review's paths and titles) ─────────────────────────
+eq(A.clip("short", 10, false), "short", "clip: text that fits is kept")
+eq(A.clip("abcdefghij", 6, false), "abcde…", "clip: cut to the width, … after")
+eq(A.clip("abcdefghij", 6, true), "abcd..", "clip: retro marks the cut with .. (code page 437)")
+eq(A.clip("日本語テキスト", 7, false), "日本語…", "clip: wide characters count two columns")
+eq(vim.fn.strdisplaywidth(A.clip("日本語テキスト", 6, false)), 5, "clip: never past the width with a wide character at the edge")
+eq(A.clip("abc", 0, false), "", "clip: no room, nothing")
+eq(A.clip("abcdef", 1, true), ".", "clip: room for less than the mark")
+do
+  local long = string.rep("a long label · ", 70)
+  local t = vim.uv.hrtime()
+  for _ = 1, 24 do A.clip(long, 60, false) end
+  local ms = (vim.uv.hrtime() - t) / 1e6
+  ok(ms < 20, ("clip: 24 rows of 1 000 characters in %.1f ms (a per-character remeasure took ~300 ms)"):format(ms))
+end
+
 vim.fn.delete(dir, "rf")
 print(string.format("test_actions: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
 os.exit(failed > 0 and 1 or 0)

@@ -95,6 +95,8 @@ local said = Menu.voice(true)
 local items = { { name = "Pop out the call graph", about = "The live call graph in the pop-out", group = "views" },
   { name = "What changed", about = "The review of the working changes", group = "review", bind = "<leader>Cw" } }
 check("menu", Menu.layout(items, { title = "Home", heads = said }).lines)
+items[#items + 1] = { name = string.rep("a very long row name ", 12), about = string.rep("and a long description ", 20), group = "views" }
+check("menu with a row too long for it", Menu.layout(items, { title = "Home", heads = said }).lines)
 -- Enter as every view draws it (the menu footer, the review's key hints): one glyph, the font's.
 check("Enter, as drawn", { Menu.enter() })
 

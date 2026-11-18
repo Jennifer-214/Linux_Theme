@@ -17,11 +17,7 @@ local function hl(name, fallback)
   return ok and type(def) == 'table' and next(def) ~= nil and name or fallback
 end
 local function width(s) return vim.fn.strdisplaywidth(s) end
-local function fit(s, w)
-  if width(s) <= w then return s end
-  while width(s) > w - 1 and #s > 0 do s = vim.fn.strcharpart(s, 0, vim.fn.strchars(s) - 1) end
-  return s .. '…'
-end
+local function fit(s, w) return actions.clip(s, w) end
 local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width(s))) end
 
 -- A key as it is typed: <CR> is Enter, <leader>rw is Space rw (the registry's one speller); words in the theme's
