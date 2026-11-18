@@ -617,7 +617,8 @@ External dependencies and environment changes are outside this source check.
 Neovim labels a cached pass **last pass · unavailable** when it cannot refresh
 the test records and **last pass · stale** when the recorded source differs from
 the checkout. Both labels use the theme's warning color. The pass count returns when a refresh
-verifies the same result or a newer one.
+verifies the same result or a newer one. A checkout with no recorded run shows nothing there, whether or not
+desk-work answers.
 
 Project cards have a **worktrees button**, or **w** on the keyboard; **n** opens
 their next steps. Worktrees show their branch, dirty/untracked files, unpushed

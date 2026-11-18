@@ -396,6 +396,51 @@ vim.cmd('qa!')
         init = (ROOT/'templates/nvim/init.lua').read_text()
         self.assertIn('work.tests_status(DeskStyle == "retro")', init, 'the status line does not show the test run')
 
+    def test_status_line_shows_nothing_when_no_run_is_recorded_and_desk_work_fails(self):
+        # Review of 2026-11-17, G1: with no recorded run, a failed or slow desk-work read "tests unavailable" (before
+        # 074fc56 the part stayed empty). A doubt needs a result to doubt; the recorded case is the test above.
+        with tempfile.TemporaryDirectory(prefix='.work-status-', dir=ROOT/'tests') as temp:
+            folder = Path(temp)
+            (folder/'bin').mkdir()
+            (folder/'repo/.git').mkdir(parents=True)
+            (folder/'repo/a.cpp').write_text('int a;\n')
+            fake = folder/'bin/desk-work'
+            fake.write_text('#!/usr/bin/python3\nimport os, sys, time\n'
+                            "mode = open(os.environ['FAKE_MODE']).read().strip()\n"
+                            "if mode == 'slow': time.sleep(4)\n"
+                            "if mode == 'broken': print('{broken')\n"
+                            "sys.exit(3 if mode == 'fail' else 0)\n")
+            fake.chmod(0o755)
+            env = dict(os.environ, PATH=str(folder/'bin') + os.pathsep + '/usr/bin:/bin', FAKE_MODE=str(folder/'mode'),
+                       TEST_WORK_LUA=str(ROOT/'shared/nvim_lua'), TEST_SOURCE=str(folder/'repo/a.cpp'),
+                       NVIM_LOG_FILE=str(folder/'nvim.log'))
+            script = folder/'status.lua'
+            script.write_text(r'''
+local W = dofile(vim.env.TEST_WORK_LUA .. '/desk/work_events.lua')
+-- Each desk-work run counted once its answer has been taken in (scheduled after the module's own callback).
+local system, ended = vim.system, 0
+vim.system = function(argv, opts, on_exit)
+  return system(argv, opts, function(out) on_exit(out); vim.schedule(function() ended = ended + 1 end) end)
+end
+vim.cmd('edit ' .. vim.fn.fnameescape(vim.env.TEST_SOURCE))
+local root = vim.uv.fs_realpath(vim.fs.dirname(vim.env.TEST_SOURCE))
+-- fail: exit 3; broken: not JSON; slow: past the read's 3 s timeout.
+for _, mode in ipairs({ 'fail', 'broken', 'slow' }) do
+  vim.fn.writefile({ mode }, vim.env.FAKE_MODE)
+  local before = ended
+  if mode == 'fail' then W.tests_status(false) else vim.api.nvim_exec_autocmds('User', { pattern = 'FoxWorkChanged', data = { root = root } }) end
+  assert(vim.wait(8000, function() return ended > before end, 20), mode .. ': desk-work was not asked, or its read never ended')
+  local text, state = W.tests_status(false), W.tests_state()
+  assert(text == '' and state == nil, mode .. ': with no recorded run the status read ' .. vim.inspect(text) .. ' (' .. tostring(state) .. ')')
+end
+print('work status: no recorded run, nothing shown')
+vim.cmd('qa!')
+''')
+            checked = run_fixture(['nvim', '--headless', '--clean', '-l', str(script)], cwd=folder/'repo', env=env,
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+            self.assertIn('work status: no recorded run, nothing shown', checked.stdout + checked.stderr)
+
     def test_quickfix_targets_selected_failure_and_draft_sends_only_after_recipient_selection(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)

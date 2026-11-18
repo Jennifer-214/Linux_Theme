@@ -216,8 +216,10 @@ end
 
 local function evidence_state(entry)
   if not entry then return end
-  if entry.error then return 'unavailable' end
   local run = entry.run
+  -- A failed read doubts the result shown; with none recorded there is nothing to doubt, and nothing is shown
+  -- (2026-11-17: every checkout without a run read "tests unavailable" while desk-work failed or took over 3 s).
+  if entry.error then return run and 'unavailable' or nil end
   if not run then return end
   if run.stale == true and (run.state == 'passed' or run.state == 'failed') then return 'stale' end
   return run.state
