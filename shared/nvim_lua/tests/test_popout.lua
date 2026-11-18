@@ -740,12 +740,33 @@ eq(pop("return { vim.fn.maparg('w', 'n'), vim.fn.maparg('z', 'n'), vim.fn.maparg
   { '', '', 'Go to it, in the editor', 'Note on the card' },
   "… not its drawn row (that needs its module) nor the editor's own, and f stays the pop-out's")
 eq(state().keyline, ' c compare ', '… its key line names its keys')
+-- h and l as on the board in the editor (her ask, 2026-11-17: "l and h dont open and close stuff either in the symdeps
+-- popout, it should basically mirror functionality of how it functions in the editor"): fold and open, with <Left> and l
+-- the second keys of fold and open; j and k stay the pop-out's own row moves, though the editor's board has a row on j.
+eq(pop("local out = {}; for _, k in ipairs({ 'l', 'h', '<Left>', 'j', 'k' }) do out[#out + 1] = vim.fn.maparg(k, 'n', false, true).desc or '' end; return out"),
+  { 'Open the card', 'Fold the card', 'Fold the card', '', '' }, '… l opens and h folds there, as in the editor; j and k stay its row moves')
+local described = door({ version = 1, type = 'describe', view = 'symdeps', gen = state().gen, item = state().index, deadline = later(5000) })
+local seconds = {}
+for _, r in ipairs(described.rows or {}) do
+  if r.id == 'symdeps.open-l' or r.id == 'symdeps.fold-left' then seconds[r.id] = { r.key, r.menu, r.doc } end
+end
+eq(seconds, { ['symdeps.open-l'] = { 'l', false, false }, ['symdeps.fold-left'] = { '<Left>', false, false } },
+  "describe gives an action's second key with menu = false and doc = false")
 press('j')
 ok(wait(2000, function() return state().selected == 'Book' end), 'j: the next card, here')
 press('c')
 ok(wait(2000, function() return host('return _G.board_test.compared') == 'Book' end), 'c: runs in the editor, for the card selected here')
 press('<CR>')
 ok(wait(2000, function() return host('return _G.board_test.opened') == 'Book' end), 'Enter: its Enter row, in the editor')
+host('_G.board_test.opened = nil')
+press('l')
+ok(wait(2000, function() return host('return _G.board_test.opened') == 'Book' end), 'l: open, in the editor, for the card selected here')
+press('h')
+ok(wait(2000, function() return host('return _G.board_test.folded') == 'Book' end), 'h: fold, in the editor')
+host('_G.board_test.folded = nil')
+press('<Left>')
+ok(wait(2000, function() return host('return _G.board_test.folded') == 'Book' end), '<Left>: fold too')
+eq(host('return _G.board_test.moved'), vim.NIL, "… and j never ran the editor's row move")
 pop("vim.ui.input = function(opts, done) _G.asked = opts.prompt; done('make it pink') end")
 press('n')
 ok(wait(2000, function() return vim.deep_equal(host('return _G.board_test.noted'), { 'Book', 'make it pink' }) end),
@@ -755,8 +776,10 @@ press('?')
 ok(wait(2000, function() return pop("return vim.api.nvim_win_get_config(0).relative ~= ''") end), '? lists its keys')
 keys = pop("return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\\n')")
 ok(keys:find('Enter%s+Open the card') and keys:find('c%s+Compare the card') and keys:find('n%s+Note on the card')
-  and keys:find('Space Space%s+Home menu') and not keys:find('Go to the unit', 1, true) and not keys:find('Wider sections', 1, true),
-  "… its stand-ins and the window's own:\n" .. keys)
+  and keys:find('h%s+Fold the card') and keys:find('Space Space%s+Home menu') and not keys:find('Go to the unit', 1, true)
+  and not keys:find('Wider sections', 1, true), "… its stand-ins and the window's own:\n" .. keys)
+eq({ select(2, keys:gsub('Open the card', '')), select(2, keys:gsub('Fold the card', '')) }, { 1, 1 },
+  '… open and fold once each: their second keys are in no key list')
 press('q')
 ok(wait(2000, function() return state().current_win == state().win end), '… q closes the list')
 -- f: what Enter does there (the board's Enter row, in the editor), then the keyboard to the editor (2026-11-17: on the
@@ -783,6 +806,8 @@ menu = pop([[local m = require('desk.menu')._last
   if not (m and vim.api.nvim_win_is_valid(m.win)) then return '' end
   return vim.inspect(vim.api.nvim_win_get_config(m.win).title) .. '\n' .. table.concat(vim.api.nvim_buf_get_lines(m.buf, 0, -1, false), '\n')]])
 ok(menu:find('Compare the card', 1, true) and menu:find("The pop-out's keys", 1, true), "… what Space Space shows there, the board's rows:\n" .. menu)
+eq({ select(2, menu:gsub('Open the card', '')), select(2, menu:gsub('Fold the card', '')) }, { 1, 1 },
+  '… open and fold once each: their second keys are in no menu')
 ok(menu:find('Home · pop-out · Fill', 1, true), '… for the card selected there')
 press('<Esc>')
 ok(wait(2000, function() return state().current_win == state().win end), '… Esc closes it')
