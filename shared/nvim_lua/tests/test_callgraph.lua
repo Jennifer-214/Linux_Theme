@@ -512,8 +512,8 @@ eq({ G.target_at(dir .. "/no-such-file.lua", 1) }, { nil, "that file is no longe
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", "m", "r", "q", "gs", "o" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", "m", "r", "gs", "p", "q", "o" }, "the panel's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", "m", "r", "q", "gs", "t", "o" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", "m", "r", "gs", "t", "p", "q", "o" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do
@@ -626,6 +626,15 @@ do
       'retro lights the full selected bar for ' .. name)
   end
   vim.g.desk_style = 'paper'
+  -- t: the project map's trace through the selected box's function, by its file and line.
+  local Map_t, traced_at = require('desk.map'), nil
+  local real_trace_at = Map_t.trace_at
+  Map_t.trace_at = function(path, line) traced_at = { vim.fn.fnamemodify(path, ':t'), line } end
+  G.select(layered, named(layered, 'gamma'), true)
+  key('t')
+  local gamma = layered.drawn.boxes[layered.index].item
+  eq(traced_at, { vim.fn.fnamemodify(vim.uri_to_fname(gamma.uri), ':t'), gamma.range.start.line + 1 }, 't on a box: the trace through its function, by its file and line')
+  Map_t.trace_at = real_trace_at
   ok(line_with(layered.drawn.lines, '+2') and line_with(layered.drawn.lines, '4 functions'), 'the header counts the layered functions')
   key('-')
   eq({ #layered.graph.layers.callees, G.selected(layered).name }, { 1, 'M.alpha' }, 'collapse removes the outer tier and returns selection to centre')

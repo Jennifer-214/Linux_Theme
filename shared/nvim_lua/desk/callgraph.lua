@@ -1519,6 +1519,21 @@ local ROWS = actions.add({
       jump(center, view.origin)
       inspect()
     end },
+  -- t: the trace through the selected box's function (desk.map's trace page: up to where it starts, down to where it ends).
+  { id = 'callgraph.trace', group = 'Call graph', name = 'Trace through this function', key = 't', on = BOTH, remote = true,
+    about = "The project map's trace through the selected function: up to where it starts, down to where it ends, each step with its parameters and the arguments it is called with",
+    available = function(ctx)
+      local item
+      if ctx.view then item = ctx.item elseif ctx.graph == panel then item = M.selected(panel) elseif ctx.graph then item = M.selected(ctx.graph) end
+      if not item then return 'no box is selected' end
+      return (item.uri and item.range) and true or 'that box has no place in the code'
+    end,
+    run = function(ctx)
+      local item
+      if ctx.view then item = ctx.item elseif ctx.graph == panel then item = M.selected(panel) elseif ctx.graph then item = M.selected(ctx.graph) end
+      if not (item and item.uri and item.range) then return tell('Select a function first.') end
+      require('desk.map').trace_at(vim.uri_to_fname(item.uri), item.range.start.line + 1)
+    end },
   { id = 'callgraph.pin', group = 'Call graph', name = 'Pin the panel to this graph, or follow again', key = 'p', on = 'callgraph-panel',
     about = 'Pin the panel to the graph it shows (PINNED), or follow the cursor again', run = function() M.panel_pin() end },
   { id = 'callgraph.panel-close', group = 'Call graph', name = 'Close the call graph panel', key = 'q', on = 'callgraph-panel',

@@ -1532,15 +1532,15 @@ local function adopt(to, from) for _, k in ipairs(STATE) do to[k] = from[k] end 
 -- as o there brings it back: one map per checkout (2026-11-16: Space cm made a second, fresh one).
 -- Space c p: the trace through the function at the cursor, by its file and line (desk-work finds the function whose
 -- lines hold it): in the pop-out's map when the pop-out shows this checkout's map, else in the map's tab.
-function M.trace_here()
-  local path = api.nvim_buf_get_name(0)
+function M.trace_here() return M.trace_at(api.nvim_buf_get_name(0), api.nvim_win_get_cursor(0)[1]) end
+-- The trace through the function holding line `line` of file `path` (the call graph's t gives its box's).
+function M.trace_at(path, line)
   local root = path ~= '' and vim.fs.root(path, '.git')
   if not root then return tell('Open a file of a git checkout first.') end
   root = uv.fs_realpath(root) or root
   local real = uv.fs_realpath(path) or path
   local rel = real:sub(1, #root + 1) == root .. '/' and real:sub(#root + 2) or nil
   if not rel then return tell('This file is not in the checkout.') end
-  local line = api.nvim_win_get_cursor(0)[1]
   local P = package.loaded['desk.popout']
   local out = P and P.view_of('map')
   local view = (out and out.out and not out.gone and out.root == root) and out or nil
