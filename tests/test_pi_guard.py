@@ -9,6 +9,7 @@ loader maps that name to the running pi): under plain node the guard is handed t
 a node_modules link beside a copy of it, and the rows whose answer depends on the pi read its own resolver
 (FOX_GUARD_PI_ROOT). Skips when pi is not installed.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -26,16 +27,27 @@ major = int(subprocess.run([node, "--version"], capture_output=True, text=True).
 if major < 22:
     print(f"    skip: node {major} has no --experimental-strip-types")
     sys.exit(0)
-pi = shutil.which("pi")
-if not pi:
+
+
+def real_pi():
+    """The installed pi's package: the first `pi` on PATH inside a package named …/pi-coding-agent. The theme's own
+    launcher (shared/bin/pi, first on PATH once installed) is in none — it finds pi the same way (its realPi)."""
+    for folder in os.environ.get("PATH", "").split(os.pathsep):
+        cand = Path(folder or ".") / "pi"
+        if not cand.is_file():
+            continue
+        for pkg in cand.resolve().parents:
+            try:
+                if json.loads((pkg / "package.json").read_text()).get("name", "").endswith("/pi-coding-agent"):
+                    return pkg
+            except (OSError, ValueError, AttributeError):
+                continue
+    return None
+
+
+pkg = real_pi()
+if not pkg:
     print("    skip: pi not installed")
-    sys.exit(0)
-pkg = Path(pi).resolve().parent
-while not (pkg / "package.json").exists() and pkg != pkg.parent:
-    pkg = pkg.parent
-manifest = pkg / "package.json"
-if not manifest.exists() or "pi-coding-agent" not in manifest.read_text(errors="ignore"):
-    print("    skip: pi's package not found beside the launcher")
     sys.exit(0)
 # Not /tmp: the noexec_tmp module mounts it noexec
 base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
