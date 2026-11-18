@@ -1174,6 +1174,90 @@ local function layout_signature(rec)
   for _, mb in ipairs(rec.members or {}) do t[#t + 1] = table.concat({ mb.name, mb.off or '', mb.size or '', mb.bit_lo or '', mb.bit_hi or '' }, ':') end
   return table.concat(t, '|')
 end
+-- Possible false sharing on a route (her ask, 2026-11-18: "has false sharing with x function on y thread? Since threads
+-- can change"): a field one thread writes on the same 64 B line as another field a step on another thread touches. The
+-- threads are the route's own as traced now — a handoff starts one, named by its first step — never a fixed list.
+-- Only where symdeps placed the struct completely, with one layout; the map cannot tell that the two steps hold the
+-- same object, so it says "may". → { [step id] = { [type] = { { other, thread, here, there, line } } } }.
+function M.false_sharing(steps, calls, layouts)
+  local thread, current = {}, steps[1] and steps[1].label
+  for k, st in ipairs(steps) do
+    if k > 1 and calls[k - 1] and calls[k - 1].kind == 'handoff' then current = st.label end
+    thread[k] = current
+  end
+  local records = {}
+  for _, got in pairs(layouts or {}) do
+    for _, rec in ipairs(type(got) == 'table' and got.records or {}) do
+      local b = base_type(rec.name)
+      if b then records[b] = records[b] or {}; table.insert(records[b], rec) end
+    end
+  end
+  local function layout(t)
+    local list, seen, one = records[t] or {}, {}, nil
+    for _, r in ipairs(list) do
+      local sig = layout_signature(r)
+      if not seen[sig] then seen[sig] = true; if one then return nil end; one = r end
+    end
+    return one and one.complete == true and one or nil
+  end
+  local function lines_of(rec, name)
+    for _, mb in ipairs(rec.members or {}) do
+      if mb.name == name and mb.off then
+        local last = mb.bit_hi and (mb.off + math.floor(mb.bit_hi / 8)) or (mb.size and mb.off + math.max(mb.size, 1) - 1) or nil
+        if last then return math.floor(mb.off / 64), math.floor(last / 64) end
+      end
+    end
+  end
+  local uses = {}
+  for k, st in ipairs(steps) do
+    uses[k] = {}
+    for _, prm in ipairs(st.params or {}) do
+      local t = base_type(prm.type)
+      if t then
+        local u = uses[k][t] or { writes = {}, touches = {} }
+        uses[k][t] = u
+        for _, path in ipairs(prm.writes or {}) do local f = path:match('^[^.]+'); u.writes[f] = true; u.touches[f] = true end
+        for _, path in ipairs(prm.reads or {}) do local f = path:match('^[^.]+'); u.touches[f] = true end
+      end
+    end
+  end
+  local out = {}
+  local function add(k, t, note)
+    local id = steps[k].id
+    out[id] = out[id] or {}
+    out[id][t] = out[id][t] or {}
+    for _, n in ipairs(out[id][t]) do if n.other == note.other and n.here == note.here and n.there == note.there then return end end
+    table.insert(out[id][t], note)
+  end
+  for k = 1, #steps do
+    for j = 1, #steps do
+      if j ~= k and thread[j] ~= thread[k] then
+        for t, mine in pairs(uses[k]) do
+          local theirs, rec = uses[j][t], nil
+          if theirs then rec = layout(t) end
+          if rec then
+            for a in pairs(mine.touches) do
+              for b in pairs(theirs.touches) do
+                if a ~= b and (mine.writes[a] or theirs.writes[b]) then
+                  local a1, a2 = lines_of(rec, a)
+                  local b1, b2 = lines_of(rec, b)
+                  if a1 and b1 and a1 <= b2 and b1 <= a2 then
+                    add(k, t, { other = steps[j].label, thread = thread[j], line = math.max(a1, b1) + 1,
+                      here = (mine.writes[a] and 'writes ' or 'reads ') .. a, there = (theirs.writes[b] and 'writes ' or 'reads ') .. b })
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  for _, by_type in pairs(out) do
+    for _, list in pairs(by_type) do table.sort(list, function(x, y) return x.other .. x.here .. x.there < y.other .. y.here .. y.there end) end
+  end
+  return out
+end
 -- layouts: symdeps' census of a step's file, by file: { records } | { pending = true } | { error = why }.
 function M.trace_page(answer, folds, layouts)
   folds, layouts = folds or {}, layouts or {}
@@ -1181,6 +1265,7 @@ function M.trace_page(answer, folds, layouts)
   -- code page 437 has no ▸ ▾ …: DOS's tree marks in retro
   local open_mark, closed_mark, ellipsis = retro and '- ' or '▾ ', retro and '+ ' or '▸ ', retro and '..' or '…'
   local steps, calls = answer.steps or {}, answer.calls or {}
+  local sharing = M.false_sharing(steps, calls, layouts)
   local focus
   for _, st in ipairs(steps) do if st.id == answer.focus then focus = st end end
   local sections = { { head = 'trace through ' .. code(focus and focus.label) .. ' · ' .. #steps .. (#steps == 1 and ' function' or ' functions') } }
@@ -1307,6 +1392,10 @@ function M.trace_page(answer, folds, layouts)
               { (rec.size and (rec.size .. ' B') or '? B') .. (rec.align and (', align ' .. rec.align) or '') .. (lines_ and (' · ' .. lines_ .. (lines_ == 1 and ' line' or ' lines')) or '')
                 .. (map.padding and map.padding > 0 and (' · ' .. map.padding .. ' B padding') or ''), nil, true, 'DeskMapDim' } }
             if #touched > 0 then rows[#rows + 1] = vim.list_extend({ { '        ' }, { 'touches  ', nil, true, 'DeskMapDim' } }, listed(touched)) end
+            for _, note in ipairs(sharing[st.id] and sharing[st.id][base_type(prm.type) or ''] or {}) do
+              rows[#rows + 1] = { { '        ' }, { 'may share a cache line ', nil, true, 'DeskMapFocus' },
+                { 'with ' .. note.other .. ' on the ' .. note.thread .. ' thread: ' .. note.here .. ' here, ' .. note.there .. ' there (line ' .. note.line .. ')', nil, nil, 'DeskMapFocus' } }
+            end
             if rec.complete == false then
               rows[#rows + 1] = { { '        ' }, { 'partly laid out: ' .. (rec.why or 'symdeps could not size every member'), nil, nil, 'DeskMapDim' } }
             end

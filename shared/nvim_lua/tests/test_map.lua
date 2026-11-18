@@ -421,6 +421,27 @@ do
   ok(waiting:find("opening asks symdeps to lay this file out", 1, true), "… and a step of the file not asked yet says opening asks, not \"no struct\"")
   package.loaded["fox-symdeps"], package.loaded["fox-symdeps.layoutof"] = real_sd, real_of
 end
+do
+  -- Possible false sharing across a handoff: the producer writes px, the consumer (another thread) reads ts on its line.
+  local function step(id, label, prm) return { id = id, label = label, file = "q.cpp", line = 1, params = { prm } } end
+  local steps = { step("q.cpp::feed", "feed", { name = "t", type = "Tick &", pass = "ref", dir = "inout", writes = { "px" } }),
+                  step("q.cpp::drain", "drain", { name = "t", type = "const Tick &", pass = "const ref", dir = "in", reads = { "ts", "px.raw" } }) }
+  local calls = { { from = "q.cpp::feed", to = "q.cpp::drain", kind = "handoff", label = "tick ring" } }
+  local function tick(ts_off, complete) return { ["q.cpp"] = { records = { { name = "tt::Tick", size = 128, align = 8, complete = complete ~= false,
+    members = { { kind = "field", name = "px", off = 0, size = 8 }, { kind = "field", name = "ts", off = ts_off, size = 8 } } } } } } end
+  local found = Map.false_sharing(steps, calls, tick(8))
+  eq(found["q.cpp::feed"] and found["q.cpp::feed"].Tick, { { other = "drain", thread = "drain", here = "writes px", there = "reads ts", line = 1 } },
+    "a field written on one thread on the line of a field another thread reads: noted, with the other step and its thread")
+  eq(found["q.cpp::drain"] and found["q.cpp::drain"].Tick, { { other = "feed", thread = "feed", here = "reads ts", there = "writes px", line = 1 } }, "… on both steps")
+  eq(Map.false_sharing(steps, { { kind = "call" } }, tick(8)), {}, "one thread (no handoff between them): nothing")
+  eq(Map.false_sharing(steps, calls, tick(64)), {}, "the two fields on different lines: nothing")
+  eq(Map.false_sharing(steps, calls, tick(8, false)), {}, "a layout symdeps could not place completely: nothing claimed")
+  local same = vim.deepcopy(steps)
+  same[2].params[1].reads = { "px" }
+  eq(Map.false_sharing(same, calls, tick(8)), {}, "the same field on both sides is sharing, not false sharing: nothing")
+  local page = Map.layout(Map.trace_page({ q = "trace", focus = "q.cpp::feed", steps = steps, calls = calls }, { ["q.cpp::feed|layout"] = true }, tick(8)), 120, false)
+  ok(line_with(page.lines, "may share a cache line with drain on the drain thread: writes px here, reads ts there (line 1)"), "… said in the step's layout")
+end
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)
