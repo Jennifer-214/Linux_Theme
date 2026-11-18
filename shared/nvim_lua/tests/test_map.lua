@@ -54,7 +54,11 @@ local sources = {
                         "void HotThreadBody(Core* core) { Tick t{0}; while (Ring_Pop(&core->tick_ring, &t)) { Order o{t.px}; core->adapter.submit_market_buy(o); } }",
                         "void Setup(Core* core) { core->adapter.submit_market_buy = &Binance_Submit; std::thread hot(HotThreadBody, core); }",
                         "void Drainer() {}", "void Sender(int n) {}",
-                        "void StartAll(Pool& workers) { std::jthread j{Drainer}; workers.emplace_back(Sender, 2); }" },
+                        "void StartAll(Pool& workers) { std::jthread j{Drainer}; workers.emplace_back(Sender, 2); }",
+                        "void Produce(Core* cores) { tt::SPSCRing_TryPush(&cores->node_rings[tt::Idx{3}], Tick{1}); }",
+                        "void Consume(Ring& node_ring) { Tick t; tt::SPSCRing_TryPop(&node_ring, &t); }",
+                        "void Style() { ImPlot::PushStyleColor(1, 2); } void Unstyle() { ImPlot::PopStyleColor(1); }",
+                        "void Short() { Ring_Push(&s, Tick{}); } void Short2() { Ring_Pop(&s, nullptr); }" },
   ["csrc/queue.cpp"] = { "#include <vector>", "namespace fox {", "class Queue {", "public:", "    void push(int x) { grow(); items.push_back(x); }",
                          "    int size() const;", "private:", "    void grow() {}", "    std::vector<int> items;", "};",
                          "int Queue::size() const { return static_cast<int>(items.size()); }", "int run(Queue& q) { q.push(1); return q.size(); }", "}" },
@@ -144,6 +148,10 @@ if has_parser("cpp") then
     { "passed to thread", "passed to jthread", "passed to emplace_back" },
     "a thread started with a function: std::thread t(f, …) (read as a declaration), jthread{f}, emplace_back(f, …)")
   ok(not handoff("FanOut", "Ring_Push") and edge("FanOut", "Ring_Push"), "a direct call is a call, not also a handoff")
+  eq(handoff("Produce", "Consume"), "node_rings: push :15 → pop :16",
+    "a subscripted ring pushed (tt:: is a namespace: the object is the first argument), its singular popped")
+  ok(not handoff("Style", "Unstyle"), "a namespace's push and pop of a style stack name no object")
+  ok(not handoff("Short", "Short2"), "a one- or two-letter object is too common to mean one ring")
 else skipped[#skipped + 1] = "cpp (no parser)" end
 
 -- The same headless, as desk-work runs it: a request file in, the answer written to a file.

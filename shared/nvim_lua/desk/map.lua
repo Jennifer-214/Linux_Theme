@@ -173,7 +173,9 @@ local function call_args(node, src) return list_texts(node:field('arguments')[1]
 -- function pointer set (field → the function named). Joined once every file is read (M.handoff_edges).
 local PUSHES, POPS = { 'push', 'enqueue', 'publish', 'submit_to' }, { 'pop', 'dequeue', 'consume', 'drain' }
 local function last_name(text)
-  local name = tostring(text or ''):gsub('[%s%(%)%*&]', ''):match('([%a_][%w_]*)$')
+  -- `&tick_rings[tt::NodeIdx{c}]` is tick_rings: subscripts and braces go first.
+  local bare = tostring(text or ''):gsub('%b[]', ''):gsub('%b{}', '')
+  local name = bare:gsub('[%s%(%)%*&]', ''):match('([%a_][%w_]*)$')
   return name
 end
 local function is_op(short, words)
@@ -184,9 +186,14 @@ end
 function M.note_handoff(ops, passed, owner, full, short, args, line)
   local op = is_op(short, PUSHES) and 'push' or is_op(short, POPS) and 'pop' or nil
   if op then
-    local receiver = full:sub(1, #full - #short):gsub('[%.:]+$', '')
+    -- A method's receiver (q.push, ring->pop), else the first argument (Ring_Push(&ring, …)); a `::` qualifier is a
+    -- namespace or class (tt::SPSCRing_TryPop, ImPlot::PushStyleColor), not an object.
+    local qualifier = full:sub(1, #full - #short)
+    local receiver = qualifier:find('::$') and '' or qualifier:gsub('[%.:]+$', '')
     local object = last_name(receiver ~= '' and receiver or (args or {})[1])
-    if object and object ~= 'this' and object ~= 'self' then ops[#ops + 1] = { owner = owner, object = object, op = op, line = line } end
+    if object and #object >= 3 and object ~= 'this' and object ~= 'self' then
+      ops[#ops + 1] = { owner = owner, object = object, op = op, line = line }
+    end
   end
   for _, arg in ipairs(args or {}) do
     local name = arg:gsub('^&', '')
@@ -220,13 +227,17 @@ function M.handoff_edges(units, by_short, ops, passed, pointers, calls, seen, ca
     seen[key] = true
     edges[#edges + 1] = { from = units[from].id, to = units[to].id, kind = 'handoff', label = label:sub(1, 80), line = line }
   end
+  -- One object under a plural and its singular (tick_rings[c] pushed, the core's tick_ring popped).
   local by_object = {}
   for _, o in ipairs(ops) do
-    local slot = by_object[o.object] or { push = {}, pop = {} }
-    by_object[o.object] = slot
+    local key = #o.object > 4 and o.object:gsub('s$', '') or o.object
+    local slot = by_object[key] or { push = {}, pop = {}, name = o.object }
+    by_object[key] = slot
+    if o.op == 'push' then slot.name = o.object end
     slot[o.op][o.owner] = slot[o.op][o.owner] or o.line
   end
-  for object, slot in pairs(by_object) do
+  for _, slot in pairs(by_object) do
+    local object = slot.name
     local pushers, poppers = vim.tbl_keys(slot.push), vim.tbl_keys(slot.pop)
     table.sort(pushers); table.sort(poppers)
     if #pushers >= 1 and #pushers <= 4 and #poppers >= 1 and #poppers <= 4 then
