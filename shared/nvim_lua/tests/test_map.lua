@@ -274,6 +274,18 @@ ok(line_with(traced_retro.lines, "IN     CONST REF  const Tick &  t") and line_w
   "retro: the words in capitals, the code as typed")
 local unreached = Map.layout(Map.trace_page(vim.tbl_extend("force", trace_answer, { to = "e.cpp::flush", reached = false })), 90, false)
 ok(line_with(unreached.lines, "tick does not reach flush within 16 calls"), "e to a function it does not reach: says so")
+-- A busy function (the trader's draw loop has 55 other callees) and a long call wrap at the page, every name still a hit.
+local busy = vim.deepcopy(trace_answer)
+busy.steps[2].callees, busy.steps[2].more_callees = {}, 30
+for i = 1, 8 do busy.steps[2].callees[i] = { id = "e.cpp::Callee_Number_" .. i, label = "Callee_Number_" .. i, file = "e.cpp", line = i } end
+busy.calls[2].args = {}
+for i = 1, 12 do busy.calls[2].args[i] = "&state->field_number_" .. i end
+local busy_page = Map.layout(Map.trace_page(busy), 70, false)
+local too_wide = vim.tbl_filter(function(l) return api.nvim_strwidth(l) > 70 end, busy_page.lines)
+eq(too_wide, {}, "a long list of other callees and a long call wrap within the page")
+local eighth = line_with(busy_page.lines, "Callee_Number_8")
+local _, eighth_line = line_with(busy_page.lines, "Callee_Number_8")
+eq(eighth and Map.item_at(busy_page, eighth, eighth_line:find("Callee_Number_8", 1, true)).target.node.id, "e.cpp::Callee_Number_8", "… a name on a wrapped line still Enter-able")
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)

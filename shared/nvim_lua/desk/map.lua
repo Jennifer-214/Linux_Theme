@@ -613,11 +613,26 @@ function M.layout(page, width, retro)
     elseif s.parts then
       put_parts(s.parts, '', s.group)
     elseif s.block then
-      -- Lines left-aligned among themselves, the block centred (a trace step's parameters under its box).
+      -- Lines left-aligned among themselves, the block centred (a trace step's parameters under its box). A line wider
+      -- than the page wraps between its parts, going on indented (a busy function's other callees).
+      local rows = {}
+      for _, line in ipairs(s.block) do
+        local cur, w = {}, 0
+        for _, part in ipairs(line.parts or line) do
+          local pw = width_of(parts_text({ part }))
+          if w + pw > width - 1 and #cur > 0 then
+            rows[#rows + 1] = { parts = cur, group = line.group }
+            cur, w = { { '    ' } }, 4
+          end
+          cur[#cur + 1] = part
+          w = w + pw
+        end
+        if #cur > 0 then rows[#rows + 1] = { parts = cur, group = line.group } end
+      end
       local wide = 0
-      for _, line in ipairs(s.block) do wide = math.max(wide, width_of(parts_text(line.parts or line))) end
+      for _, row_ in ipairs(rows) do wide = math.max(wide, width_of(parts_text(row_.parts))) end
       local left = string.rep(' ', math.max(0, math.floor((width - wide) / 2)))
-      for _, line in ipairs(s.block) do put_parts(line.parts or line, left, line.group or s.group) end
+      for _, row_ in ipairs(rows) do put_parts(row_.parts, left, row_.group or s.group) end
     elseif s.blank then add('') end
     if (s.more or 0) > 0 then centred(with_key(G, '+' .. s.more .. ' more · ', 'more', ' shows them'), 'DeskMapDim') end
     if s.level and #lines >= first then bands[#bands + 1] = { first = first, last = #lines, level = s.level } end
@@ -977,7 +992,10 @@ function M.trace_page(answer)
       end
       local at = call.line and (':' .. call.line) or ''
       if at ~= '' or #flow > 0 then
-        sections[#sections + 1] = { block = { { { at .. (at ~= '' and #flow > 0 and '   ' or '') .. table.concat(flow, ' · ') } } }, group = 'DeskMapDim' }
+        -- A part per argument, so a long call wraps between them.
+        local parts = { { at .. (at ~= '' and #flow > 0 and '   ' or '') } }
+        for i, f in ipairs(flow) do parts[#parts + 1] = { f .. (i < #flow and ' · ' or '') } end
+        sections[#sections + 1] = { block = { parts }, group = 'DeskMapDim' }
       end
     end
   end
