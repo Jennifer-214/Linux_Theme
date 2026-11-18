@@ -805,7 +805,9 @@ local function hint(word, ...)
   local keys = {}
   for _, id in ipairs({ ... }) do
     local lhs = M.bind(id)
-    if lhs then keys[#keys + 1] = lhs == '<CR>' and '⏎' or lhs == '<BS>' and 'BS' or (lhs:gsub('^<leader>', 'Space ')) end
+    -- Enter as the menu draws it: ◄┘ in retro (⏎ is not code page 437, which Big Blue Term draws).
+    local enter = vim.g.desk_style == 'retro' and '◄┘' or '⏎'
+    if lhs then keys[#keys + 1] = lhs == '<CR>' and enter or lhs == '<BS>' and 'BS' or (lhs:gsub('^<leader>', 'Space ')) end
   end
   return table.concat(keys, '/') .. ' ' .. word
 end

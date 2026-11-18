@@ -60,7 +60,7 @@ function M.gauge(drawn, bands, retro, group, active_group)
     local marker = band.active and not retro and '‹' or ' '
     if retro and band.active then shade = '█' end
     for line = band.first, band.last do
-      rail[line] = marker .. shade .. ' ' .. pad(line == band.first and fit(label, 3, '…') or '', 3) .. ' '
+      rail[line] = marker .. shade .. ' ' .. pad(line == band.first and fit(label, 3, retro and '..' or '…') or '', 3) .. ' '
       selectable[line] = not band.label and band or nil
       if retro and band.active then active[line] = true end
     end
@@ -199,7 +199,8 @@ function M.layout(graph, width, retro)
         end
       end
     end
-    centred(G.said(('layers %s … %s · %d functions'):format(#above == 0 and '0' or '-' .. #above,
+    -- G.ellipsis: '..' in retro, which Big Blue Term draws (… is not code page 437; tests/test_retro_style.lua).
+    centred(G.said(('layers %s ' .. G.ellipsis .. ' %s · %d functions'):format(#above == 0 and '0' or '-' .. #above,
       #below == 0 and '0' or '+' .. #below, vim.tbl_count(nearest) + (graph.center and 1 or 0)
         - (graph.center and nearest[identity(graph.center)] and 1 or 0))), 'DeskCallGraphHead')
   end

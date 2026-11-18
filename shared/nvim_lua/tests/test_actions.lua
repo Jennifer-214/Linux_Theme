@@ -403,7 +403,7 @@ eq(api.nvim_get_current_win(), page_win, "? again closes the list")
 vim.g.desk_style = "retro"
 vim.fn.maparg("?", "n", false, true).callback()
 shown = menu_text()
-ok(shown:find("  Enter  OPEN WHAT THIS LINE NAMES", 1, true) and shown:find("⏎ RUN · / FILTER · q CLOSE", 1, true), "retro words:\n" .. shown)
+ok(shown:find("  Enter  OPEN WHAT THIS LINE NAMES", 1, true) and shown:find("◄┘ RUN · / FILTER · q CLOSE", 1, true), "retro words:\n" .. shown)
 ok(vim.inspect(api.nvim_win_get_config(Menu._last.win).title):find("KEYS · SINCE YOU LAST LOOKED", 1, true), "… and its title")
 api.nvim_win_set_cursor(Menu._last.win, { 3, 0 })
 vim.api.nvim_exec_autocmds("CursorMoved", { buffer = Menu._last.buf })

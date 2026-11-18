@@ -29,6 +29,8 @@ local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width(s))) 
 M.typed = actions.spell
 M.voice = actions.voice
 local function retro() return vim.g.desk_style == 'retro' end
+-- Enter as the footer draws it: ◄┘ in retro, as the drawer writes it (⏎ is not code page 437: test_retro_style.lua).
+function M.enter() return retro() and '◄┘' or '⏎' end
 
 -- "Name — description" splits into the row's name and the strip's text; an item may also give both.
 local function parts(item)
@@ -57,7 +59,7 @@ end
 -- The footer of a key list: keys as typed, words in the theme's voice.
 local function key_footer(said)
   return ' ' .. table.concat(vim.tbl_map(function(p) return p[1] .. ' ' .. said(p[2]) end,
-    { { '⏎', 'run' }, { '/', 'filter' }, { 'q', 'close' } }), ' · ')
+    { { M.enter(), 'run' }, { '/', 'filter' }, { 'q', 'close' } }), ' · ')
 end
 
 -- The strip's corners: square when the floats are the DOS box (vim.g.desk_border is a list of characters, retro),
@@ -134,7 +136,7 @@ function M.layout(items, opts)
   lines[#lines + 1] = ' │ ' .. string.rep(' ', w - 5) .. ' │'
   lines[#lines + 1] = ' ' .. bl .. string.rep('─', w - 3) .. br
   for line = strip - 1, strip + 2 do paints[#paints + 1] = { line, 0, -1, hl('FoxSymdepsDim', 'Comment') } end
-  lines[#lines + 1] = fit(opts.footer or (keys and key_footer(said)) or ' / filter · ⏎ run · q close', w)
+  lines[#lines + 1] = fit(opts.footer or (keys and key_footer(said)) or ' / filter · ' .. M.enter() .. ' run · q close', w)
   paints[#paints + 1] = { #lines, 0, -1, hl('FoxSymdepsDim', 'Comment') }
   return { lines = lines, rows = rows, paints = paints, width = w, strip = strip }
 end
