@@ -680,7 +680,7 @@ inline J walk(const Graph& g, size_t start, int depth, bool backwards, size_t ca
 // Every way from one node to another along calls, each node at most once per way, shortest first: at most `max`
 // ways of at most `depth` calls. Only nodes that can still reach the end in the calls left are tried, and the work
 // is bounded, so a large graph answers quickly (and says when it stopped early).
-// The trace (plans/2026-11-18-function-trace.md): one lane THROUGH a function, up its callers to where it starts (the
+// The trace: one lane THROUGH a function, up its callers to where it starts (the
 // farthest function nothing calls, within depth) and down its callees to where it ends (the farthest that calls
 // nothing more in the map), or to `to` by the shortest way. Each step: its node (with its signature when the reader
 // gave one), and the call into the next (its kind, line and arguments); off the lane, its other callers above and
@@ -749,7 +749,13 @@ inline J trace(const Graph& g, size_t focus, int depth, long to = -1) {
                 (void)mask;
                 if (w == skip) continue;
                 ++count;
-                if (named.size() < 8) named.push_back(J{{"id", text(g.nodes[w], "id")}, {"label", text(g.nodes[w], "label")}});
+                if (named.size() < 8) {
+                    // With where it is, so Enter on it goes to its code.
+                    J one{{"id", text(g.nodes[w], "id")}, {"label", text(g.nodes[w], "label")}};
+                    if (g.nodes[w].contains("file")) one["file"] = g.nodes[w]["file"];
+                    if (g.nodes[w].contains("line")) one["line"] = g.nodes[w]["line"];
+                    named.push_back(one);
+                }
             }
             return std::make_pair(named, count);
         };

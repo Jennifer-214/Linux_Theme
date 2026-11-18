@@ -87,7 +87,7 @@ local function read_file(path, limit)
   return text
 end
 
--- ─── signatures (C and C++): what a function takes and gives, for the trace (plans/2026-11-18-function-trace.md) ───
+-- ─── signatures (C and C++): what a function takes and gives, for the trace ─────────────────────────────────
 -- The declarators around a name, outermost first ('*' with const when the pointer itself is const, '&', '&&', '[]'),
 -- and the name; or, reaching a function's declarator, the marks so far (its return's) and that declarator.
 local NAME_NODES = { identifier = true, field_identifier = true, qualified_identifier = true, destructor_name = true,
@@ -376,6 +376,7 @@ function M.layout(page, width, retro)
   width = math.max(20, width or 80)
   local G = M.glyphs(retro)
   local lines, hits, marks, placed, bands = {}, {}, {}, {}, {}
+  local parts_text, put_parts
   local graph = require('desk.callgraph')
   local gauge = width >= 28 and (page.zoom or page.layered)
   if gauge then width = width - graph.GAUGE_WIDTH end
@@ -436,6 +437,28 @@ function M.layout(page, width, retro)
       for k = 1, 4 do lines[#lines + 1] = texts[k] end
     end
   end
+  -- A line of parts: { text, item?, said? }; an item makes its text a hit (Enter goes there), said puts words in the
+  -- theme's voice (capitals in retro; code stays as typed).
+  function parts_text(parts)
+    local t = ''
+    for _, part in ipairs(parts) do t = t .. (part[3] and G.said(tostring(part[1] or '')) or tostring(part[1] or '')) end
+    return t
+  end
+  function put_parts(parts, lead, group)
+    local text, lnum = lead or '', #lines + 1
+    for _, part in ipairs(parts) do
+      local piece = part[3] and G.said(tostring(part[1] or '')) or tostring(part[1] or '')
+      if part[2] then
+        hits[lnum] = hits[lnum] or {}
+        table.insert(hits[lnum], { s = #text, e = #text + #piece, item = part[2] })
+        marks[#marks + 1] = { lnum, #text, #text + #piece, 'DeskMapName', 1 }
+        placed[#placed + 1] = { item = part[2], spans = { { lnum, #text, #text + #piece } }, line = lnum, name_col = #text,
+                                x = width_of(text), w = width_of(piece) }
+      end
+      text = text .. piece
+    end
+    add(text, group)
+  end
   for _, h in ipairs(page.header or {}) do add(fit(h[1], width, G.ellipsis), h[2]) end
   if gauge and page.zoom then
     for i, label in ipairs({ 'all', 'dir', 'src', 'cls' }) do
@@ -452,19 +475,13 @@ function M.layout(page, width, retro)
       boxes(s.boxes, double and G.double or G.single, double and 'DeskMapFocus' or 'DeskMapBox', double and 'DeskMapFocus' or 'DeskMapName')
     elseif s.arrow then centred(G.down, 'DeskMapBox')
     elseif s.parts then
-      local text, lnum = '', #lines + 1
-      for _, part in ipairs(s.parts) do
-        local piece = tostring(part[1] or '')
-        if part[2] then
-          hits[lnum] = hits[lnum] or {}
-          table.insert(hits[lnum], { s = #text, e = #text + #piece, item = part[2] })
-          marks[#marks + 1] = { lnum, #text, #text + #piece, 'DeskMapName', 1 }
-          placed[#placed + 1] = { item = part[2], spans = { { lnum, #text, #text + #piece } }, line = lnum, name_col = #text,
-                                  x = width_of(text), w = width_of(piece) }
-        end
-        text = text .. piece
-      end
-      add(text, s.group)
+      put_parts(s.parts, '', s.group)
+    elseif s.block then
+      -- Lines left-aligned among themselves, the block centred (a trace step's parameters under its box).
+      local wide = 0
+      for _, line in ipairs(s.block) do wide = math.max(wide, width_of(parts_text(line.parts or line))) end
+      local left = string.rep(' ', math.max(0, math.floor((width - wide) / 2)))
+      for _, line in ipairs(s.block) do put_parts(line.parts or line, left, line.group or s.group) end
     elseif s.blank then add('') end
     if (s.more or 0) > 0 then centred(with_key(G, '+' .. s.more .. ' more · ', 'more', ' shows them'), 'DeskMapDim') end
     if s.level and #lines >= first then bands[#bands + 1] = { first = first, last = #lines, level = s.level } end
@@ -768,7 +785,67 @@ function M.level_nodes(answer, module, file, class, all)
 end
 
 -- A query's answer (desk-work map query --q reach|callers|paths).
+-- A trace (desk-work map query --q trace): the lane through a function, a box per step (the function itself in a double
+-- frame) with its parameters under it, how each is passed and whether the callee can write the caller's value
+-- through it (inout), its other callers and callees (Enter on one goes there), and between steps the call: its line
+-- and each argument → the parameter it lands in.
+local PASS_WORD = { value = 'value', ['const ref'] = 'const ref', ref = 'ref', rvalue = 'moved in', pointer = 'pointer',
+  ['const pointer'] = 'const ptr', array = 'array', ['const array'] = 'const array', smart = 'smart ptr' }
+function M.trace_page(answer)
+  local steps, calls = answer.steps or {}, answer.calls or {}
+  local focus
+  for _, st in ipairs(steps) do if st.id == answer.focus then focus = st end end
+  local sections = { { head = 'trace through ' .. code(focus and focus.label) .. ' · ' .. #steps .. (#steps == 1 and ' function' or ' functions') } }
+  if answer.to and answer.reached == false then
+    sections[#sections + 1] = { parts = { { (focus and focus.label or '?') .. ' does not reach ' .. answer.to:gsub('^.*::', '') .. ' within '
+      .. (answer.depth or '?') .. ' calls' } }, group = 'DeskMapDim' }
+  end
+  for k, st in ipairs(steps) do
+    sections[#sections + 1] = { boxes = { node_item(st, { detail = where(st) .. (st.returns and (' → ' .. st.returns) or '') }) },
+      frame = st.role == 'focus' and 'double' or 'single' }
+    local block, params = {}, st.params or {}
+    local wpass, wtype = 0, 0
+    for _, prm in ipairs(params) do
+      wpass = math.max(wpass, #(PASS_WORD[prm.pass] or prm.pass))
+      wtype = math.max(wtype, vim.fn.strdisplaywidth(prm.type))
+    end
+    for _, prm in ipairs(params) do
+      local word = PASS_WORD[prm.pass] or prm.pass
+      block[#block + 1] = { { string.format('%-5s  %-' .. wpass .. 's  ', prm.dir, word), nil, true },
+        { prm.type .. string.rep(' ', wtype - vim.fn.strdisplaywidth(prm.type)) .. '  ' .. prm.name } }
+    end
+    for _, side in ipairs({ { 'callers', 'more_callers', 'other caller' }, { 'callees', 'more_callees', 'other callee' } }) do
+      local list, more = st[side[1]] or {}, st[side[2]] or 0
+      if more > 0 then
+        local line = { parts = { { '+' .. more .. ' ' .. side[3] .. (more == 1 and '' or 's') .. ': ', nil, true } }, group = 'DeskMapDim' }
+        for i, other in ipairs(list) do
+          if i > 1 then line.parts[#line.parts + 1] = { ', ' } end
+          line.parts[#line.parts + 1] = { other.label, node_item(other) }
+        end
+        if more > #list then line.parts[#line.parts + 1] = { ' …' } end
+        block[#block + 1] = line
+      end
+    end
+    if #block > 0 then sections[#sections + 1] = { block = block } end
+    local call, after = calls[k], steps[k + 1]
+    if call and after then
+      sections[#sections + 1] = { arrow = true }
+      local flow, into = {}, after.params or {}
+      for i, arg in ipairs(call.args or {}) do
+        local prm = into[i]
+        flow[#flow + 1] = (prm and prm.name ~= '' and prm.name ~= arg) and (arg .. ' → ' .. prm.name) or arg
+      end
+      local at = call.line and (':' .. call.line) or ''
+      if at ~= '' or #flow > 0 then
+        sections[#sections + 1] = { block = { { { at .. (at ~= '' and #flow > 0 and '   ' or '') .. table.concat(flow, ' · ') } } }, group = 'DeskMapDim' }
+      end
+    end
+  end
+  return { crumbs = { 'trace' }, sections = sections }
+end
+
 function M.level_query(answer, all)
+  if answer.q == 'trace' then return M.trace_page(answer) end
   local sections = {}
   if answer.q == 'paths' then
     local by = node_index(answer)
@@ -1328,6 +1405,28 @@ local function centre(view, ctx)
   G.open(target)
 end
 
+-- t: the trace through the function (its lane up to where it starts and down to where it ends); e on a trace: down to
+-- a function she names instead (the pop-out asks that as the row's question).
+local function trace_from(view, ctx)
+  local item = about_item(view, ctx)
+  local node = item and item.target and item.target.node
+  if not node then return tell('Put the cursor on a function first.') end
+  query(view, { '--q', 'trace', '--from', node.id }, item.key)
+end
+local function on_trace(view)
+  local top = view and view.stack and view.stack[#view.stack]
+  return top and top.answer and top.answer.q == 'trace' and top.answer or nil
+end
+local function trace_to(view, ctx)
+  local answer = on_trace(view)
+  if not answer then return tell('Open a trace first (`t` on a function).') end
+  local to = ctx and type(ctx.text) == 'string' and vim.trim(ctx.text) ~= '' and vim.trim(ctx.text) or nil
+  local function go(name) query(view, { '--q', 'trace', '--from', answer.focus, '--to', name }) end
+  if to then return go(to) end
+  if view.out then return end
+  ask('Trace to: ', '', go)
+end
+
 -- gs: the function in symdeps' card (C and C++), as gs in the call graph: its code, the cursor on its NAME, then the
 -- card. On the line's first text (`int norm(…)`) symdeps would read the return type.
 local function in_symdeps(view, ctx)
@@ -1431,6 +1530,24 @@ local function adopt(to, from) for _, k in ipairs(STATE) do to[k] = from[k] end 
 -- it comes back as it was, and Backspace at its top goes back to the window this was pressed in. from: a map's state
 -- to show there (one coming back from the pop-out). The map of root in the pop-out comes back from there as this tab,
 -- as o there brings it back: one map per checkout (2026-11-16: Space cm made a second, fresh one).
+-- Space c p: the trace through the function at the cursor, by its file and line (desk-work finds the function whose
+-- lines hold it): in the pop-out's map when the pop-out shows this checkout's map, else in the map's tab.
+function M.trace_here()
+  local path = api.nvim_buf_get_name(0)
+  local root = path ~= '' and vim.fs.root(path, '.git')
+  if not root then return tell('Open a file of a git checkout first.') end
+  root = uv.fs_realpath(root) or root
+  local real = uv.fs_realpath(path) or path
+  local rel = real:sub(1, #root + 1) == root .. '/' and real:sub(#root + 2) or nil
+  if not rel then return tell('This file is not in the checkout.') end
+  local line = api.nvim_win_get_cursor(0)[1]
+  local P = package.loaded['desk.popout']
+  local out = P and P.view_of('map')
+  local view = (out and out.out and not out.gone and out.root == root) and out or nil
+  if view then P.show('map', actions.context(), { pop = view.pop }) else view = M.open(root) end
+  query(view, { '--q', 'trace', '--file', rel, '--line', tostring(line), '--from', '' })
+end
+
 function M.open(root, from)
   local here_view = views[api.nvim_get_current_buf()]
   root = root or (here_view and here_view.root) or vim.fs.root(0, '.git') or vim.fn.getcwd()
@@ -1533,6 +1650,11 @@ local function needs_function(ctx)
   local t = ctx.item and ctx.item.target
   return (t and t.kind == 'node') or 'select a function first'
 end
+local function needs_trace(ctx)
+  local why = needs_map(ctx)
+  if why ~= true then return why end
+  return on_trace(ctx and ctx.map) and true or 'open a trace first (`t` on a function)'
+end
 local function needs_c_function(ctx)
   if not actions.symdeps() then return 'requires symdeps' end
   local why = needs_function(ctx)
@@ -1583,6 +1705,9 @@ local function moving(how, key, name, line, doc)
     end }
 end
 local ROWS = actions.add({
+  { id = 'map.trace-here', group = GROUP, name = 'Trace through this function', key = '<leader>cp', on = 'editor', remote = true,
+    about = 'The path through the function at the cursor, up to where it starts and down to where it ends, with each step\'s parameters and the arguments it is called with (in the pop-out\'s map when it shows one)',
+    run = function() M.trace_here() end },
   { id = 'map.open', group = GROUP, name = 'Project map', key = '<leader>cm', on = 'editor', remote = true, also = '`:ProjectMap`',
     about = 'The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was, or the map out in the pop-out back as the tab',
     -- In the map itself its own keys apply; without desk-work the page opens and says so. Asked from the pop-out it
@@ -1623,6 +1748,11 @@ local ROWS = actions.add({
   row('centre', 'c', 'The call graph of this function',
     'The call graph centred on the selected function, where the map is: a graph tab here, the call graph in the pop-out (`Ctrl+o` there comes back to the map)',
     centre, needs_function, THERE),
+  row('trace', 't', 'Trace through this function',
+    'The lane through the selected function: up to where it starts, down to where it ends; each step with its parameters (how each is passed, and whether the callee can change it) and what it is called with',
+    trace_from, needs_function, THERE),
+  row('trace-to', 'e', 'Trace to a chosen function', 'On a trace: down to the function you name instead of where the chain ends',
+    trace_to, needs_trace, { remote = true, input = { prompt = 'Trace to: ' } }),
   row('symdeps', 'gs', 'This function in symdeps', "The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph",
     in_symdeps, needs_c_function, THERE),
   row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_function,

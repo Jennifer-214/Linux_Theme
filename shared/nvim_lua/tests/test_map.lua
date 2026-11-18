@@ -211,6 +211,38 @@ local callers_page = Map.layout(Map.level_query(callers), 80, false)
 ok(line_with(callers_page.lines, "│ M.beta") < line_with(callers_page.lines, "║ use"), "callers: the farthest at the top, the function at the bottom")
 local ways = Map.layout(Map.level_query({ ok = true, q = "paths", from = contents.nodes[5], to = contents.nodes[2], depth = 10, max = 20,
   paths = { { nodes = { "lua/other.lua::use", "lua/mod.lua::M.alpha", "lua/mod.lua::M.beta" }, kinds = { "call-by-name", "call" } } }, nodes = contents.nodes }), 80, false)
+-- The trace page: a box per step (the function itself double), its parameters under it, the call between steps with
+-- each argument → the parameter it lands in, and the other callers and callees, Enter-able.
+local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16,
+  steps = {
+    { id = "e.cpp::hot", label = "hot", file = "e.cpp", line = 12, kind = "function", role = "up", returns = "void",
+      params = { { name = "ring", type = "Ring &", pass = "ref", dir = "inout" } }, callers = {}, more_callers = 0, callees = {}, more_callees = 0 },
+    { id = "e.cpp::tick", label = "tick", file = "e.cpp", line = 11, kind = "function", role = "focus", returns = "bool",
+      params = { { name = "t", type = "const Tick &", pass = "const ref", dir = "in" } },
+      callers = { { id = "e.cpp::replay", label = "replay", file = "e.cpp", line = 30 } }, more_callers = 1, callees = {}, more_callees = 0 },
+    { id = "e.cpp::submit", label = "submit", file = "e.cpp", line = 10, kind = "function", role = "down", returns = "bool",
+      params = { { name = "order", type = "Order &&", pass = "rvalue", dir = "in" }, { name = "retries", type = "int", pass = "value", dir = "in" } },
+      callers = {}, more_callers = 0, callees = {}, more_callees = 0 } },
+  calls = { { from = "e.cpp::hot", to = "e.cpp::tick", kind = "call-by-name", line = 12, args = { "t" } },
+            { from = "e.cpp::tick", to = "e.cpp::submit", kind = "call-by-name", line = 11, args = { "Order{t.px}", "3" } } } }
+local traced = Map.layout(Map.trace_page(trace_answer), 90, false)
+ok(line_with(traced.lines, "trace through `tick` · 3 functions") or line_with(traced.lines, "trace through tick · 3 functions"), "the trace's heading")
+ok(line_with(traced.lines, "╔") and line_with(traced.lines, "║ tick"), "the function it goes through, in a double box")
+ok(line_with(traced.lines, "in     const ref  const Tick &  t"), "a parameter: which way, how it is passed, its type and name")
+ok(line_with(traced.lines, "in     moved in  Order &&  order") and line_with(traced.lines, "in     value     int       retries"), "… aligned in columns")
+ok(line_with(traced.lines, "inout  ref  Ring &  ring"), "… inout where the callee can change the caller's value")
+ok(line_with(traced.lines, ":11   Order{t.px} → order · 3 → retries"), "between steps the call: its line, each argument → its parameter")
+ok(line_with(traced.lines, ":12   t"), "… an argument named as its parameter is said once")
+ok(line_with(traced.lines, "e.cpp:11 → bool"), "… each box says where it is and what it returns")
+local replay_row = line_with(traced.lines, "+1 other caller: replay")
+ok(replay_row, "the other callers, by name")
+local _, replay_line = line_with(traced.lines, "+1 other caller: replay")
+eq(replay_row and Map.item_at(traced, replay_row, replay_line:find("replay", 1, true)).target.node.id, "e.cpp::replay", "… each one Enter-able")
+local traced_retro = Map.layout(Map.trace_page(trace_answer), 90, true)
+ok(line_with(traced_retro.lines, "IN     CONST REF  const Tick &  t") and line_with(traced_retro.lines, "+1 OTHER CALLER: replay"),
+  "retro: the words in capitals, the code as typed")
+local unreached = Map.layout(Map.trace_page(vim.tbl_extend("force", trace_answer, { to = "e.cpp::flush", reached = false })), 90, false)
+ok(line_with(unreached.lines, "tick does not reach flush within 16 calls"), "e to a function it does not reach: says so")
 local way_row, way = line_with(ways.lines, "use → M.alpha → M.beta")
 ok(way_row and way:find("(by name)", 1, true), "a way, with the part found by name said")
 eq(Map.item_at(ways, way_row, way:find("M.alpha", 1, true)).target.node.id, "lua/mod.lua::M.alpha", "each name on a way is a hit")
@@ -220,7 +252,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -505,6 +537,29 @@ do
   Map.desk_work, vim.ui.input, vim.notify = fake_before, real_input, real_notify_gs
   package.loaded["fox-symdeps"], package.loaded["fox-symdeps.card"] = nil, nil
 end
+-- t: the trace through the box under the cursor, asked of desk-work by its id; e there: down to a function she names.
+do
+  local fake_before, real_input, traced_args = Map.desk_work, vim.ui.input, {}
+  Map.desk_work = function(args, done)
+    if args[2] == "query" and args[6] == "trace" then
+      traced_args[#traced_args + 1] = table.concat(args, " ")
+      return vim.defer_fn(function() done(trace_answer, { code = 0, stdout = "", stderr = "" }) end, 5)
+    end
+    return fake_before(args, done)
+  end
+  local depth_before = #view.stack
+  cursor_on("M.alpha")
+  press("t")
+  ok(vim.wait(1000, function() return line_with(view.drawn.lines, "║ tick") end), "t: the trace page, drawn")
+  ok(traced_args[1] and traced_args[1]:find("--q trace --from lua/mod.lua::M.alpha", 1, true), "… asked through the box's function: " .. tostring(traced_args[1]))
+  vim.ui.input = function(opts, done) eq(opts.prompt, "Trace to: ", "e asks where to"); done("submit") end
+  press("e")
+  ok(vim.wait(1000, function() return #traced_args == 2 and #view.stack == depth_before + 2 end), "e: asked again, its answer a page of its own")
+  ok(traced_args[2] and traced_args[2]:find("--from e.cpp::tick --to submit", 1, true), "… from the same function, down to the one named: " .. tostring(traced_args[2]))
+  press("<BS>"); press("<BS>")
+  ok(vim.wait(1000, function() return #view.stack == depth_before end), "Backspace goes back off the traces")
+  Map.desk_work, vim.ui.input = fake_before, real_input
+end
 before_r = #asked
 local function box_here() local c = api.nvim_win_get_cursor(view.win); local it = Map.item_at(view.drawn, c[1], c[2]); return it and it.name end
 local box_before = box_here()
@@ -664,7 +719,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.up" },
+eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.trace", "map.trace-to", "map.up" },
   "the pop-out can show more and retains its existing navigation keys")
 local views_row = A.get("popout.view.map")
 eq(views_row and { views_row.group, views_row.name, views_row.remote }, { "Views", "Pop out the project map", true },
