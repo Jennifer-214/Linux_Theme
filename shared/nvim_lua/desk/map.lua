@@ -1038,9 +1038,123 @@ local function base_type(t)
   return vim.trim(bare):match('([%a_][%w_]*)$')
 end
 M.base_type = base_type
+
+local LETTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+-- A member's size as said: bits for a bit-field, bytes, or ? where symdeps could not tell.
+local function member_size(mb)
+  if mb.bit_hi then return (mb.bit_hi - mb.bit_lo + 1) .. ' bits' end
+  return mb.size and (mb.size .. ' B') or '?'
+end
+-- A struct's bytes, 16 to a row: each member's letter over its bytes; ▒ where members share a byte (bit-fields packed
+-- together, a union); · padding, only on a layout symdeps placed completely; ░ bytes it could not account for (a partial
+-- layout's gaps: they may be a member it could not read). The members `touched` names are lit. Long runs of the same
+-- row fold into one line; at most `cap` lines. → { rows = parts lines, legend = parts lines, padding = bytes or nil }.
+function M.byte_map(rec, touched, retro, cap)
+  touched, cap = touched or {}, cap or 24
+  local more = retro and '..' or '…'
+  local size = rec.size or 0
+  local owners = {}
+  for i, mb in ipairs(rec.members or {}) do
+    local last
+    if mb.bit_hi then last = mb.off + math.floor(mb.bit_hi / 8)
+    elseif mb.size then last = mb.off + mb.size - 1
+    elseif not mb.empty then last = mb.off end
+    for b = mb.off or 0, math.min(last or -1, size - 1) do
+      owners[b] = owners[b] or {}
+      table.insert(owners[b], i)
+    end
+  end
+  local function cell(b)
+    local o = owners[b]
+    if not o then return rec.complete and '·' or '░', 'DeskMapDim', rec.complete and 'pad' or 'unknown' end
+    local lit = false
+    for _, i in ipairs(o) do if touched[rec.members[i].name] then lit = true end end
+    if #o > 1 then return '▒', lit and 'DeskMapFocus' or nil, 'shared' end
+    return LETTERS:sub(o[1], o[1]) ~= '' and LETTERS:sub(o[1], o[1]) or '#', lit and 'DeskMapFocus' or nil
+  end
+  local seen, padding = {}, 0
+  local w = #tostring(math.max(0, size - 1))
+  local rows, raw = {}, {}
+  for r = 0, math.ceil(size / 16) - 1 do
+    local cells, key = {}, ''
+    for b = r * 16, math.min(size, r * 16 + 16) - 1 do
+      local ch, group, kind = cell(b)
+      if kind then seen[kind] = true end
+      if kind == 'pad' then padding = padding + 1 end
+      cells[#cells + 1] = { ch, group }
+      key = key .. ch .. (group or '')
+    end
+    raw[#raw + 1] = { off = r * 16, cells = cells, key = key }
+  end
+  local function row(rw)
+    local parts = { { '    ' .. string.format('%' .. w .. 'd', rw.off) .. ' │', nil, nil, 'DeskMapDim' } }
+    for k, c in ipairs(rw.cells) do
+      if k == 9 then parts[#parts + 1] = { ' ' } end
+      local last = parts[#parts]
+      if k ~= 9 and k > 1 and last[4] == c[2] and last.cell then last[1] = last[1] .. c[1]
+      else parts[#parts + 1] = { c[1], nil, nil, c[2], cell = true } end
+    end
+    parts[#parts + 1] = { '│', nil, nil, 'DeskMapDim' }
+    return parts
+  end
+  local k = 1
+  while k <= #raw do
+    if #rows >= cap then
+      rows[#rows + 1] = { { '    ' .. more .. ' ' .. (size - raw[k].off) .. ' more bytes', nil, true, 'DeskMapDim' } }
+      break
+    end
+    local rw = raw[k]
+    if rw.off > 0 and rw.off % 64 == 0 then
+      rows[#rows + 1] = { { '    ' .. string.rep(' ', w) .. ' ─── line ' .. (math.floor(rw.off / 64) + 1) .. ' ───', nil, true, 'DeskMapDim' } }
+    end
+    rows[#rows + 1] = row(rw)
+    local j = k
+    while raw[j + 1] and raw[j + 1].key == rw.key and #raw[j + 1].cells == #rw.cells do j = j + 1 end
+    if j - k >= 2 then
+      local last = math.min(size, raw[j].off + 16) - 1
+      -- a run over a cache line's start says where it ends (the line marks inside it are folded with it)
+      local to_line = math.floor(last / 64) > math.floor(rw.off / 64) and (', line ' .. (math.floor(last / 64) + 1)) or ''
+      rows[#rows + 1] = { { '    ' .. string.rep(' ', w) .. '  ' .. more .. ' the same to byte ' .. last .. to_line, nil, true, 'DeskMapDim' } }
+      k = j + 1
+    else
+      k = k + 1
+    end
+  end
+  local entries = {}
+  for i, mb in ipairs(rec.members or {}) do
+    entries[#entries + 1] = { (LETTERS:sub(i, i) ~= '' and LETTERS:sub(i, i) or '#') .. ' ' .. mb.name .. ' ' .. member_size(mb), touched[mb.name] and 'DeskMapFocus' or nil }
+  end
+  if seen.shared then entries[#entries + 1] = { '▒ shared', 'DeskMapDim', true } end
+  if seen.pad then entries[#entries + 1] = { '· padding', 'DeskMapDim', true } end
+  if seen.unknown then entries[#entries + 1] = { '░ not accounted for', 'DeskMapDim', true } end
+  local legend, line, used = {}, nil, 0
+  for _, e in ipairs(entries) do
+    local wdt = vim.fn.strdisplaywidth(e[1])
+    if not line or used + 2 + wdt > 64 then
+      line = { { '      ' } }
+      legend[#legend + 1] = line
+      used = 0
+    else
+      line[#line + 1] = { '  ' }
+      used = used + 2
+    end
+    line[#line + 1] = { e[1], nil, e[3], e[2] }
+    used = used + wdt
+  end
+  return { rows = rows, legend = legend, padding = rec.complete and padding or nil }
+end
+-- A layout's shape, to tell a template's versions apart: the same size and members are one layout.
+local function layout_signature(rec)
+  local t = { tostring(rec.size) }
+  for _, mb in ipairs(rec.members or {}) do t[#t + 1] = table.concat({ mb.name, mb.off or '', mb.size or '', mb.bit_lo or '', mb.bit_hi or '' }, ':') end
+  return table.concat(t, '|')
+end
 -- layouts: symdeps' census of a step's file, by file: { records } | { pending = true } | { error = why }.
 function M.trace_page(answer, folds, layouts)
   folds, layouts = folds or {}, layouts or {}
+  local retro = M.retro()
+  -- code page 437 has no ▸ ▾ …: DOS's tree marks in retro
+  local open_mark, closed_mark, ellipsis = retro and '- ' or '▾ ', retro and '+ ' or '▸ ', retro and '..' or '…'
   local steps, calls = answer.steps or {}, answer.calls or {}
   local focus
   for _, st in ipairs(steps) do if st.id == answer.focus then focus = st end end
@@ -1075,7 +1189,7 @@ function M.trace_page(answer, folds, layouts)
       local key = st.id .. '|' .. name
       local open = folds[key]
       if open == nil then open = FOLDS_OPEN[name] or (name == 'uses' and st.role == 'focus') end
-      body[#body + 1] = { { (open and '▾ ' or '▸ ') }, { title .. ' (' .. count .. ')', fold_item(st.id, name, open, count), true, 'DeskMapHead' } }
+      body[#body + 1] = { { (open and open_mark or closed_mark) }, { title .. ' (' .. count .. ')', fold_item(st.id, name, open, count), true, 'DeskMapHead' } }
       if open then for _, row in ipairs(rows()) do body[#body + 1] = row end end
     end
     local params = st.params or {}
@@ -1114,33 +1228,55 @@ function M.trace_page(answer, folds, layouts)
       fold('layout', 'layout', #params, function()
         local got = layouts[st.file]
         if not got then return { { { '    ' }, { 'opening asks symdeps to lay this file out', nil, true, 'DeskMapDim' } } } end
-        if got.pending then return { { { '    ' }, { 'symdeps is laying this file out…', nil, true, 'DeskMapDim' } } } end
+        if got.pending then return { { { '    ' }, { 'symdeps is laying this file out' .. ellipsis, nil, true, 'DeskMapDim' } } } end
         if got.error then return { { { '    ' }, { got.error, nil, nil, 'DeskMapDim' } } } end
         local by = {}
         for _, rec in ipairs(got.records or {}) do
           local base = base_type(rec.name)
-          if base and not by[base] then by[base] = rec end
+          if base then
+            by[base] = by[base] or {}
+            table.insert(by[base], rec)
+          end
         end
         local rows = {}
         for _, prm in ipairs(params) do
-          local rec = by[base_type(prm.type) or '']
-          if rec then
-            local touched, field = {}, {}
-            for _, f in ipairs(rec.fields or {}) do field[f.name] = f end
+          local versions, distinct, seen = by[base_type(prm.type) or ''] or {}, {}, {}
+          for _, v in ipairs(versions) do
+            local sig = layout_signature(v)
+            if not seen[sig] then seen[sig] = true; distinct[#distinct + 1] = v end
+          end
+          if #distinct > 1 then
+            -- a template's versions that differ: all said, none picked (which one this function gets is clangd's to say)
+            rows[#rows + 1] = { { '    ' }, { prm.name, nil, nil, 'DeskMapName' }, { '  ' .. base_type(prm.type) .. '  ' },
+              { #distinct .. ' versions, laid out differently', nil, true, 'DeskMapDim' } }
+            for _, v in ipairs(distinct) do
+              rows[#rows + 1] = { { '        ' .. v.name .. '  ' }, { v.size .. ' B, align ' .. (v.align or '?'), nil, true, 'DeskMapDim' } }
+            end
+          elseif distinct[1] then
+            local rec = distinct[1]
+            local touched, named, member = {}, {}, {}
+            for _, mb in ipairs(rec.members or {}) do member[mb.name] = mb end
             for _, list in ipairs({ prm.reads or {}, prm.writes or {} }) do
               for _, path in ipairs(list) do
                 local head = path:match('^[^.]+')
-                local f = field[head]
-                if f and f.off and not touched[head] then
-                  touched[head] = true
-                  touched[#touched + 1] = head .. '@' .. f.off .. (f.size and (' ' .. f.size .. ' B') or '')
+                local mb = member[head]
+                if mb and not named[head] then
+                  named[head] = true
+                  touched[#touched + 1] = head .. '@' .. mb.off .. ' ' .. member_size(mb)
                 end
               end
             end
-            local lines_ = rec.size and math.ceil(rec.size / 64) or nil
+            local map = M.byte_map(rec, named, retro)
+            local lines_ = rec.size and math.max(1, math.ceil(rec.size / 64)) or nil
             rows[#rows + 1] = { { '    ' }, { prm.name, nil, nil, 'DeskMapName' }, { '  ' .. base_type(prm.type) .. '  ' },
-              { (rec.size and (rec.size .. ' B') or '? B') .. (rec.align and (', align ' .. rec.align) or '') .. (lines_ and (' · ' .. lines_ .. (lines_ == 1 and ' line' or ' lines')) or ''), nil, true, 'DeskMapDim' } }
+              { (rec.size and (rec.size .. ' B') or '? B') .. (rec.align and (', align ' .. rec.align) or '') .. (lines_ and (' · ' .. lines_ .. (lines_ == 1 and ' line' or ' lines')) or '')
+                .. (map.padding and map.padding > 0 and (' · ' .. map.padding .. ' B padding') or ''), nil, true, 'DeskMapDim' } }
             if #touched > 0 then rows[#rows + 1] = { { '        ' }, { 'touches  ', nil, true, 'DeskMapDim' }, { table.concat(touched, ' · ') } } end
+            if rec.complete == false then
+              rows[#rows + 1] = { { '        ' }, { 'partly laid out: ' .. (rec.why or 'symdeps could not size every member'), nil, nil, 'DeskMapDim' } }
+            end
+            for _, r in ipairs(map.rows) do rows[#rows + 1] = r end
+            for _, r in ipairs(map.legend) do rows[#rows + 1] = r end
           end
         end
         if #rows == 0 then rows[1] = { { '    ' }, { 'no struct it is passed is laid out in this file', nil, true, 'DeskMapDim' } } end
@@ -1152,7 +1288,7 @@ function M.trace_page(answer, folds, layouts)
       fold(side[1], side[3], more, function()
         local rows = {}
         for _, other in ipairs(list) do rows[#rows + 1] = { { '    ' }, { other.label, node_item(other) }, { '  ' .. where(other), nil, nil, 'DeskMapDim' } } end
-        if more > #list then rows[#rows + 1] = { { '    … ' .. (more - #list) .. ' more', nil, true, 'DeskMapDim' } } end
+        if more > #list then rows[#rows + 1] = { { '    ' .. ellipsis .. ' ' .. (more - #list) .. ' more', nil, true, 'DeskMapDim' } } end
         return rows
       end)
     end
@@ -1684,13 +1820,29 @@ function M.lay_out(view, top, id)
     for _, prm in ipairs(step.params or {}) do names[#names + 1] = base_type(prm.type) end
     fine = pcall(layoutof.of, path, names, function(got)
       local list = {}
-      for _, rec in pairs(got and got.records or {}) do list[#list + 1] = rec end
+      for _, rec in pairs(got and got.records or {}) do vim.list_extend(list, rec.variants or { rec }) end
       done(got and got.records and { records = list } or got)
     end)
   else
+    -- an older symdeps' census: offsets and type names only, no member sizes and no bit-fields, so never complete
+    -- (its gaps are not drawn as padding); a base's or the vtable pointer's line has no plain name and is left out
     local buf = vim.fn.bufadd(path)
     pcall(vim.fn.bufload, buf)
-    fine = pcall(census.census, buf, done)
+    fine = pcall(census.census, buf, function(got)
+      if got and got.records then
+        local list = {}
+        for _, rec in ipairs(got.records) do
+          local members = {}
+          for _, f in ipairs(rec.fields or {}) do
+            if f.name:match('^[%a_][%w_]*$') then members[#members + 1] = { kind = 'field', name = f.name, type = f.type, off = f.off } end
+          end
+          list[#list + 1] = { name = rec.name, size = rec.size, align = rec.align, members = members, complete = false,
+            why = 'an older symdeps gives no member sizes' }
+        end
+        got = { records = list }
+      end
+      done(got)
+    end)
   end
   if not fine then top.layouts[step.file] = { error = 'symdeps could not lay it out' } end
 end

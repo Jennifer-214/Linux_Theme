@@ -298,14 +298,57 @@ eq(Map.base_type("const tt::Tick<F> &"), "Tick", "a type's own name, for the cen
 local lay = { ["e.cpp::tick|layout"] = true }
 ok(line_with(Map.layout(Map.trace_page(trace_answer, lay), 90, false).lines, "opening asks symdeps to lay this file out"), "layout open before an answer: says what it will do")
 ok(line_with(Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { pending = true } }), 90, false).lines, "symdeps is laying this file out…"), "… while symdeps works")
-local laid = Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { records = {
-  { name = "tt::Tick<double>", size = 24, align = 8, fields = { { name = "px", type = "double", off = 0, size = 8 }, { name = "seq", type = "long", off = 8 }, { name = "ts", type = "long", off = 16 } } } } } }), 90, false)
-ok(line_with(laid.lines, "║     t  Tick  24 B, align 8 · 1 line") and line_with(laid.lines, "║         touches  px@0 8 B · ts@16 · seq@8"),
-  "… its size, alignment, cache lines, and the fields this function touches with their offsets (and sizes where symdeps knows them)")
+do
+-- A complete layout (symdeps' layoutof: every member placed and sized): two bit-fields share byte 8, the second runs on
+-- into byte 9 (bits 3..12), bytes 10..15 padding.
+local TICK = { name = "tt::Tick<double>", size = 32, align = 8, complete = true, members = {
+  { kind = "field", name = "px", type = "double", off = 0, size = 8 },
+  { kind = "bitfield", name = "flags", type = "unsigned int", off = 8, bit_lo = 0, bit_hi = 2 },
+  { kind = "bitfield", name = "kind", type = "unsigned int", off = 8, bit_lo = 3, bit_hi = 12 },
+  { kind = "field", name = "seq", type = "long", off = 16, size = 8 },
+  { kind = "field", name = "ts", type = "long", off = 24, size = 8 } } }
+local laid = Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { records = { TICK } } }), 90, false)
+ok(line_with(laid.lines, "║     t  Tick  32 B, align 8 · 1 line · 6 B padding") and line_with(laid.lines, "║         touches  px@0 8 B · ts@24 8 B · seq@16 8 B"),
+  "… its size, alignment, cache lines, its padding, and the fields this function touches with their offsets and sizes")
+local row0 = line_with(laid.lines, " 0 │aaaaaaaa ▒c······│")
+ok(row0 and line_with(laid.lines, "16 │dddddddd eeeeeeee│"), "the byte map: a letter per member over its bytes (a bit-field's by its bits), ▒ where bit-fields share one, · padding")
+local function lit(drawn, row)
+  local out = {}
+  for _, m in ipairs(drawn.marks) do
+    if m[1] == row and m[4] == "DeskMapFocus" then out[#out + 1] = drawn.lines[row]:sub(m[2] + 1, m[3]) end
+  end
+  return out
+end
+eq(row0 and lit(laid, row0), { "aaaaaaaa" }, "… the bytes this function touches lit, the rest not")
+ok(line_with(laid.lines, "a px 8 B  b flags 3 bits  c kind 10 bits") and line_with(laid.lines, "▒ shared  · padding"), "… and what each letter and mark is")
+-- A partial layout (an older symdeps, or a member symdeps could not size): its gaps are never called padding.
+local partial = vim.tbl_extend("force", TICK, { complete = false, why = "no size for `seq`", members = {
+  { kind = "field", name = "px", off = 0, size = 8 }, { kind = "field", name = "seq", off = 16 }, { kind = "field", name = "ts", off = 24, size = 8 } } })
+local plaid = Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { records = { partial } } }), 90, false)
+ok(line_with(plaid.lines, " 0 │aaaaaaaa ░░░░░░░░│") and line_with(plaid.lines, "16 │b░░░░░░░ cccccccc│") and not line_with(plaid.lines, "padding"),
+  "partly laid out: bytes it cannot account for are ░, never padding")
+ok(line_with(plaid.lines, "partly laid out: no size for `seq`") and line_with(plaid.lines, "b seq ?"), "… and it says why, the unknown size as ?")
+-- A template whose versions differ: all said, none picked.
+local float = vim.tbl_extend("force", TICK, { name = "tt::Tick<float>", size = 24 })
+local vlaid = Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { records = { TICK, float, vim.deepcopy(TICK) } } }), 90, false)
+ok(line_with(vlaid.lines, "t  Tick  2 versions, laid out differently") and line_with(vlaid.lines, "tt::Tick<double>  32 B, align 8")
+  and line_with(vlaid.lines, "tt::Tick<float>  24 B, align 8") and not line_with(vlaid.lines, "│aaaaaaaa"), "versions that differ: each named, no byte map picked")
+-- A big buffer: rows of one member fold into one line, and cache lines are marked.
+local big = { name = "Ring", size = 4096, align = 64, complete = true, members = { { kind = "field", name = "head", off = 0, size = 8 },
+  { kind = "field", name = "buf", off = 64, size = 4032 } } }
+local bm = Map.byte_map(big, {}, false)
+local bm_text = vim.tbl_map(function(r) return table.concat(vim.tbl_map(function(pt) return pt[1] end, r)) end, bm.rows)
+ok(bm_text[1]:find("0 │aaaaaaaa ········│", 1, true) and bm_text[2]:find("16 │········ ········│", 1, true), "big: the head, then its padding")
+ok(vim.tbl_contains(bm_text, "         ─── line 2 ───"), "… a cache line's start marked: " .. vim.inspect(bm_text))
+ok(vim.iter(bm_text):any(function(t) return t:find("… the same to byte 4095, line 64", 1, true) end) and #bm.rows < 10, "… and the buffer's 252 rows folded into one line, saying the line it ends on")
+ok(vim.iter(bm_text):any(function(t) return vim.endswith(t, "… the same to byte 63") end), "… a run inside one line says no line")
+end
 ok(line_with(Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { error = "requires symdeps (an optional plugin for C and C++ layouts)" } }), 90, false).lines,
   "requires symdeps (an optional plugin"), "… and without symdeps, says so")
+vim.g.desk_style = "retro"
 local traced_retro = Map.layout(Map.trace_page(trace_answer), 90, true)
-ok(line_with(traced_retro.lines, "║     IN  CONST REF  const Tick &  t") and line_with(traced_retro.lines, "║ ▸ OTHER CALLERS (1)")
+vim.g.desk_style = nil
+ok(line_with(traced_retro.lines, "║     IN  CONST REF  const Tick &  t") and line_with(traced_retro.lines, "║ + OTHER CALLERS (1)")
   and line_with(traced_retro.lines, "32 LINES"), "retro: the words in capitals, the code as typed")
 local unreached = Map.layout(Map.trace_page(vim.tbl_extend("force", trace_answer, { to = "e.cpp::flush", reached = false })), 90, false)
 ok(line_with(unreached.lines, "tick does not reach flush within 16 calls"), "e to a function it does not reach: says so")
@@ -660,7 +703,9 @@ do
   local asked_of
   package.loaded["fox-symdeps.layoutof"] = { of = function(path, names, done)
     asked_of = { vim.fn.fnamemodify(path, ":t"), names }
-    vim.defer_fn(function() done({ records = { Ring = { name = "tt::Ring", size = 16, align = 8, fields = { { name = "head", off = 0, size = 8 } } } } }) end, 5)
+    vim.defer_fn(function() done({ records = { Ring = { name = "tt::Ring", size = 16, align = 8, complete = true, members = { { kind = "field", name = "head", off = 0, size = 8 } },
+      variants = { { name = "tt::Ring", size = 16, align = 8, complete = true, members = { { kind = "field", name = "head", off = 0, size = 8 } } },
+        { name = "tt::Ring2", size = 16, align = 8, complete = true, members = {} } } } } }) end, 5)
   end }
   local top = view.stack[#view.stack]
   top.layouts = nil
@@ -671,6 +716,7 @@ do
   press("<CR>")
   ok(vim.wait(1000, function() return asked_of ~= nil end), "with layoutof: symdeps is asked through it")
   eq(asked_of, { "e.cpp", { "Ring" } }, "… for the step's file and its parameters' types only")
+  ok(vim.wait(1000, function() return line_with(view.drawn.lines, "Ring  16 B, align 8 · 1 line · 8 B padding") end), "… its answer drawn, complete: " .. vim.inspect(view.drawn.lines))
   package.loaded["fox-symdeps"], package.loaded["fox-symdeps.layoutof"] = nil, nil
   ok(traced_args[1] and traced_args[1]:find("--q trace --from lua/mod.lua::M.alpha", 1, true), "… asked through the box's function: " .. tostring(traced_args[1]))
   vim.ui.input = function(opts, done) eq(opts.prompt, "Trace to: ", "e asks where to"); done("submit") end

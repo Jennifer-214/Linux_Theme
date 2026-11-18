@@ -79,6 +79,28 @@ local reach = { ok = true, q = "reach", depth = 3, from = node("lua/a.lua::use",
             { from = "lua/mod.lua::M.beta", to = "lua/mod.lua::M.gamma_with_a_long_name", depth = 3, mark = "capped" } }, more = 0 }
 check("project map reach", Map.layout(Map.level_query(reach), 80, true).lines)
 check("project map callers", Map.layout(Map.level_query(vim.tbl_extend("force", reach, { q = "callers" })), 80, true).lines)
+-- The trace page, every fold open, a struct's byte map in each of its kinds (complete, partly laid out, versions).
+do
+  local style = vim.g.desk_style
+  vim.g.desk_style = "retro"
+  local step = { id = "e.cpp::tick", label = "tick", file = "e.cpp", line = 3, role = "focus", lines = 12, before = 2, after = 5, returns = "void",
+    params = { { name = "t", type = "const Tick &", pass = "const ref", dir = "in", reads = { "px" }, writes = { "seq" } },
+      { name = "r", type = "Ring &", pass = "ref", dir = "inout", reads = { "head" } }, { name = "o", type = "Order &", pass = "ref", dir = "in" } },
+    callers = { { id = "e.cpp::main", label = "main", file = "e.cpp", line = 1 } }, more_callers = 3,
+    callees = { { id = "e.cpp::flush", label = "flush", file = "e.cpp", line = 9 } }, more_callees = 2 }
+  local tick = { name = "Tick", size = 4096, align = 8, complete = true, members = { { kind = "field", name = "px", off = 0, size = 8 },
+    { kind = "bitfield", name = "flags", off = 8, bit_lo = 0, bit_hi = 2 }, { kind = "bitfield", name = "kind", off = 8, bit_lo = 3, bit_hi = 7 },
+    { kind = "field", name = "seq", off = 16, size = 8 }, { kind = "field", name = "buf", off = 64, size = 4032 } } }
+  local ring = { name = "Ring", size = 16, align = 8, complete = false, why = "no size for `tail`", members = { { kind = "field", name = "head", off = 0, size = 4 }, { kind = "field", name = "tail", off = 8 } } }
+  local orders = { { name = "Order<1>", size = 8, align = 8, complete = true, members = {} }, { name = "Order<2>", size = 16, align = 8, complete = true, members = {} } }
+  local folds = {}
+  for _, f in ipairs({ "params", "uses", "layout", "callers", "callees" }) do folds["e.cpp::tick|" .. f] = true end
+  local page = Map.trace_page({ q = "trace", focus = "e.cpp::tick", steps = { step } }, folds, { ["e.cpp"] = { records = { tick, ring, orders[1], orders[2] } } })
+  check("trace page", Map.layout(page, 90, true).lines)
+  local closed = Map.trace_page({ q = "trace", focus = "e.cpp::tick", steps = { step } }, {}, { ["e.cpp"] = { pending = true } })
+  check("trace page, folded", Map.layout(closed, 90, true).lines)
+  vim.g.desk_style = style
+end
 
 -- The screen map.
 local Scr = require("desk.screens")
