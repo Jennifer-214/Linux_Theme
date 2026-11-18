@@ -376,8 +376,9 @@ a review that works in any git repository. The look follows [UI style](ui-style.
 - **Call depth**. `+` expands the selected side of the graph, and `-` collapses it or cancels the level being read.
   From the centre, both keys act on the callee side. The gauge shows the depth of the selected box, and `m` reveals
   functions past the first 24 on each level: their line says "+N more · m shows them", and the key line lists `m` while
-  any are left out. Expansion uses the built project map when it can match the source
-  location, with the language server as a fallback. The tab, panel, and pop-out share these controls.
+  any are left out. The language server's first level stays; the built project map adds the level under the last one
+  shown when it can match the source location and has read every function of the checkout on that level, and the
+  language server reads the level otherwise. The tab, panel, and pop-out share these controls.
 - **Live panel**: `Space co` (`:CallGraphPanel`) opens a narrow split on the right that follows the cursor. It redraws
   when the cursor has rested for 300 ms in another function, keeps each answer until that file is saved, asks the
   server one thing at a time and never takes the focus. Inside it (`Ctrl+w l`) the same keys move between boxes and
