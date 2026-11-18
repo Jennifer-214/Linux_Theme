@@ -762,6 +762,13 @@ void run_specials(Context& ctx) {
         { "shared/pulse.d",          ".config/foxml/pulse.d",  ".sh", true,  "pulse handlers",   nullptr,    false },
     };
     for (auto& s : BULK) deploy_dir_files(ctx, s);
+    // Hyprland handles Alt+h/j/k/l directly. Retire the installed helper with the same backup as a replacement.
+    const auto old_nav = ctx.home / ".local/bin/desk-nav";
+    std::error_code retire_error;
+    if (fs::is_regular_file(fs::symlink_status(old_nav, retire_error)) && snapshot_one(ctx, old_nav)) {
+        if (fs::remove(old_nav, retire_error)) ui::substep("removed stale desk-nav");
+        else if (retire_error) ui::warn("could not remove stale desk-nav: " + retire_error.message());
+    }
     // personalize already put the old wallpaper on screen; a run inside the session shows the new one now.
     if (seed_theme_wallpaper(ctx) && std::getenv("WAYLAND_DISPLAY"))
         sh::run({(ctx.config_home / "hypr/scripts/rotate_wallpaper.sh").string(), "--static"});

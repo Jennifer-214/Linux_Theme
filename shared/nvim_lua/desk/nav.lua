@@ -1,64 +1,6 @@
--- ALT+h/j/k/l go that way through every layer: a Neovim split, then a tmux pane, then a window or monitor. Hyprland
--- runs shared/bin/desk-nav, which asks this Neovim first (M.go over its socket) and moves the tmux pane or the
--- desktop focus only when this has no split that way. No key passes through tmux or Neovim on the way, so nothing
--- here maps ALT keys. Inside tmux this Neovim names its socket on its pane (@desk-nvim): that is how desk-nav finds it.
--- Moving within a view is here too: the jump labels (s) of the review's file list and the call graph (M.jump).
+-- Jump labels and navigation to the working code window from desk views.
 local M = {}
 local api = vim.api
-
--- Moves to the split that way (h, j, k or l) when there is one: 1 when it moved, 0 when the key goes on to tmux and
--- the desktop. A float (a picker, a menu) has no split beside it: the key goes on from there too.
-function M.go(dir)
-  if dir ~= 'h' and dir ~= 'j' and dir ~= 'k' and dir ~= 'l' then return 0 end
-  local here = api.nvim_get_current_win()
-  if api.nvim_win_get_config(here).relative ~= '' then
-    -- In a panel: the split that way, else the key goes on; any other float (a menu, a picker) lets it go on.
-    if not M.is_panel(here) then return 0 end
-    return M.to_window(here, dir, false)
-  end
-  if vim.fn.winnr(dir) ~= vim.fn.winnr() then
-    vim.cmd('wincmd ' .. dir)
-    return 1
-  end
-  -- No split that way: a panel float that way (symdeps' card) is the window there (2026-11-16: only Ctrl+h/j/k/l
-  -- reached it).
-  return M.to_window(here, dir, true)
-end
-
--- A float that takes part in ALT+h/j/k/l as a split does: symdeps' panel (its buffer's filetype is fox-symdeps), or a
--- window marked vim.w.desk_panel. Menus, pickers and the rest stay out of the way.
-function M.is_panel(win)
-  if not (win and api.nvim_win_is_valid(win)) then return false end
-  local config = api.nvim_win_get_config(win)
-  if config.relative == '' or config.focusable == false or config.hide then return false end
-  return vim.w[win].desk_panel == true or vim.bo[api.nvim_win_get_buf(win)].filetype == 'fox-symdeps'
-end
-
--- The window that way from `from`: panels (panels = true) or splits, the nearest mostly that way by centres (the
--- screen map's own rule, desk.screens.nav; a row counts as two columns, as it looks). 1 when it moved, else 0.
-function M.to_window(from, dir, panels)
-  local wins, places = { from }, {}
-  for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
-    if win ~= from and (panels and M.is_panel(win) or not panels and api.nvim_win_get_config(win).relative == '') then wins[#wins + 1] = win end
-  end
-  if #wins == 1 then return 0 end
-  for i, win in ipairs(wins) do
-    local at = vim.fn.win_screenpos(win)
-    places[i] = { x = at[2], y = at[1] * 2, w = api.nvim_win_get_width(win), h = api.nvim_win_get_height(win) * 2 }
-  end
-  local to = require('desk.screens').nav(places, 1, dir)
-  if to == 1 then return 0 end
-  api.nvim_set_current_win(wins[to])
-  return 1
-end
-
--- The pane and socket desk-nav reads: nil outside tmux, or with no socket to name.
-function M.pane()
-  local pane, server, term = vim.env.TMUX_PANE or '', vim.v.servername or '', vim.env.TERM or ''
-  if (vim.env.TMUX or '') == '' or not pane:match('^%%%d+$') or server:sub(1, 1) ~= '/' then return nil end
-  if not (term:match('^tmux') or term:match('^screen')) then return nil end   -- a kitty of its own, started from tmux
-  return pane, server
-end
 
 -- ─── jump labels on a view ─────────────────────────────────────────────────────────────────────────────────────
 -- s in the review's file list and in the call graph: flash.nvim's labels on the rows or boxes on screen, drawn as
@@ -213,12 +155,6 @@ function M.setup()
   set = true
   api.nvim_create_autocmd({ 'WinEnter', 'BufWinEnter' }, { group = api.nvim_create_augroup('desk_nav_code', { clear = true }),
     callback = M.remember_code })
-  local pane, server = M.pane()
-  if not pane or vim.fn.executable('tmux') ~= 1 then return end
-  pcall(vim.system, { 'tmux', 'set-option', '-p', '-t', pane, '@desk-nvim', server }, { text = true })
-  api.nvim_create_autocmd('VimLeavePre', { callback = function()
-    pcall(vim.system, { 'tmux', 'set-option', '-p', '-u', '-t', pane, '@desk-nvim' }, { detach = true })
-  end })
 end
 
 return M

@@ -10,9 +10,9 @@ local actions = require('desk.actions')
 local ns = api.nvim_create_namespace('foxml_menu')
 local memory = {}
 
--- symdeps' group when it draws something, else the fallback: a group that only exists (cleared, or a link to one the
--- pop-out's Neovim lacks) drew no selection bar in the pop-out's menus (2026-11-16).
+-- Retro gets its menu colours directly from the theme. Other styles use Symdeps' colours when those groups are set.
 local function hl(name, fallback)
+  if vim.g.desk_style == 'retro' then return fallback end
   local ok, def = pcall(api.nvim_get_hl, 0, { name = name, link = false })
   return ok and type(def) == 'table' and next(def) ~= nil and name or fallback
 end
@@ -211,7 +211,7 @@ function M.open(items, opts)
     if win and api.nvim_win_is_valid(win) then api.nvim_win_set_config(win, config) else
       win = api.nvim_open_win(buf, true, config)
       vim.wo[win].winhighlight = table.concat({ 'Normal:' .. hl('FoxSymdepsText', 'NormalFloat'), 'FloatBorder:' .. hl('FoxSymdepsBorder', 'FloatBorder'),
-        'FloatTitle:' .. hl('FoxSymdepsTitle', 'Title') }, ',')
+        'FloatTitle:' .. hl('FoxSymdepsTitle', 'FloatTitle') }, ',')
       vim.wo[win].cursorline, vim.wo[win].wrap = false, false
       vim.wo[win].foldmethod, vim.wo[win].foldexpr, vim.wo[win].foldenable = 'manual', '0', false
     end

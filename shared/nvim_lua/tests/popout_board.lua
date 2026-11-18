@@ -11,6 +11,11 @@ _G.board_test = _G.board_test or { names = { 'Order', 'Book', 'Fill' } }
 local T = _G.board_test
 assert(A.surface('symdeps', "symdeps' board in the pop-out", nil))
 
+local function unit_row(override)
+  return { id = 'symdeps.unit', group = 'symdeps', name = 'Go to the unit', key = 'f', on = 'symdeps', remote = true,
+    popout_override = override, about = "The card's unit in the code", run = function(ctx) T.unit = ctx.item end }
+end
+
 A.add({
   { id = 'symdeps.open', group = 'symdeps', name = 'Open the card', key = '<CR>', on = 'symdeps', remote = true,
     about = 'The card of the selected row, in the editor', run = function(ctx) T.opened = ctx.item end },
@@ -19,8 +24,7 @@ A.add({
   { id = 'symdeps.note', group = 'symdeps', name = 'Note on the card', key = 'n', on = 'symdeps', remote = true,
     about = 'Asks for words, then keeps them with the card', input = { prompt = 'Note: ' },
     run = function(ctx) T.noted = { ctx.item, ctx.text } end },
-  { id = 'symdeps.unit', group = 'symdeps', name = 'Go to the unit', key = 'f', on = 'symdeps', remote = true,
-    about = "The card's unit in the code", run = function(ctx) T.unit = ctx.item end },
+  unit_row(),
   { id = 'symdeps.wide', group = 'symdeps', name = 'Wider sections', key = 'w', on = 'symdeps', drawn = true,
     about = 'Drawn where the board is', run = function() T.wide = true end },
   { id = 'symdeps.here', group = 'symdeps', name = "The editor's own", key = 'z', on = 'symdeps', remote = false,
@@ -34,6 +38,18 @@ A.add({
   { id = 'symdeps.down', group = 'symdeps', name = 'The row below', key = 'j', on = 'symdeps', remote = true,
     about = "The editor's board moves on it", run = function() T.moved = true end },
 })
+
+function T.enable_parity()
+  A.add({
+    unit_row(true),
+    { id = 'symdeps.beside', group = 'symdeps', name = 'Open beside', key = 'L', on = 'symdeps',
+      about = 'Open the selected card beside this one',
+      remote = true, popout_override = true, run = function(ctx) T.beside = ctx.item end },
+    { id = 'symdeps.back', group = 'symdeps', name = 'Back on the board', key = '<BS>', on = 'symdeps',
+      about = 'Go back to the previous card',
+      remote = true, popout_override = true, run = function(ctx) T.back = ctx.item end },
+  })
+end
 
 local function render()
   local lines, items = { " symdeps' board", '' }, {}

@@ -27,7 +27,7 @@
 -- asks: notifications of M.ask with an id, answered by an answer notification to the pop-out that asked, so it waits
 -- for the editor only as long as it chooses (an editor held up, busy or at a prompt, answers late: by then the pop-out
 -- has gone another way, and the deadline refuses what came late).
--- describe and act name the generation the pop-out drew: a view drawn again since is refused ("this view moved on").
+-- describe and act name the generation the pop-out drew: an older generation is refused ("this view moved on").
 -- The pop-out's keys for a view are its in-editor surface's drawn rows (run there, on its copy) and remote rows (run in
 -- the editor, by act), beside its own rows (surface 'popout'); a row the editor keeps (remote = false) is not there.
 local M = {}
@@ -322,6 +322,10 @@ local exiting = M.exiting
 local function host_pane()
   local term, pane = vim.env.TERM or '', vim.env.TMUX_PANE or ''
   return ((term:match('^tmux') or term:match('^screen')) and pane:match('^%%%d+$')) and pane or ''
+end
+
+function M.focus_editor()
+  M.focus({ pid = vim.fn.getpid(), pane = host_pane() })
 end
 
 -- The checkout a window shows (the current one by default): its file's, else its folder's.
@@ -643,7 +647,9 @@ function M.redraw(view)
   view.sent = uv.now()
   local msg, refs, keys, full = payload(view)
   local drawing = not msg.tick and (table.concat(msg.lines, '\n') .. '\0' .. table.concat(keys, '\1')) or nil
-  if msg.tick or drawing ~= view.drawing then
+  -- A resize or retry may resend the same code revision while a key for it is on its way.
+  local changed = (msg.tick ~= nil and msg.tick ~= view.mirror_tick) or drawing ~= view.drawing
+  if not view.gen or changed then
     L.gen = L.gen + 1
     view.gen, view.drawing = L.gen, drawing
   end
@@ -664,13 +670,17 @@ end
 -- Every view of pop-out p sent again in the order of its tabs (a pop-out makes a view's tab when it first arrives, so
 -- this order is the tabs' order), then the one in front once more to bring it forward (a moment later: one send per
 -- view every M.GAP_MS).
-local function redraw_all(p)
+local function redraw_all(p, resized)
+  local function needs_redraw(view)
+    -- Code snapshots do not depend on width. Sending one again would allocate and transfer the whole file.
+    return view and (not resized or not kinds[view.kind].mirror or view.mirror_pop ~= p.id)
+  end
   local front = p.front and p.views[p.front]
   for _, id in ipairs(p.order) do
     local view = p.views[id]
-    if view then view.sent = nil; M.redraw(view) end
+    if needs_redraw(view) then view.sent = nil; M.redraw(view) end
   end
-  if front then front.front = true; M.redraw(front) end
+  if needs_redraw(front) then front.front = true; M.redraw(front) end
 end
 
 -- ─── the editor moving, for the views that follow it ───────────────────────────────────────────────────────────
@@ -1527,7 +1537,7 @@ local function subscribe(msg)
     start_pings(p)
     watch_screens()
   end
-  vim.schedule(function() redraw_all(p) end)
+  vim.schedule(function() redraw_all(p, again) end)
   return { subscribed = true, pid = vim.fn.getpid(), pane = host_pane() }
 end
 
@@ -1649,7 +1659,8 @@ bridge.register('resync', timed(function(msg)
   local p = from_pop(msg)
   local view = p and p.chan and p.views[msg.view]
   if not view or not kinds[view.kind].mirror then return refuse('there is no such code view') end
-  if msg.gen ~= view.gen then return refuse('this view moved on') end
+  -- The snapshot for a newer generation may be the one the pop-out missed.
+  if not view.gen or msg.gen > view.gen then return refuse('this view moved on') end
   vim.schedule(function() M.redraw(view) end)
   return { queued = true }
 end), { pop = POP, view = bridge.field('string', 32, true), gen = bridge.field('integer', 2147483647, true) })
@@ -1881,6 +1892,9 @@ local function header_groups()
 end
 
 -- A view's key line: its kind's footer, keys as typed here, words in the theme's voice.
+local BOARD_MENU = { id = 'popout.board-menu', key = 'm', name = "Symdeps' action menu", group = 'symdeps',
+  on = ON, menu = false, run = function() M.client_home() end }
+
 local function keyline(view)
   local said, parts = actions.voice(graphs().retro()), {}
   if vim.tbl_contains(C.tiles, view.id) then
@@ -1892,6 +1906,9 @@ local function keyline(view)
   end
   for _, pair in ipairs(M.key_pairs(view.footer or {}, view.rows)) do
     parts[#parts + 1] = '%#DeskPopoutKey#' .. escape(pair[1]) .. '%#DeskPopoutWords# ' .. escape(said(pair[2]))
+  end
+  if view.surface == 'symdeps' then
+    parts[#parts + 1] = '%#DeskPopoutKey#' .. BOARD_MENU.key .. '%#DeskPopoutWords# ' .. said('menu')
   end
   return '%#DeskPopoutWords# ' .. table.concat(parts, '%#DeskPopoutWords# · ') .. '%#DeskPopoutWords# '
 end
@@ -1913,35 +1930,6 @@ local function view_in_tab(tab)
   local win = api.nvim_tabpage_get_win(tab)
   local buf = api.nvim_win_get_buf(win)
   for _, view in pairs(C.views) do if view.win == win and view.buf == buf then return view end end
-end
-
--- desk-nav can skip sockets altogether at an edge or in a tab without splits.
-local function publish_edges(clear)
-  local edges = ''
-  local current = not clear and shown()
-  if current and current.win == api.nvim_get_current_win() and vim.tbl_contains(C.tiles, current.id) then
-    for _, direction in ipairs({ 'h', 'j', 'k', 'l' }) do
-      if vim.fn.winnr(direction) ~= vim.fn.winnr() then edges = edges .. direction end
-    end
-  end
-  if not C.edge_path or C.edges == edges then return end
-  C.edges = nil
-  if edges == '' then
-    uv.fs_unlink(C.edge_path)
-  else
-    local folder = vim.fs.dirname(C.edge_path)
-    if vim.fn.isdirectory(folder) ~= 1 then pcall(vim.fn.mkdir, folder, 'p', tonumber('700', 8)) end
-    local temporary = C.edge_path .. '.tmp'
-    local fd = uv.fs_open(temporary, 'w', tonumber('600', 8))
-    if not fd then return end
-    local written = uv.fs_write(fd, edges .. '\n', 0)
-    uv.fs_close(fd)
-    if written ~= #edges + 1 or not uv.fs_rename(temporary, C.edge_path) then
-      uv.fs_unlink(temporary)
-      return
-    end
-  end
-  C.edges = edges
 end
 
 -- The header: each view by its tab number and kind, PINNED, ✱ when something new is in it, the one in front in the
@@ -1966,7 +1954,10 @@ local function tabline()
     if view and view.news then text = text .. ' ' .. (retro and '*' or '✱') end
     out[#out + 1] = '%' .. n .. 'T' .. (tab == current and '%#DeskPopoutTabSel#' or '%#DeskPopoutTab#') .. escape(text .. ' ')
   end
-  local right = ' ' .. typed('popout.prev-view') .. '/' .. typed('popout.next-view') .. ' ' .. said('views') .. ' · ' .. typed('popout.home') .. ' ' .. said('menu') .. ' '
+  local view = shown()
+  local next_key = view and view.displaced and view.displaced['popout.next-view']
+  local right = ' ' .. typed('popout.prev-view') .. '/' .. (next_key and actions.spell(next_key) or typed('popout.next-view'))
+    .. ' ' .. said('views') .. ' · ' .. typed('popout.home') .. ' ' .. said('menu') .. ' '
   if C.busy then right = ' ' .. said('editor busy') .. ' ·' .. right end
   return table.concat(out, retro and '%#DeskPopoutTab#│' or '%#DeskPopoutTab# ') .. '%#DeskPopoutTabFill#%T%=%#DeskPopoutTab#'
     .. (retro and '│' or '') .. escape(right)
@@ -1984,6 +1975,11 @@ local function dress(win) for opt, value in pairs(DRESS) do pcall(function() vim
 
 -- A view's keys: view.rows bound in its buffer, its Enter row (view.enter) the remote one on Enter.
 local function bind(view, surface)
+  if surface == 'symdeps' then
+    -- The board's action menu, like Space dm, belongs in the window with the selected card.
+    view.rows = vim.tbl_filter(function(row) return row.key ~= BOARD_MENU.key end, view.rows)
+    table.insert(view.rows, 1, BOARD_MENU)
+  end
   view.enter = nil
   for _, row in ipairs(view.rows) do if row.remote and row.key and row.key:lower() == '<cr>' and not is_on(row, ON) then view.enter = row end end
   actions.map(ON, { buffer = view.buf, rows = view.rows, every = true, nowait = true, silent = true, press = press,
@@ -1999,7 +1995,7 @@ local function client_view(id, surface)
   vim.bo[buf].bufhidden, vim.bo[buf].modifiable = 'hide', false
   if surface == 'code' then vim.bo[buf].undolevels = -1 end
   if surface ~= 'code' then vim.bo[buf].filetype = 'deskpopout' end
-  local view = { id = id, buf = buf, gen = 0, kind = '', title = id, state = '', lines = {}, marks = {}, hl = {}, items = {}, footer = {} }
+  local view = { id = id, buf = buf, gen = 0, kind = '', title = id, state = '', marks = {}, hl = {}, items = {}, footer = {} }
   view.copy = { buf = buf, view = view }
   local loaded = surface == nil
   if surface and actions.MODULES[surface] then loaded = pcall(require, actions.MODULES[surface]) end
@@ -2068,7 +2064,7 @@ local function layout_code()
     end
   end
   if #wanted < 2 then wanted = {} end
-  if vim.deep_equal(C.tiles, wanted) then return publish_edges() end
+  if vim.deep_equal(C.tiles, wanted) then return end
   local current = shown()
   C.switching = true
   local ok, err = pcall(function()
@@ -2090,7 +2086,6 @@ local function layout_code()
   if current and tab_of(current) then api.nvim_set_current_win(current.win) end
   C.switching = false
   for _, view in pairs(C.views) do set_keyline(view) end
-  publish_edges()
   vim.cmd('redrawtabline')
   if not ok then say('Could not arrange the code views: ' .. tostring(err), WARN) end
 end
@@ -2108,7 +2103,6 @@ local function show(view)
   end
   C.shown, view.news = view.id, false
   tell_front(view, true)
-  publish_edges()
   if view.copy.index then graphs().select(view.copy, view.copy.index, true) end
   vim.cmd('redrawtabline')
 end
@@ -2254,23 +2248,30 @@ end
 
 local function resync(view)
   if view.resync or not C.chan then return end
-  view.resync = true
+  local waiting = {}
+  view.resync = waiting
   pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { { type = 'resync', version = 1, pop = C.pop,
     view = view.id, gen = view.gen, deadline = now_ms() + 2000 } })
+  vim.defer_fn(function()
+    if C.views[view.id] ~= view or view.resync ~= waiting then return end
+    view.resync = nil
+    resync(view)
+  end, 2200)
 end
 
 local function watch_chunk(view)
   if not view.loading then return end
-  local gen, length = view.gen, view.length
+  local snapshot, length = view.snapshot_id, view.length
   vim.defer_fn(function()
-    if C.views[view.id] == view and view.gen == gen and view.loading and view.length == length then resync(view) end
+    if C.views[view.id] == view and view.snapshot_id == snapshot and view.loading and view.length == length then resync(view) end
   end, 1500)
 end
 
 local function receive_lines(msg)
   if type(msg.id) ~= 'string' then return end
   local view = C.views[msg.id]
-  if not (view and view.tick and view.gen == msg.gen) or view.resync then return end
+  if not (view and view.tick) or view.resync or not integer(msg.gen, view.gen, 2147483647) then return end
+  if msg.gen ~= view.gen then return resync(view) end
   local lines = checked_lines(msg.lines, true)
   local first, last = msg.first, msg.last
   if not lines or msg.from ~= view.tick or not integer(msg.tick, msg.from, 2147483647)
@@ -2301,12 +2302,12 @@ end
 
 -- Draws a view into its buffer. Its selection: the item the editor asks for (select), else the one selected before (by
 -- its key), else its centre, else the first; the cursor goes there when the view has its window.
-local function draw(view, keep)
+local function draw(view, lines, keep)
   local buf, G, s = view.buf, graphs(), view.copy
   if not api.nvim_buf_is_valid(buf) then return end
   for name, def in pairs(view.hl) do pcall(api.nvim_set_hl, 0, name, def) end
   vim.bo[buf].modifiable = true
-  api.nvim_buf_set_lines(buf, 0, -1, false, view.lines)
+  api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
   vim.bo[buf].modified = false
   api.nvim_buf_clear_namespace(buf, ns, 0, -1)
@@ -2350,7 +2351,8 @@ local function bind_standins(view, described)
   end
   if not held then return end
   view.standin = nil
-  view.rows = actions.popout_rows(surface, described)
+  local rows, _, displaced = actions.popout_rows(surface, described)
+  view.rows, view.displaced = rows, displaced
   bind(view, surface)
   set_keyline(view)
 end
@@ -2405,13 +2407,14 @@ local function handle(msg)
       C.views[got.id] = view
     end
     local before = view.copy.index and view.items[view.copy.index]
-    for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'state', 'lines', 'marks', 'hl', 'items', 'footer', 'strip', 'pinned', 'follows',
+    for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'state', 'marks', 'hl', 'items', 'footer', 'strip', 'pinned', 'follows',
       'tick', 'total', 'cursor' }) do view[field] = got[field] end
     if got.tick then
       if not view.loading and got.pinned and view.win and api.nvim_win_is_valid(view.win) then
         view.saved_scroll = api.nvim_win_call(view.win, vim.fn.winsaveview)
       end
       view.length, view.loading, view.resync = #got.lines, #got.lines < got.total, nil
+      view.snapshot_id = (view.snapshot_id or 0) + 1
       if got.lang ~= view.lang then
         vim.treesitter.stop(view.buf)
         if got.lang then pcall(vim.treesitter.start, view.buf, got.lang) end
@@ -2420,7 +2423,7 @@ local function handle(msg)
     end
     if got.news and C.shown ~= got.id then view.news = true end
     C.received = (C.received or 0) + 1
-    draw(view, got.select or (before and before.key))
+    draw(view, got.lines, got.select or (before and before.key))
     -- A view the editor sends anew, or asks to show, comes to the front; one drawn again behind another stays behind.
     if fresh or got.front or not shown() then show(view) else vim.cmd('redrawtabline') end
     if got.tick then
@@ -2493,11 +2496,14 @@ function M.client_home()
   if answer.refused then return say(answer.refused, WARN) end
   if view and view.standin then bind_standins(view, answer.rows) end
   local ctx, keyed = actions.context(), {}
-  for _, row in ipairs((view or C.empty).rows or {}) do keyed[row.id] = true end
+  for _, row in ipairs((view or C.empty).rows or {}) do keyed[row.id] = row.key end
+  if view and view.displaced then
+    for id, key in pairs(view.displaced) do keyed[id] = key end
+  end
   local views, items, here = {}, {}, {}
   local function add(into, row, why, run)
     into[#into + 1] = { ident = row.id, name = row.name, label = row.name .. ' — ' .. tostring(row.about or ''):gsub('`', ''),
-      group = tostring(row.group or 'more'):lower(), bind = keyed[row.id] and row.key or nil, right = why, run = function()
+      group = tostring(row.group or 'more'):lower(), bind = keyed[row.id], right = why, run = function()
         if why then return say(why, WARN) end
         run()
       end }
@@ -2615,10 +2621,6 @@ function M.client()
   vim.g.desk_popout = vim.g.desk_popout or 1
   local id = tonumber(vim.g.desk_popout)
   C.pop = id and id >= 1 and id <= M.MAX_POPS and math.floor(id) or 1
-  if vim.env.XDG_RUNTIME_DIR and vim.env.XDG_RUNTIME_DIR ~= '' then
-    C.edge_path = vim.env.XDG_RUNTIME_DIR .. '/desk-popout-splits/' .. vim.fn.getpid()
-    publish_edges(true)
-  end
   vim.o.shadafile = 'NONE'   -- her history and marks are the editor's to keep
   local server
   for _, arg in ipairs(vim.fn.argv()) do server = server or arg:match('^desk%-popout:(/.+)$') end
@@ -2646,10 +2648,8 @@ function M.client()
     elseif not view and api.nvim_win_get_config(0).relative == '' then
       C.shown = nil
     end
-    publish_edges()
     vim.cmd('redrawtabline')
   end })
-  api.nvim_create_autocmd('VimLeavePre', { group = group, callback = function() publish_edges(true) end })
   api.nvim_create_autocmd('WinScrolled', { group = group, callback = function(a)
     local view = shown()
     if view and tonumber(a.match) == view.win then graphs().gauge_edges(view.copy) end
@@ -2661,7 +2661,6 @@ function M.client()
     for id, view in pairs(C.views) do
       if view.win == closed then vim.schedule(function() if C.views[id] and C.chan then client_act('popout.close', nil, view) end end) end
     end
-    vim.schedule(publish_edges)
   end })
   api.nvim_create_autocmd('ColorScheme', { group = group, callback = header_groups })
   show_empty('connecting to the editor…')
@@ -2847,6 +2846,7 @@ local ROWS = actions.add({
       if not ok then tell(sentence(why), WARN) end
     end),
   remote({ id = 'popout.go-focus', group = 'Pop-out', name = 'Go to it, in the editor', key = 'f', on = ON,
+    fallback = 'popout.go-focus-enter',
     about = 'What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too; where `Enter` only acts in the view (a zoom, a fold) the keyboard stays', available = can_go },
     go_focus),
   remote({ id = 'popout.go-focus-enter', group = 'Pop-out', name = 'Go to it, in the editor', key = '<S-CR>', on = ON, line = 'popout.go-focus',
@@ -2861,9 +2861,10 @@ local ROWS = actions.add({
     available = showing }, function(ctx) M.back(ctx.view, ctx.line) end),
   -- H and L as in the editor, where they go to the previous / next buffer (her ask, 2026-11-16); gt and gT too.
   { id = 'popout.prev-view', group = 'Pop-out', name = 'The previous view', key = 'H', on = ON, menu = false,
-    doc = 'The previous / next tab, as `H` and `L` go through buffers in the editor; `gT` / `gt` too, and `2gt` the second',
+    doc = 'The previous / next tab (`2gt` goes to the second)',
     run = function() pcall(vim.cmd, 'tabprevious') end },
   { id = 'popout.next-view', group = 'Pop-out', name = 'The next view', key = 'L', on = ON, menu = false, line = 'popout.prev-view',
+    fallback = 'popout.next-view-gt',
     run = function() pcall(vim.cmd, 'tabnext') end },
   { id = 'popout.next-view-gt', group = 'Pop-out', name = 'The next view', key = 'gt', on = ON, menu = false, line = 'popout.prev-view',
     run = function() local n = vim.v.count; pcall(vim.cmd, n > 0 and ('tabnext ' .. n) or 'tabnext') end },
@@ -2873,7 +2874,7 @@ local ROWS = actions.add({
     about = 'Back where you were: the view before, the graph before a centre, the code spot before `Enter` (the editor goes back too)',
     available = back_there }, function(ctx) M.history_back(pressed_in(ctx)) end),
   remote({ id = 'popout.history-back-bs', group = 'Pop-out', name = 'Back', key = '<BS>', on = ON, line = 'popout.history-back', menu = false,
-    available = back_there }, function(ctx) M.history_back(pressed_in(ctx)) end),
+    fallback = 'popout.history-back', available = back_there }, function(ctx) M.history_back(pressed_in(ctx)) end),
   remote({ id = 'popout.history-forward', group = 'Pop-out', name = 'Forward', key = '<C-r>', on = ON,
     about = 'Forward again, after going back', available = ahead_there }, function(ctx) M.history_forward(pressed_in(ctx)) end),
   { id = 'popout.find', group = 'Pop-out', name = 'Find a box or row', key = '/', on = ON,

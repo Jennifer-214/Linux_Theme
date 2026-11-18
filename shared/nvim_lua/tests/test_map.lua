@@ -128,7 +128,15 @@ local _, l = line_with(drawn.lines, "│ lua")
 eq(Map.item_at(drawn, lua_row, l:find("lua", 1, true)).target, { kind = "module", module = "lua" }, "a box is a hit with where Enter goes")
 local many = { ok = true, modules = {}, edges = {} }
 for i = 1, 70 do many.modules[i] = { name = string.format("m%02d", i), files = 1, functions = 1, types = 0 } end
-ok(line_with(Map.layout(Map.level_modules(many), 100, false).lines, "+10 more"), "past 60 boxes on a level: +N more")
+ok(line_with(Map.layout(Map.level_modules(many), 100, false).lines, "+10 more · m shows them"), "past 60 boxes on a level: +N more names the key")
+for i=1,15 do many.edges[i] = { from = "m01", to = ("m%02d"):format(i+1), count = 1 } end
+ok(line_with(Map.layout(Map.level_modules(many), 100, false).lines, "+3 more · m shows them"),
+  "show more advertises omitted connections between parts")
+local expanded_modules = Map.layout(Map.level_modules(many, true), 100, false)
+ok(line_with(expanded_modules.lines, "│ m70") and line_with(expanded_modules.lines, "m01 → m16"),
+  "show more reveals every loaded part and connection")
+ok(line_with(Map.layout(Map.level_modules(many), 100, true).lines, "+10 MORE · m SHOWS THEM"),
+  "retro preserves the case of m in the show-more prompt")
 local retro = Map.layout(page, 70, true)
 ok(line_with(retro.lines, "┌") and not line_with(retro.lines, "╭") and line_with(retro.lines, "CALLS BETWEEN PARTS"), "retro: code page 437 boxes and capitals")
 local zoom = Map.layout(vim.tbl_extend("force", page, { zoom = 2 }), 70, true)
@@ -165,6 +173,9 @@ end
 local crowded_ok, crowded = pcall(function() return Map.layout(Map.level_nodes(crowd, "lua", "lua/mod.lua"), 120, false) end)
 ok(crowded_ok, "forty callers of mixed weights lay out: " .. tostring(not crowded_ok and crowded or ""))
 ok(crowded_ok and line_with(crowded.lines, "called from · 41") and line_with(crowded.lines, "+17 more"), "at most 24 on a side, the rest counted")
+local all_sides = Map.layout(Map.level_nodes(crowd, "lua", "lua/mod.lua", nil, true), 120, false)
+ok(line_with(all_sides.lines, "│ caller40") and not line_with(all_sides.lines, "+17 more"),
+  "show more reveals omitted callers on a file page")
 local reach = { ok = true, q = "reach", depth = 2, from = contents.nodes[5],
   nodes = { vim.tbl_extend("force", contents.nodes[5], { depth = 0 }), vim.tbl_extend("force", contents.nodes[1], { depth = 1 }), vim.tbl_extend("force", contents.nodes[2], { depth = 2 }) },
   steps = { { from = "lua/other.lua::use", to = "lua/mod.lua::M.alpha", depth = 1, mark = "follow" },
@@ -187,7 +198,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "P", "m", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -283,15 +294,15 @@ ok(shown:find("BS/-", 1, true) and shown:find("The ways between two functions", 
 press("q")   -- the list's own q
 eq(api.nvim_get_current_win(), view.win, "q closes the list, back in the map")
 
--- m: the parts in the desk menu, not a numbered list (VM test 2026-11-16): / filters them by name, Enter goes there.
+-- M: the parts in the desk menu, not a numbered list (VM test 2026-11-16): / filters them by name, Enter goes there.
 local numbered, real_select = 0, vim.ui.select
 vim.ui.select = function(_, _, done) numbered = numbered + 1; done(nil) end
-press("m")
+press("M")
 vim.ui.select = real_select
-eq(numbered, 0, "m does not ask with vim.ui.select's numbered list")
+eq(numbered, 0, "M does not ask with vim.ui.select's numbered list")
 local parts_menu = Menu._last
 ok(parts_menu and parts_menu ~= list and api.nvim_win_is_valid(parts_menu.win)
-  and vim.inspect(api.nvim_win_get_config(parts_menu.win).title):find("Part of the checkout", 1, true), "m opens the parts in a menu")
+  and vim.inspect(api.nvim_win_get_config(parts_menu.win).title):find("Part of the checkout", 1, true), "M opens the parts in a menu")
 local function menu_text() return parts_menu and table.concat(api.nvim_buf_get_lines(parts_menu.buf, 0, -1, false), "\n") or "" end
 ok(menu_text():find("csrc", 1, true) and menu_text():find("4 files · 9 functions", 1, true), "… every part, with its size:\n" .. menu_text())
 local real_input = vim.ui.input
@@ -303,6 +314,22 @@ press("<CR>")
 ok(vim.wait(2000, function() return line_with(view.drawn.lines, "│ mod.lua") end), "Enter goes to the part picked: its files")
 press("<BS>")
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ csrc") end), "… and Backspace back to the parts")
+
+do
+  local saved = view.cache.modules
+  view.cache.modules = vim.deepcopy(many)
+  Map.render(view)
+  cursor_on("m05")
+  local before = #asked
+  ok(line_with(view.drawn.lines, "m show more"), "the map footer advertises m when boxes are left out")
+  press("m")
+  ok(line_with(view.drawn.lines, "│ m70") and not line_with(view.drawn.lines, "more · m"), "m reveals the rest of the parts")
+  local c = api.nvim_win_get_cursor(view.win)
+  local held = Map.item_at(view.drawn, c[1], c[2])
+  eq({ held and held.name, #asked }, { "m05", before }, "expanding keeps selection and uses the loaded answer")
+  view.cache.modules, view.stack[#view.stack].all = saved, nil
+  Map.render(view)
+end
 
 -- Zoom in and out; Enter on a function goes to the code, the map left open.
 cursor_on("lua")
@@ -581,8 +608,8 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.in", "map.left", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.up" },
-  "in the pop-out Enter, -, r, c, P and R run here and hjkl move its selection; Backspace, q, m, B and o stay the tab's")
+eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.up" },
+  "the pop-out can show more and retains its existing navigation keys")
 local views_row = A.get("popout.view.map")
 eq(views_row and { views_row.group, views_row.name, views_row.remote }, { "Views", "Pop out the project map", true },
   "a row in Views opens it from anywhere, the pop-out too")
@@ -657,6 +684,18 @@ local function act(id, item, extra)
   local ctx = ctx_on(item)
   for k, v in pairs(extra or {}) do ctx[k] = v end
   return { A.act(id, ctx) }
+end
+do
+  local stack, cache = pv.stack, pv.cache
+  pv.stack, pv.cache = { { kind = "modules" } }, { modules = many }
+  local partial = shown()
+  local item = item_named(partial, "m05")
+  ok(item and not item_named(partial, "m70"), "the pop-out initially shows a bounded preview")
+  eq(act("map.more", item), { true }, "m is available from the pop-out")
+  ok(item_named(shown(), "m70") and not pv.has_more, "the pop-out shows the rest after m")
+  eq(pv.stack[1].selected, item.key, "the pop-out keeps the selected item while expanding")
+  pv.stack, pv.cache, pv.select = stack, cache, nil
+  shown()
 end
 local c = ctx_on(file_item)
 eq({ c.surface, c.map == pv, c.item == file_item.ref, c.origin and vim.bo[api.nvim_win_get_buf(c.origin)].buftype },

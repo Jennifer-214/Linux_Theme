@@ -728,12 +728,13 @@ end
 -- gives both (range, selectionRange), the project map the line its definition starts on, so one function read by
 -- both has a key in common. real: a cache of the files' real paths.
 local function places(item, real)
-  local file = item and item.uri and item.uri:match('^file:') and vim.uri_to_fname(item.uri)
+  if not item then return {} end
+  local file, line = location(item)
   if not file then return {} end
   real[file] = real[file] or uv.fs_realpath(file) or file
   local raw = item.raw or {}
   local first, name = (raw.range or item.range or {}).start, (raw.selectionRange or item.range or {}).start
-  if not (first and name) then return {} end
+  if not (first and name) then return { real[file] .. ':' .. (line - 1) } end
   local out = {}
   for line = math.min(first.line, name.line), math.min(math.max(first.line, name.line), first.line + 20) do
     out[#out + 1] = real[file] .. ':' .. line

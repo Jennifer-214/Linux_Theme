@@ -423,10 +423,11 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   its screen.
 - **symdeps' board in the pop-out** (with fox-symdeps installed): Space Space › views › "Pop out symdeps' board". The
   pop-out never loads symdeps: the board's keys are symdeps' own rows, bound there from the editor and run in the
-  editor on the row selected there (Enter opens, as on the board; `f` does what Enter does and puts the keyboard in the
-  editor). `j` and `k` move from row to row in the pop-out itself; `h` and `l` are left to the board (fold and open,
-  as in the editor, with a symdeps that offers them there). symdeps' two keys answer there too: `Space dm` is the
-  pop-out's menu (what `Space Space` shows, the board's rows among it), and `Space dd` says why its card does not open
+  editor on the row selected there. Enter opens. `h` and `l` fold and open, and `j` and `k` move between rows.
+  With the current board adapter, `f` drills into a code entry's unit, `L` adds it beside the current card, and
+  Backspace goes back on the board. Shift+Enter goes to the editor, `gt` switches the pop-out tab, and `Ctrl+o`
+  goes back in pop-out history. `m` and `Space dm` open the action menu in the pop-out
+  (what `Space Space` shows, the board's rows among it). `Space dd` says why its card does not open
   there (on the board it is the card drawn; on another view symdeps runs in the editor, `Space Tab` away).
 - **Live code in the pop-out**. Press `Space cv` on a file, or choose **View this file in the pop-out** under Views.
   Each file gets its own tab. Edits appear as you type and `●` (or `*` in retro) marks unsaved changes.
@@ -463,7 +464,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   given) it says what each reader needs instead, and `R` is greyed with that reason.
 - **Queries**: `D` what a function reaches, down the calls (a count before the key sets the depth; 3 without one),
   `U` what calls it, up the calls, transitively, `P` the ways from one function to another (shortest first, at most
-  20), `m` a part of the checkout from a menu (`/` filters it by name). `r` reads the page again where it is, as in a
+  20). Where the map says `+N more`, `m` shows the remaining boxes and connections from the loaded answer.
+  `M` picks a part of the checkout from a menu (`/` filters it by name). `r` reads the page again where it is, as in a
   call graph: desk-work's status and the level shown, a query's answer asked again (`R` rebuilds the map). `c` opens
   the call graph centred on the function, as `c` centres a graph: a graph tab here, the call graph in the pop-out. The box
   under the cursor is the default answer to the prompt. On caller and reach pages, `+` reads one more level and `-`
@@ -474,7 +476,7 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   row, so a map asked for there opens there). There it is the same map: `Enter` zooms in,
   or goes to a function in the editor while the keyboard stays in the pop-out. `-` takes a level off a callers or
   reach page of more than one, and otherwise zooms out.
-  `D` and `U` ask about the
+  `m` shows the rest of the loaded boxes and connections here too. `D` and `U` ask about the
   selected function, `c` shows its call graph there (`Ctrl+o` comes back to the map), `P` asks only where to; `r` reads
   it again, `R` rebuilds. `Ctrl+o` and Backspace go back through its zooms, answers and
   the code spots Enter went to; its name in the pop-out's header is marked when an answer or a rebuild lands behind

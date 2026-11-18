@@ -724,6 +724,16 @@ do
   eq({ names(v.graph.layers.callees[1]), names(v.graph.layers.callees[2]), asked > 0 }, { { 'callee_of_M.alpha', 'lib_call' }, { 'server_level_2' }, true },
     'a function the map did not read that far: the server reads the level')
   G.close_view(v.buf)
+  served = {}
+  Map.desk_work = function(_, done) vim.schedule(function() done(walk) end) end
+  local map_only = G.open({ buf = buf, row = 1, col = 11, name = 'M.alpha', key = 'map without call hierarchy' })
+  ok(vim.wait(2000, function() return map_only.graph and map_only.graph.message end), 'the graph opens without a server')
+  api.nvim_set_current_win(map_only.win)
+  key('+')
+  ok(vim.wait(2000, function() return named(map_only, 'M.beta') end), 'the map adds the first callee using the centre buffer location')
+  eq(map_only.graph.layer_source and map_only.graph.layer_source.callees, 'map', 'the first level comes from the map')
+  G.close_view(map_only.buf)
+  served = { fake }
   G.transport = transport
 end
 -- The callers side reads desk-work's steps the other way: a step's from is the caller (map_graph.hpp walk).

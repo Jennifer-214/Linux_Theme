@@ -739,7 +739,7 @@ host("require('desk.actions').describe = _G.board_test.real_describe")
 eq(pop("return { vim.fn.maparg('w', 'n'), vim.fn.maparg('z', 'n'), vim.fn.maparg('f', 'n', false, true).desc, vim.fn.maparg('n', 'n', false, true).desc }"),
   { '', '', 'Go to it, in the editor', 'Note on the card' },
   "… not its drawn row (that needs its module) nor the editor's own, and f stays the pop-out's")
-eq(state().keyline, ' c compare ', '… its key line names its keys')
+eq(state().keyline, ' c compare · m menu ', '… its key line names its keys')
 -- h and l as on the board in the editor (her ask, 2026-11-17: "l and h dont open and close stuff either in the symdeps
 -- popout, it should basically mirror functionality of how it functions in the editor"): fold and open, with <Left>
 -- and l the second keys of fold and open; j and k stay the pop-out's own row moves, though the editor's board has a row
@@ -813,6 +813,14 @@ eq({ select(2, menu:gsub('Open the card', '')), select(2, menu:gsub('Fold the ca
 ok(menu:find('Home · pop-out · Fill', 1, true), '… for the card selected there')
 press('<Esc>')
 ok(wait(2000, function() return state().current_win == state().win end), '… Esc closes it')
+press('m')
+ok(wait(2000, function() return pop([[
+  local menu = require('desk.menu')._last
+  return menu and vim.api.nvim_win_is_valid(menu.win)
+    and table.concat(vim.api.nvim_buf_get_lines(menu.buf, 0, -1, false), '\n'):find('Compare the card', 1, true)
+]]) end), 'm opens the board actions inside the pop-out')
+press('<Esc>')
+ok(wait(2000, function() return state().current_win == state().win end), 'Escape from m returns to the board')
 press('<Space>dd')
 ok(wait(2000, function() return vim.tbl_contains(pop('return _G.heard'),
   "Symdeps' card is the one drawn here: its keys work on it, and Space Space lists them.") end), "Space dd on the board: symdeps' card is the one drawn here")
@@ -826,8 +834,51 @@ ok(wait(2000, function() return vim.tbl_contains(pop('return _G.heard'), 'Symdep
   'Space dd on another view: symdeps runs in the editor')
 eq(pop('return _G.lazy_fired'), {}, '… not the global map either')
 pop("vim.keymap.del('n', '<leader>dm'); vim.keymap.del('n', '<leader>dd')")
+host('_G.board_test.enable_parity()')
 host("local A = require('desk.actions'); A.get('popout.view.symdeps').run(A.context())")
 ok(wait(3000, function() return state().shown == 'symdeps' end), 'the board can be opened again')
+ok(wait(3000, function()
+  return pop("return vim.fn.maparg('f', 'n', false, true).desc") == 'Go to the unit'
+end), 'the board takes f when it requests it')
+local selected_board_row = state().selected
+press('f')
+ok(wait(2000, function() return host('return _G.board_test.unit') == selected_board_row end), 'f drills into the selected card unit')
+press('L')
+ok(wait(2000, function() return host('return _G.board_test.beside') == selected_board_row end), 'L opens the selected card beside')
+eq(state().shown, 'symdeps', '… L stayed on the board tab')
+press('<BS>')
+ok(wait(2000, function() return host('return _G.board_test.back') == selected_board_row end), 'Backspace goes back on the board')
+eq(pop("return vim.fn.maparg('<C-o>', 'n', false, true).desc"), 'Back', 'Ctrl+o keeps pop-out history')
+ok(pop("return require('desk.popout').header()"):find('H/gt', 1, true), 'the board header advertises the remaining tab shortcut')
+press('gt')
+ok(wait(2000, function() return state().shown == 'graph' end), 'gt switches the pop-out tab from the board')
+ok(pop("return require('desk.popout').header()"):find('H/L', 1, true), 'the graph header still advertises L')
+press('gt')
+ok(wait(2000, function() return state().shown == 'symdeps' end), 'gt returns to the board')
+host('_G.board_test.opened = nil')
+press('<S-CR>')
+ok(wait(2000, function() return host('return _G.board_test.opened') == selected_board_row end), 'Shift+Enter retains pop-out go and focus')
+press('?')
+ok(wait(2000, function() return state().current_win ~= state().win end), 'the updated board keys list opens')
+keys = pop("return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\\n')")
+ok(keys:find('f%s+Go to the unit') and keys:find('L%s+Open beside') and keys:find('BS%s+Back on the board')
+  and keys:find('Shift%+Enter%s+Go to it, in the editor'), "the key list shows the board keys and the editor shortcut:\n" .. keys)
+press('q')
+ok(wait(2000, function() return state().current_win == state().win end), 'the updated board keys list closes')
+pop([[
+  _G.saved_style = vim.g.desk_style
+  vim.g.desk_style = 'retro'
+  vim.api.nvim_set_hl(0, 'FoxSymdepsTitle', { fg = '#cba6f7' })
+  vim.api.nvim_set_hl(0, 'FoxSymdepsText', { fg = '#89b4fa' })
+]])
+press('m')
+ok(wait(2000, function() return state().current_win ~= state().win end), 'the retro board action menu opens')
+local win_hl = pop('return vim.wo.winhighlight')
+ok(win_hl:find('Normal:NormalFloat', 1, true) and win_hl:find('FloatTitle:FloatTitle', 1, true)
+  and not win_hl:find('FoxSymdeps', 1, true), 'the retro menu uses the theme instead of imported card colours')
+press('<Esc>')
+ok(wait(2000, function() return state().current_win == state().win end), 'the retro action menu closes')
+pop("vim.g.desk_style = _G.saved_style")
 press('o')
 ok(wait(3000, function() return state().shown == 'graph' end), 'o returns the board and leaves the graph in the pop-out')
 eq(host('return _G.board_test.attached'), 'symdeps', 'the board is attached before its resources are released')
@@ -1498,6 +1549,13 @@ do
   eq(pop("return { vim.bo.modifiable, vim.bo.filetype, vim.fn.maparg('/', 'n') }"),
     { false, '', '' }, 'code: read-only scratch, native text search, no FileType')
   eq(pop('return vim.api.nvim_win_get_cursor(0)[1]'), 4000, 'code: follows the source cursor past the first chunk')
+  local sent = host("return require('desk.popout').view_of('code').sent")
+  local width = pop('vim.o.columns = vim.o.columns + 8; return vim.o.columns')
+  ok(wait(3000, function() return host("return require('desk.popout').host.width") == width end),
+    'code: resizing reaches the editor')
+  ok(wait(3000, settled), 'code: resizing finishes')
+  eq(host("return require('desk.popout').view_of('code').sent"), sent,
+    'code: resizing leaves the existing snapshot in place')
   local gen, received = state().gen, state().received
   host([[
     local A = vim.api
@@ -1508,7 +1566,21 @@ do
     A.nvim_buf_set_lines(0, 1, 1, true, { 'before the merged edit' })
   ]])
   ok(wait(5000, same), 'code: a burst of insertions and deletions coalesces without corrupting text')
-  eq({ state().gen, state().received }, { gen, received }, 'code: edits do not replace the view generation or snapshot')
+  eq({ state().gen, host("return require('desk.popout').view_of('code').sent") }, { gen, sent },
+    'code: edits do not replace the view generation or snapshot')
+  host([[
+    local B = require('desk.bridge')
+    local receive = B.receive
+    _G.mirror_resyncs = 0
+    B.receive = function(msg)
+      if msg.type == 'resync' then
+        _G.mirror_resyncs = _G.mirror_resyncs + 1
+        if _G.mirror_resyncs == 1 then return end
+        B.receive = receive
+      end
+      return receive(msg)
+    end
+  ]])
   pop([[
     local P = require('desk.popout')
     local receive = P.receive
@@ -1520,7 +1592,9 @@ do
   host("vim.api.nvim_buf_set_lines(0, 0, 1, true, { 'missing delta' })")
   ok(wait(3000, function() return host("return not require('desk.popout').view_of('code').mirror_queued") end), 'code: the first delta is sent')
   host("vim.api.nvim_buf_set_lines(0, 3, 4, true, { 'forces resync' })")
-  ok(wait(5000, function() return same() and state().gen ~= gen end), 'code: a missing delta requests a fresh snapshot')
+  ok(wait(8000, function() return same() and state().received > received end),
+    'code: a missing delta recovers even when the first resync request is lost')
+  eq(host('return _G.mirror_resyncs'), 2, 'code: one resync retry recovers the interrupted mirror')
   host("vim.cmd.write()")
   ok(wait(3000, function() return state().state == '' end), 'code: writing clears the unsaved marker')
   press('p')
@@ -1563,20 +1637,26 @@ do
     end
     return { #wins, vim.tbl_count(rows), vim.tbl_count(columns) }
   ]]), { 4, 2, 2 }, 'code: the shared tab has a two-by-two grid')
-  eq(pop("return require('desk.nav').go('l')"), 1, 'code: move right from the lower left pane')
-  eq(state().shown, 'code.3', 'code: the focused pane becomes the active view')
-  local hint = pop("return vim.env.XDG_RUNTIME_DIR .. '/desk-popout-splits/' .. vim.fn.getpid()")
-  eq(vim.trim(read(hint)), 'hk', 'code: only reachable directions are published for desk-nav')
+  press('<C-w>l')
+  ok(wait(3000, function() return state().shown == 'code.3' end), 'code: moving right makes the focused pane active')
   host("vim.api.nvim_buf_set_lines(vim.fn.bufnr(...), 0, 1, true, {'return 33'})", dir .. '/tile-3.lua')
   ok(wait(3000, function() return state().lines[1] == 'return 33' end), 'code: an unsaved line reaches the focused tile')
   press('<CR>')
   ok(wait(3000, function() return host("return vim.fn.expand('%:t')") == 'tile-3.lua' end), 'code: Enter uses the focused tile')
+  local before_redraw = state()
+  host([[
+    local P = require('desk.popout')
+    local view = P.host.views['code.3']
+    view.sent = nil
+    P.redraw(view)
+  ]])
+  ok(wait(3000, function() return state().received > before_redraw.received end), 'code: the editor resends the active tile')
+  eq(state().gen, before_redraw.gen, 'code: resending the same text keeps in-flight pane commands valid')
   press('q')
   ok(wait(3000, function() return #(state().tiles or {}) == 3 and not vim.tbl_contains(state().views, 'code.3') end),
     'code: q closes just the focused pane')
   eq(pop(toggle), { done = true }, 'code: the same action separates the panes')
-  ok(wait(3000, function() return #(state().tiles or {}) == 0 and not exists(hint) end),
-    'code: separate tabs remove the desk-nav hint')
+  ok(wait(3000, function() return #(state().tiles or {}) == 0 end), 'code: the panes have separate tabs again')
   eq(pop([[
     local code = {}
     for _, tab in ipairs(vim.api.nvim_list_tabpages()) do

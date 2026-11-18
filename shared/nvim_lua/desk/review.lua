@@ -1507,7 +1507,7 @@ end
 local function actions_here(ctx)
   M.actions()
   local P = ctx.view and pop()
-  if P then P.focus({ pid = vim.fn.getpid(), pane = require('desk.nav').pane() or '' }) end
+  if P then P.focus_editor() end
 end
 M.rows = actions.add({
   { id = 'review.enter', group = 'Review', name = 'Expand commit / open review file', key = '<CR>', on = LIST, remote = true,

@@ -21,6 +21,8 @@
 --   remote     true: the pop-out may ask the main editor to run it (M.act); false: never in the pop-out. A row on the
 --              surface of a pop-out view kind says one of drawn, remote or remote = false (M.popout_rows)
 --   drawn      true: in the pop-out it runs there, on the pop-out's copy of the view (ctx.copy): a move, labels
+--   popout_override  true: this view takes its key if the pop-out action declares a fallback
+--   fallback   the id of a pop-out action's alternate binding, kept when a view takes its usual key
 --   input      { prompt, choices }: what it asks before it runs, in the window it is chosen in: words (prompt, the
 --              question), a pick (choices, function(ctx) → { { id, name } }) or both; run then gets ctx.text, ctx.choice
 --   menu       false: in no menu (another key for an action already listed, or plumbing such as clearing a search)
@@ -58,7 +60,7 @@ M.PREFIXES = { ['review-list'] = { { '<leader>r', 'review' } }, ['review-diff'] 
 
 local KINDS = { id = 'string', group = 'string', name = 'string', about = 'string', key = 'string', mode = 'mode',
   on = 'surfaces', run = 'function', available = 'function', remote = 'boolean', drawn = 'boolean', input = 'input',
-  menu = 'boolean', line = 'string', doc = 'doc', also = 'string' }
+  menu = 'boolean', line = 'string', doc = 'doc', also = 'string', popout_override = 'boolean', fallback = 'string' }
 local MODES = { n = true, x = true, v = true, o = true, i = true }
 
 local rows, by_id, source, bound = {}, {}, {}, {}
@@ -490,6 +492,7 @@ function M.describe(ctx)
         input = row.input and M.offered(row.input, ctx) or nil, on = { unpack(list(row.on)) } }
       if row.menu == false then out[#out].menu = false end
       if row.doc == false then out[#out].doc = false end
+      if row.popout_override == true then out[#out].popout_override = true end
     end
   end
   return out
@@ -539,6 +542,7 @@ local function standin(d, surface)
   local name = d.name:sub(1, 120)
   local row = { id = d.id, key = d.key, name = name, about = type(d.about) == 'string' and d.about:sub(1, 400) or name,
     group = type(d.group) == 'string' and d.group or 'More', on = surface, remote = true, menu = d.menu ~= false,
+    popout_override = d.popout_override == true,
     input = type(d.input) == 'table' and d.input or nil,
     run = function() tell(name .. ' runs in the editor.', vim.log.levels.WARN) end }
   if d.doc == false then row.doc = false end
@@ -546,8 +550,9 @@ local function standin(d, surface)
 end
 
 -- The rows a pop-out window binds for a view of `surface` (nil: no view): that surface's drawn and remote rows, then
--- the window's own (surface 'popout'). A view row on a key the window's own rows take is left out (the second result
--- says which); a row that is neither drawn nor remote is the editor's only and never there.
+-- the window's own (surface 'popout'). A view row can take a key when it requests it and the pop-out action has a
+-- fallback. Otherwise it is left out (the second result says which). The third result maps displaced actions to
+-- their fallback keys. A row that is neither drawn nor remote is the editor's only and never there.
 -- described: for a surface whose module the pop-out cannot load (a plugin's, which it never loads), the editor's
 -- describe answer: its remote rows on that surface with a key stand in for them (standin), so they have their keys
 -- there and run in the editor. Drawn rows need the module, and describe gives none. In such a view the pop-out moves
@@ -557,11 +562,11 @@ end
 -- mirror functionality of how it functions in the editor").
 local ROW_MOVES = { nj = 'the row move', nk = 'the row move' }
 function M.popout_rows(surface, described)
-  local mine, taken, out, left = {}, {}, {}, {}
+  local mine, taken, out, left, displaced = {}, {}, {}, {}, {}
   for _, row in ipairs(rows) do
     if is_on(row, 'popout') then
       mine[#mine + 1] = row
-      for _, m in ipairs(modes(row)) do taken[m .. spelled(row.key)] = row.id end
+      for _, m in ipairs(modes(row)) do taken[m .. spelled(row.key)] = row end
     end
   end
   local view_rows = {}
@@ -574,14 +579,28 @@ function M.popout_rows(surface, described)
     if row then view_rows[#view_rows + 1], standins[row] = row, true end
   end
   for _, row in ipairs(view_rows) do
-    local clash
+    local clash, give = nil, {}
     for _, m in ipairs(modes(row)) do
-      clash = clash or taken[m .. spelled(row.key)] or (standins[row] and ROW_MOVES[m .. spelled(row.key)])
+      local key = m .. spelled(row.key)
+      local own = taken[key]
+      local fallback = own and row.popout_override == true and by_id[own.fallback]
+      if fallback and is_on(fallback, 'popout') then
+        give[own.id] = fallback.key
+      else
+        clash = clash or (own and own.id) or (standins[row] and ROW_MOVES[key])
+      end
     end
-    if clash then left[#left + 1] = row.id .. ': ' .. row.key .. ' is ' .. clash .. ' in the pop-out'
-    else out[#out + 1] = row end
+    if clash then
+      left[#left + 1] = row.id .. ': ' .. row.key .. ' is ' .. clash .. ' in the pop-out'
+    else
+      out[#out + 1] = row
+      for id, key in pairs(give) do displaced[id] = key end
+    end
   end
-  return vim.list_extend(out, mine), left
+  for _, row in ipairs(mine) do
+    if not displaced[row.id] then out[#out + 1] = row end
+  end
+  return out, left, displaced
 end
 
 -- ─── what is here: one answer per surface ────────────────────────────────────────────────────────────────────────

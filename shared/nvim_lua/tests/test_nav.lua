@@ -60,28 +60,6 @@ api.nvim_buf_call(diff, function() vim.fn.maparg("gs", "n", false, true).callbac
 eq(inspected, false, "gs in a diff inspects the changed symbol in symdeps")
 R.symdeps, package.loaded["fox-symdeps"] = symdeps, nil
 
--- ─── ALT+h/j/k/l and panels: symdeps' card is a float, entered like a split (2026-11-16: only Ctrl+h/j/k/l did) ───
-do
-  local code = api.nvim_get_current_win()
-  local function float(filetype, col)
-    local b = api.nvim_create_buf(false, true)
-    vim.bo[b].filetype = filetype
-    return api.nvim_open_win(b, false, { relative = "editor", row = 2, col = col, width = 30, height = 20 })
-  end
-  local panel = float("fox-symdeps", 85)
-  eq({ N.is_panel(panel), N.is_panel(code) }, { true, false }, "symdeps' card is a panel; a split is not one")
-  eq({ N.go("l"), api.nvim_get_current_win() }, { 1, panel }, "no split to the right: l goes into the panel")
-  eq({ N.go("l"), api.nvim_get_current_win() }, { 0, panel }, "… nothing further right: the key goes on (tmux, the desktop)")
-  eq({ N.go("h"), api.nvim_get_current_win() }, { 1, code }, "h: back to the code")
-  api.nvim_win_close(panel, true)
-  local menu = float("foxml-menu", 85)
-  eq({ N.go("l"), api.nvim_get_current_win() }, { 0, code }, "a menu or picker float is not a window to go to")
-  api.nvim_set_current_win(menu)
-  eq(N.go("h"), 0, "… and in one the key goes on")
-  api.nvim_win_close(menu, true)
-  api.nvim_set_current_win(code)
-end
-
 -- ─── the labels ─────────────────────────────────────────────────────────────────────────────────────────────────
 local flash = vim.fn.expand("~/.local/share/nvim/lazy/flash.nvim")
 if vim.fn.isdirectory(flash) == 0 then
@@ -144,19 +122,6 @@ else
   api.nvim_feedkeys("", "x", false)    -- … and runs there, as the editor's next key would
   R.hide_panel = hide
   eq({ hidden, api.nvim_win_get_cursor(0) }, { 0, { 4, 0 } }, "Esc on the list's labels: the labels go, the list and its cursor stay")
-end
-
--- A split that way comes before a panel (last in this file: a split here before the labels crashed headless Neovim's
--- next drawing, the same path either way).
-do
-  local code = api.nvim_get_current_win()
-  local panel
-  vim.cmd("belowright split")
-  local below = api.nvim_get_current_win()
-  api.nvim_set_current_win(code)
-  local b2 = api.nvim_create_buf(false, true); vim.bo[b2].filetype = "fox-symdeps"
-  panel = api.nvim_open_win(b2, false, { relative = "editor", row = 50, col = 10, width = 30, height = 5 })
-  eq({ N.go("j"), api.nvim_get_current_win() }, { 1, below }, "a split that way comes first")
 end
 
 print(string.format("test_nav: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))

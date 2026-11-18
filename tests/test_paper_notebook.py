@@ -20,7 +20,7 @@ local source = table.concat(vim.fn.readfile(vim.env.NOTEBOOK_INIT), "\n")
 assert(loadstring(source), "rendered init does not parse")
 local palette = source:match('(local P = %b{})')
 local block = source:match('%-%- >>> fox%-paper%-details\n(.-)\n%-%- <<< fox%-paper%-details')
-local folds = source:match('(function _G.FoxCommentFoldExpr%(%)\n.-)\n%-%- === Per%-project settings ===')
+local folds = source:match('(%-%- Comment folding:.-)\n%-%- === Per%-project settings ===')
 assert(palette and block and folds)
 local footer = source:match('(local function paper_footer_mode.-)\n%-%- Treesitter — main branch')
 local lualine = vim.env.NOTEBOOK_LUALINE
@@ -77,6 +77,14 @@ if parser and parser ~= '' then
   local text = vim.fn.foldtextresult(4)
   assert(text:find('Keep these notes together',1,true) and text:find('3 lines',1,true),vim.inspect(text))
   assert(vim.fn.foldclosed(3) == -1 and vim.fn.foldclosed(7) == -1, 'fold swallowed code')
+  local lookups, get_parser = 0, vim.treesitter.get_parser
+  vim.treesitter.get_parser = function(...)
+    lookups = lookups + 1
+    return get_parser(...)
+  end
+  vim.cmd.CommentRefold()
+  vim.treesitter.get_parser = get_parser
+  assert(lookups == 0 and vim.fn.foldclosed(4) == 4, 'an unchanged refold must reuse its parsed comment levels')
   vim.api.nvim_win_set_cursor(0, {4, 2})
   for _ = 1, 3 do
     vim.cmd('normal! zo')

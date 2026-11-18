@@ -174,8 +174,6 @@ local P = {
   diff_del  = "#{{DIFF_DELETE}}",
   diff_txt  = "#{{DIFF_TEXT}}",
   ts_ctx    = "#{{TMUX_ACTIVE_BG}}",
-  rainbow   = { "#{{NVIM_RAINBOW1}}", "#{{NVIM_RAINBOW2}}", "#{{NVIM_RAINBOW3}}",
-                "#{{NVIM_RAINBOW4}}", "#{{NVIM_RAINBOW5}}", "#{{NVIM_RAINBOW6}}" },
   indent    = { "#{{NVIM_INDENT1}}", "#{{NVIM_INDENT2}}", "#{{NVIM_INDENT3}}",
                 "#{{NVIM_INDENT4}}", "#{{NVIM_INDENT5}}", "#{{NVIM_INDENT6}}" },
   ibl_scope = "#{{NVIM_IBL_SCOPE}}",
@@ -2488,28 +2486,6 @@ local plugins = {
     },
   },
 
-  -- Rainbow delimiters (colored nested brackets)
-  {
-    "HiPhish/rainbow-delimiters.nvim",
-    event = "BufReadPost",
-    config = function()
-      local rd = require("rainbow-delimiters")
-      require("rainbow-delimiters.setup").setup({
-        -- local: only the visible range. global recoloured the whole buffer on open (about 1.2 s per C++ file).
-        strategy = { [""] = rd.strategy["local"] },
-        query = { [""] = "rainbow-delimiters" },
-        highlight = {
-          "RainbowDelimiterPeach",
-          "RainbowDelimiterPink",
-          "RainbowDelimiterMint",
-          "RainbowDelimiterYellow",
-          "RainbowDelimiterCyan",
-          "RainbowDelimiterRed",
-        },
-      })
-    end,
-  },
-
   -- Colorful window separator (highlight active window border)
   {
     "nvim-zh/colorful-winsep.nvim",
@@ -3018,7 +2994,7 @@ local function apply_foxml_theme()
   hl("IblIndent", { fg = P.bg_hl })
   hl("IblScope",  { fg = Paper.enabled and P.bookmark or P.ibl_scope })
 
-  -- Rainbow indent guides (muted versions of rainbow delimiter colors)
+  -- Indent guides
   hl("RainbowIndent1", { fg = P.indent[1] })
   hl("RainbowIndent2", { fg = P.indent[2] })
   hl("RainbowIndent3", { fg = P.indent[3] })
@@ -3167,14 +3143,6 @@ local function apply_foxml_theme()
   -- Gitsigns blame
   hl("GitSignsCurrentLineBlame", { fg = P.faint, italic = {{SHOW_WELCOME}} })
 
-  -- Rainbow delimiters
-  hl("RainbowDelimiterPeach",  { fg = P.rainbow[1] })
-  hl("RainbowDelimiterPink",   { fg = P.rainbow[2] })
-  hl("RainbowDelimiterMint",   { fg = P.rainbow[3] })
-  hl("RainbowDelimiterYellow", { fg = P.rainbow[4] })
-  hl("RainbowDelimiterCyan",   { fg = P.rainbow[5] })
-  hl("RainbowDelimiterRed",    { fg = P.rainbow[6] })
-
   -- Noice
   hl("NoiceCmdlinePopup",            { bg = P.bg_deep })
   hl("NoiceCmdlinePopupBorder",      { fg = P.float_border })
@@ -3318,6 +3286,7 @@ local function apply_foxml_theme()
   -- same colours: a band per line, added brighter than removed, the changed words brighter still. The review shows
   -- its old side as removed and its new side as added (FoxReviewOld*/New* in desk/review.lua).
   if DeskStyle == "retro" then
+    hl("DeskPopoutKey", { fg = P.peach, bold = true })
     hl("DiffAdd",     { bg = P.diff_add })
     hl("DiffDelete",  { fg = P.diff_del, bg = "#{{CLAUDE_DIFF_DEL_DIM}}" })
     hl("DiffChange",  { bg = "#{{CLAUDE_DIFF_ADD_DIM}}" })
@@ -4170,16 +4139,32 @@ end, { desc = "Toggle diagnostic lines" })
 -- file you open arrives with its comments folded; Space tc switches that off (and back on) for
 -- this window and every file after, and the choice is remembered. zo/za peeks one, zR opens all,
 -- Space tC refolds all. Code lines never fold. Off restores the window's previous folding options.
+local comment_levels = {}
+local function comment_revision(buf, retry_missing)
+  local tick, ft = vim.api.nvim_buf_get_changedtick(buf), vim.bo[buf].filetype
+  local cached = comment_levels[buf]
+  if cached and cached.tick == tick and cached.ft == ft and (cached.parser or not retry_missing) then return cached end
+  local ok, parser = pcall(function()
+    local tree = vim.treesitter.get_parser(buf, nil, { error = false })
+    if tree then tree:parse() end
+    return tree
+  end)
+  cached = { tick = tick, ft = ft, parser = ok and parser or nil, levels = {} }
+  comment_levels[buf] = cached
+  return cached
+end
 function _G.FoxCommentFoldExpr()
-  local first = (vim.fn.getline(vim.v.lnum):find("%S") or 1) - 1
-  local ok, node = pcall(vim.treesitter.get_node, { pos = { vim.v.lnum - 1, first } })
-  if ok and node then
-    while node do
-      if node:type():find("comment") then return "1" end
-      node = node:parent()
-    end
+  local cached = comment_revision(vim.api.nvim_get_current_buf())
+  local lnum = vim.v.lnum
+  if cached.levels[lnum] then return cached.levels[lnum] end
+  local level, first = "0", (vim.fn.getline(lnum):find("%S") or 1) - 1
+  local node = cached.parser and cached.parser:named_node_for_range({ lnum - 1, first, lnum - 1, first })
+  while node do
+    if node:type():find("comment", 1, true) then level = "1"; break end
+    node = node:parent()
   end
-  return "0"
+  cached.levels[lnum] = level
+  return level
 end
 local comment_fold_state = vim.fn.stdpath("state") .. "/fox-comment-fold"
 local comment_fold_auto = vim.fn.filereadable(comment_fold_state) == 0 or vim.fn.readfile(comment_fold_state)[1] ~= "off"
@@ -4191,10 +4176,10 @@ local function save_comment_fold_auto(on)
 end
 local fold_options = { "foldmethod", "foldexpr", "foldenable", "foldlevel", "foldtext" }
 local function refold_comments(silent)
-  if Paper.enabled and not Paper.file_buffer(vim.api.nvim_get_current_buf()) then return end
-  -- Reparse edits before rebuilding folds; an opened comment can otherwise
-  -- retain the old range until Treesitter's next update.
-  pcall(function() vim.treesitter.get_parser():parse() end)
+  local buf = vim.api.nvim_get_current_buf()
+  if Paper.enabled and not Paper.file_buffer(buf) then return end
+  -- Explicit refold can follow a parser install without a buffer edit.
+  if not comment_revision(buf, true).parser then return end
   if not vim.w.fox_comment_fold then
     -- A split copies its parent's comment-fold options; restoring those would leave it folded.
     local inherited = vim.wo.foldexpr == "v:lua.FoxCommentFoldExpr()"
@@ -4238,9 +4223,14 @@ end, { desc = "Toggle comment folding" })
 map("n", "<leader>tC", refold_comments, { desc = "Refold all comments" })
 vim.api.nvim_create_user_command("CommentRefold", function() refold_comments() end, { desc = "Enable and refold all comments in this window" })
 -- Prefold: the first time a file is shown in a window, once Treesitter has its parser. Coming back
--- to a file keeps whatever you opened. Very large files are skipped (foldexpr asks Treesitter per line).
+-- to a file keeps whatever you opened.
+local comment_fold_group = vim.api.nvim_create_augroup("foxml_comment_prefold", { clear = true })
+vim.api.nvim_create_autocmd("BufUnload", {
+  group = comment_fold_group,
+  callback = function(args) comment_levels[args.buf] = nil end,
+})
 vim.api.nvim_create_autocmd("BufWinEnter", {
-  group = vim.api.nvim_create_augroup("foxml_comment_prefold", { clear = true }),
+  group = comment_fold_group,
   callback = function(args)
     local buf = args.buf
     local win = vim.api.nvim_get_current_win()
@@ -4259,8 +4249,7 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
           return
         end
         if vim.api.nvim_buf_line_count(buf) > 20000 then return end
-        local ok, parser = pcall(vim.treesitter.get_parser, buf, nil, { error = false })
-        if ok and parser then refold_comments(true) end
+        refold_comments(true)
       end)
     end)
   end,
@@ -4499,8 +4488,7 @@ vim.api.nvim_set_hl(0, "FoxPlanNote", { fg = P.comment, italic = Paper.enabled }
 vim.api.nvim_set_hl(0, "FoxTreeClaude", { fg = P.bookmark })
 vim.api.nvim_set_hl(0, "FoxTreeClaudeShared", { link = "DiagnosticWarn" })
 pcall(function() require("desk.planmarks").setup() end)
--- desk-nav can ask for a split over the editor's socket. Alt+h/j/k/l focuses desktop windows directly;
--- Ctrl+h/j/k/l moves between the editor's splits.
+-- Remember the working window so links from the review and project map can open code there.
 pcall(function() require("desk.nav").setup() end)
 -- Every "choose one" question (vim.ui.select: API credits, next steps, debug, …) as the desk menu: j/k, Enter, / filter,
 -- Esc — instead of Neovim's numbered list.

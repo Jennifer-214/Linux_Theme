@@ -47,7 +47,7 @@ ONE_SIDED = {
     ("SHARED_MAPPINGS", "nvim_lua/desk/debug.lua", "~/.config/nvim/lua/desk/debug.lua"):
         "native-only C/C++ debugging through the system gdb; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/desk/nav.lua", "~/.config/nvim/lua/desk/nav.lua"):
-        "native-only ALT+h/j/k/l answer for desk-nav (a split that way); AGENT.md freezes mappings.sh",
+        "native-only jump labels and working code windows; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/desk/since.lua", "~/.config/nvim/lua/desk/since.lua"):
         "native-only since-you-last-looked page; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/desk/callgraph.lua", "~/.config/nvim/lua/desk/callgraph.lua"):

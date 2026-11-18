@@ -303,7 +303,7 @@ C.close()
 ''')
 
     def test_a_script_with_no_extension_opens_with_its_type(self):
-        # The VM experience test: shared/bin/desk-nav opened with no filetype, so no colour, in the comparison.
+        # Extensionless shell scripts need their shebang's filetype for highlighting in the comparison.
         (self.repo / 'tool').write_text('#!/bin/sh\necho one\n')
         self.git('add', 'tool')
         self.commit('tool base')
@@ -1181,6 +1181,13 @@ for _=1,3 do
   vim.cmd('redraw!')
 end
 assert(calls==0,'moving in the file list ran the code fold expression '..calls..' times')
+assert(R.hide_panel())
+vim.wo[r.left_win].foldexpr='v:lua.ReviewFoldProbe()'
+vim.wo[r.left_win].foldmethod='expr'
+assert(R.show_panel(true))
+local panel_opts=vim.wo[r.panel_win]
+assert(panel_opts.foldmethod=='manual' and panel_opts.foldexpr=='0' and not panel_opts.foldenable,
+  'a reopened file list inherited fold evaluation from its parent')
 C.close()
 ''')
 
