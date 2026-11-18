@@ -14,6 +14,8 @@ Figures (medians; a move or scroll is the key plus the handlers its event runs, 
   nvim.scroll     ms  Ctrl+e in the same file, WinScrolled's handlers included
   review.unread   ms  "next unread" in a live review of 300 changed files, the first press (every file read)
   review.unread.again  ms  the same, pressed again
+  review.cycles.heap   KB  Lua memory still held after 19 more opens and closes of that review (a leak grows it)
+  review.cycles.rss    MB  the process's resident memory, the same way
 Each has a ceiling in tests/perf_budgets.json; over one, the run fails and names it. desk-work keeps the figures
 run to run (.desk/tools.json declares this as a figures tool; `desk-work metrics` and the notebook show what got
 worse). A machine slower than hers can scale every ceiling with DESK_PERF_SLACK (2 doubles them)."""
@@ -122,7 +124,29 @@ local files = vim.fn.globpath(root, 'src/*/*.cpp', false, true)
 C.open_review({ kind = 'live', sid = 'perf1', name = 'perf', short = 'perf', files = files }, root)
 local t0 = vim.uv.hrtime(); R.unread()
 local t1 = vim.uv.hrtime(); R.unread()
-io.stdout:write(vim.json.encode({ first = (t1 - t0) / 1e6, again = (vim.uv.hrtime() - t1) / 1e6, files = #files }) .. "\n")
+local first, again = (t1 - t0) / 1e6, (vim.uv.hrtime() - t1) / 1e6
+-- Open, read and close it 20 times: what a session keeps after each close (Lua's heap after a full collection, and
+-- the process's resident set). A higher floor after the first open is the caches; a staircase is something kept.
+local function rss_kib()
+  for line in io.lines('/proc/self/status') do local v = line:match('^VmRSS:%s+(%d+)') if v then return tonumber(v) end end
+end
+C.close()
+-- A closed review is held until its waits end (the language server's 5 s, the pop-out's 16 s), then let go: measured
+-- after they have, so held is not read as kept.
+local function settled()
+  vim.wait(17500, function() return false end, 250)
+  collectgarbage(); collectgarbage()
+  return collectgarbage('count'), rss_kib()
+end
+local heap0, rss0 = settled()
+for i = 1, 19 do
+  C.open_review({ kind = 'live', sid = 'perf' .. i, name = 'perf', short = 'perf', files = files }, root)
+  R.unread()
+  C.close()
+end
+local heap1, rss1 = settled()
+io.stdout:write(vim.json.encode({ first = first, again = again, files = #files,
+  heap_growth = heap1 - heap0, rss_growth = rss1 - rss0 }) .. "\n")
 vim.cmd('qa!')
 """
 
@@ -158,7 +182,10 @@ def review(env, base):
         sys.exit("perf: the review probe gave no answer:\n" + run.stdout[-2000:] + run.stderr[-2000:])
     probe = json.loads(found[-1])
     return [{"name": "review.unread", "value": round(probe["first"], 1), "unit": "ms"},
-            {"name": "review.unread.again", "value": round(probe["again"], 1), "unit": "ms"}]
+            {"name": "review.unread.again", "value": round(probe["again"], 1), "unit": "ms"},
+            # Kept across 19 more opens and closes once their waits are over: a leak shows as growth here.
+            {"name": "review.cycles.heap", "value": round(probe["heap_growth"], 1), "unit": "KB"},
+            {"name": "review.cycles.rss", "value": round(probe["rss_growth"] / 1024, 2), "unit": "MB"}]
 
 
 def nvim(args, env, base, timeout=120):
