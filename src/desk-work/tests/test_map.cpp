@@ -251,6 +251,37 @@ int main(int, char** argv) {
         const auto merged = desk_map::merge(clean, desk_map::clean_graph(J::parse(R"({"nodes": [], "edges": []})")));
         CHECK(merged["nodes"][0]["params"].size() == 16 && merged["edges"][0]["args"] == J({"tick", "&o"}), "… and the merge keeps both");
     }
+    // ─── the trace: one lane through a function, up to where it starts and down to where it ends ───
+    {
+        // entry → a → F → b → c → end, with a side caller s → F, a side callee F → x, a cycle c → b, and an outside
+        // caller of a (deeper: entry2 → mid → a, so entry2 is the farthest start).
+        J doc = J::parse(R"({"nodes": [], "edges": []})");
+        for (const char* id : {"entry", "entry2", "mid", "a", "F", "b", "c", "end", "s", "x"})
+            doc["nodes"].push_back(J{{"id", id}, {"label", id}, {"kind", "function"}, {"file", "f.cpp"}, {"line", 1}});
+        doc["nodes"][4]["params"] = J::array({J{{"name", "t"}, {"type", "const T &"}, {"pass", "const ref"}, {"dir", "in"}}});
+        const auto call = [&](const char* a, const char* b) { doc["edges"].push_back(J{{"from", a}, {"to", b}, {"kind", "call-by-name"}}); };
+        call("entry", "a"); call("entry2", "mid"); call("mid", "a"); call("a", "F"); call("s", "F"); call("F", "b"); call("F", "x");
+        call("b", "c"); call("c", "b"); call("c", "end");
+        doc["edges"][3]["line"] = 12; doc["edges"][3]["args"] = J::array({"tick"});
+        const desk_map::Graph g(doc);
+        const auto lane = [](const J& t) { std::vector<std::string> ids; for (const auto& st : t["steps"]) ids.push_back(st["id"]); return ids; };
+        const auto t = desk_map::trace(g, g.at.at("F"), 16);
+        CHECK(lane(t) == std::vector<std::string>({"entry2", "mid", "a", "F", "b", "c", "end"}),
+              "the lane: up to the farthest start (entry2, not entry), down to the farthest end, a cycle walked once");
+        CHECK(t["steps"][3]["role"] == "focus" && t["steps"][0]["role"] == "up" && t["steps"][6]["role"] == "down", "… each step says where it is");
+        CHECK(t["steps"][3]["params"][0]["pass"] == "const ref", "… with its signature");
+        CHECK(t["steps"][3]["more_callers"] == 1 && t["steps"][3]["callers"][0]["id"] == "s" && t["steps"][3]["more_callees"] == 1
+              && t["steps"][3]["callees"][0]["id"] == "x", "… and what is off the lane: F's other caller s and callee x");
+        CHECK(t["steps"][2]["more_callers"] == 1 && t["steps"][2]["callers"][0]["id"] == "entry", "… a's other caller, entry");
+        CHECK(t["calls"][2]["from"] == "a" && t["calls"][2]["to"] == "F" && t["calls"][2]["line"] == 12 && t["calls"][2]["args"] == J({"tick"}),
+              "the call into each next step, with its line and arguments");
+        const auto to_x = desk_map::trace(g, g.at.at("F"), 16, static_cast<long>(g.at.at("x")));
+        CHECK(lane(to_x).back() == "x" && to_x["reached"] == true, "--to: down the shortest way to the chosen function");
+        const auto to_s = desk_map::trace(g, g.at.at("F"), 16, static_cast<long>(g.at.at("s")));
+        CHECK(lane(to_s).back() == "F" && to_s["reached"] == false, "… and says so when it is not below");
+        CHECK(lane(desk_map::trace(g, g.at.at("F"), 1)) == std::vector<std::string>({"s", "F", "x"}),
+              "depth bounds each way; within it a real start and end win (s and x) over a and b, which go on");
+    }
     std::printf("test_map: %d passed%s\n", passed, failed ? (", " + std::to_string(failed) + " failed").c_str() : "");
     return failed ? 1 : 0;
 }

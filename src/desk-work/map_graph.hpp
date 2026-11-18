@@ -534,6 +534,8 @@ struct Graph {
     // Call edges only, one per pair: the kinds as bits (1 call, 2 call-by-name).
     std::vector<std::vector<std::pair<size_t, int>>> out, in;
     std::vector<std::tuple<size_t, size_t, std::string>> all;   // every edge, contains included
+    // The first call between two functions, as the syntax reader saw it: its line and arguments (the trace's).
+    std::map<std::pair<size_t, size_t>, J> calls;
 
     explicit Graph(J d) : doc(std::move(d)) {
         if (doc.is_object() && doc.contains("nodes") && doc["nodes"].is_array())
@@ -552,6 +554,12 @@ struct Graph {
                 const auto kind = text(e, "kind");
                 all.emplace_back(a->second, b->second, kind);
                 if (call_kind(kind)) bits[{a->second, b->second}] |= kind == "call" ? 1 : 2;
+                if (call_kind(kind) && (e.contains("line") || e.contains("args")) && !calls.count({a->second, b->second})) {
+                    J facts = J::object();
+                    if (e.contains("line")) facts["line"] = e["line"];
+                    if (e.contains("args")) facts["args"] = e["args"];
+                    calls[{a->second, b->second}] = facts;
+                }
             }
         for (const auto& [pair, mask] : bits) { out[pair.first].push_back({pair.second, mask}); in[pair.second].push_back({pair.first, mask}); }
         const auto by_label = [&](const std::pair<size_t, int>& x, const std::pair<size_t, int>& y) {
@@ -672,6 +680,99 @@ inline J walk(const Graph& g, size_t start, int depth, bool backwards, size_t ca
 // Every way from one node to another along calls, each node at most once per way, shortest first: at most `max`
 // ways of at most `depth` calls. Only nodes that can still reach the end in the calls left are tried, and the work
 // is bounded, so a large graph answers quickly (and says when it stopped early).
+// The trace (plans/2026-11-18-function-trace.md): one lane THROUGH a function, up its callers to where it starts (the
+// farthest function nothing calls, within depth) and down its callees to where it ends (the farthest that calls
+// nothing more in the map), or to `to` by the shortest way. Each step: its node (with its signature when the reader
+// gave one), and the call into the next (its kind, line and arguments); off the lane, its other callers above and
+// callees below, up to 8 named and counted. A cycle never loops: each function is on the lane once.
+inline J trace(const Graph& g, size_t focus, int depth, long to = -1) {
+    const auto farthest = [&](bool backwards, std::vector<long>& prev) {
+        std::vector<int> dist(g.nodes.size(), -1);
+        std::deque<size_t> queue{focus};
+        dist[focus] = 0;
+        size_t best = focus;
+        bool best_end = false;
+        while (!queue.empty()) {
+            const auto v = queue.front();
+            queue.pop_front();
+            const auto& next = backwards ? g.in[v] : g.out[v];
+            const bool end = next.empty();
+            // The farthest end wins; a function in a cycle is an end only when nothing farther is.
+            if ((end && (!best_end || dist[v] > dist[best])) || (!best_end && dist[v] > dist[best])) { best = v; best_end = end; }
+            if (dist[v] >= depth) continue;
+            for (const auto& [w, mask] : next) {
+                (void)mask;
+                if (dist[w] >= 0) continue;
+                dist[w] = dist[v] + 1;
+                prev[w] = static_cast<long>(v);
+                queue.push_back(w);
+            }
+        }
+        return best;
+    };
+    std::vector<long> up_prev(g.nodes.size(), -1), down_prev(g.nodes.size(), -1);
+    std::vector<size_t> lane;
+    for (long v = static_cast<long>(farthest(true, up_prev)); v >= 0; v = up_prev[static_cast<size_t>(v)]) lane.push_back(static_cast<size_t>(v));
+    std::vector<size_t> down;
+    size_t end = focus;
+    if (to >= 0) {
+        // To a chosen function: the shortest way down, when there is one within depth.
+        std::vector<int> dist(g.nodes.size(), -1);
+        std::deque<size_t> queue{focus};
+        dist[focus] = 0;
+        while (!queue.empty() && dist[static_cast<size_t>(to)] < 0) {
+            const auto v = queue.front();
+            queue.pop_front();
+            if (dist[v] >= depth) continue;
+            for (const auto& [w, mask] : g.out[v]) {
+                (void)mask;
+                if (dist[w] >= 0) continue;
+                dist[w] = dist[v] + 1;
+                down_prev[w] = static_cast<long>(v);
+                queue.push_back(w);
+            }
+        }
+        if (dist[static_cast<size_t>(to)] >= 0) end = static_cast<size_t>(to);
+    } else end = farthest(false, down_prev);
+    for (long v = static_cast<long>(end); v >= 0 && static_cast<size_t>(v) != focus; v = down_prev[static_cast<size_t>(v)]) down.push_back(static_cast<size_t>(v));
+    std::set<size_t> on_lane(lane.begin(), lane.end());
+    for (auto it = down.rbegin(); it != down.rend(); ++it) if (on_lane.insert(*it).second) lane.push_back(*it);
+    J steps = J::array(), calls = J::array();
+    for (size_t k = 0; k < lane.size(); ++k) {
+        const auto v = lane[k];
+        J step = g.node(v);
+        step["role"] = v == focus ? "focus" : (k < static_cast<size_t>(std::find(lane.begin(), lane.end(), focus) - lane.begin()) ? "up" : "down");
+        const auto off = [&](const std::vector<std::pair<size_t, int>>& list, size_t skip) {
+            J named = J::array();
+            size_t count = 0;
+            for (const auto& [w, mask] : list) {
+                (void)mask;
+                if (w == skip) continue;
+                ++count;
+                if (named.size() < 8) named.push_back(J{{"id", text(g.nodes[w], "id")}, {"label", text(g.nodes[w], "label")}});
+            }
+            return std::make_pair(named, count);
+        };
+        const auto [callers, ncallers] = off(g.in[v], k > 0 ? lane[k - 1] : g.nodes.size());
+        const auto [callees, ncallees] = off(g.out[v], k + 1 < lane.size() ? lane[k + 1] : g.nodes.size());
+        step["callers"] = callers; step["more_callers"] = ncallers;
+        step["callees"] = callees; step["more_callees"] = ncallees;
+        steps.push_back(step);
+        if (k + 1 < lane.size()) {
+            const auto w = lane[k + 1];
+            int mask = 0;
+            for (const auto& [x, m] : g.out[v]) if (x == w) mask = m;
+            J call{{"from", text(g.nodes[v], "id")}, {"to", text(g.nodes[w], "id")}, {"kind", mask ? kinds_of(mask) : "none"}};
+            const auto facts = g.calls.find({v, w});
+            if (facts != g.calls.end()) call.update(facts->second);
+            calls.push_back(call);
+        }
+    }
+    J out{{"ok", true}, {"q", "trace"}, {"focus", text(g.nodes[focus], "id")}, {"depth", depth}, {"steps", steps}, {"calls", calls}};
+    if (to >= 0) { out["to"] = text(g.nodes[static_cast<size_t>(to)], "id"); out["reached"] = end == static_cast<size_t>(to); }
+    return out;
+}
+
 inline J paths(const Graph& g, size_t from, size_t to, int depth, size_t max) {
     std::vector<int> left(g.nodes.size(), -1);   // calls from here to the end
     std::deque<size_t> queue{to};
