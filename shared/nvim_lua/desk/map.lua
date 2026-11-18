@@ -1070,7 +1070,7 @@ end
 -- of the same row fold into one line; at most `cap` lines. → { rows = parts lines, legend = parts lines (the marks'
 -- key), padding = bytes or nil }.
 function M.byte_map(rec, touched, retro, cap)
-  touched, cap = touched or {}, cap or 24
+  touched, cap = touched or {}, cap or 40 -- a big struct's members, folded runs and all (the trader's ExecutionCore: 34)
   local more = retro and '..' or '…'
   local size = rec.size or 0
   local owners = {}
