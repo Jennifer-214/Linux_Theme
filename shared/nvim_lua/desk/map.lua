@@ -1343,7 +1343,11 @@ function M.trace_page(answer, folds, layouts, field)
     local body = {}
     local size = st.lines and (st.lines .. (st.lines == 1 and ' line' or ' lines')) or nil
     local first = {}
-    if st.returns then first[#first + 1] = { '→ ' .. st.returns } end
+    -- what it returns, a hit when it returns something: Enter shows where that result goes in each caller
+    if st.returns then
+      first[#first + 1] = { '→ ' .. st.returns, st.returns ~= 'void' and { name = st.label .. ' → ' .. st.returns, key = 'result:' .. st.id,
+        target = { kind = 'result', node = st } } or nil }
+    end
     if size then first[#first + 1] = { (#first > 0 and ' · ' or '') .. size, nil, true, 'DeskMapDim' } end
     if st.before then
       if #first > 0 then first[#first + 1] = { ' · ', nil, nil, 'DeskMapDim' } end
@@ -1519,6 +1523,37 @@ end
 function M.level_query(answer, all, level)
   if answer.q == 'trace' then return M.trace_page(answer, level and level.folds, level and level.layouts, level and level.field) end
   local sections = {}
+  if answer.q == 'calls-into' then
+    -- Where a function's result goes, call by call (read from each call's line: a first answer, said as such).
+    local to = answer.to or {}
+    local short = tostring(to.label or ''):match('([%w_~]+)$') or tostring(to.label)
+    local root = level and level.root
+    local cache = {}
+    local function line_of(file, n)
+      if not (root and file) then return nil end
+      cache[file] = cache[file] or (pcall(vim.fn.readfile, root .. '/' .. file) and vim.fn.readfile(root .. '/' .. file) or {})
+      return cache[file][n]
+    end
+    local rows, counts = {}, {}
+    for _, c in ipairs(answer.callers or {}) do
+      local n = c.node or {}
+      for _, site in ipairs(c.sites or {}) do
+        local text = line_of(n.file, site.line)
+        local use = text and M.result_use(text, short) or 'not read (no source here)'
+        counts[use] = (counts[use] or 0) + 1
+        rows[#rows + 1] = { { use .. '  ', nil, true, use:find('^discarded$') and 'DeskMapStale' or 'DeskMapDim' },
+          { n.label, node_item({ id = n.id, label = n.label, file = n.file, line = site.line }) },
+          { '  ' .. (n.file and vim.fs.basename(n.file) or '?') .. ':' .. site.line .. (text and ('  ' .. vim.trim(text)) or ''), nil, nil, 'DeskMapDim' } }
+      end
+    end
+    local summary = {}
+    for use, k in pairs(counts) do summary[#summary + 1] = k .. ' ' .. use end
+    table.sort(summary)
+    sections[#sections + 1] = { head = 'where ' .. code(to.label) .. "'s result goes · " .. #rows .. (#rows == 1 and ' call' or ' calls') }
+    sections[#sections + 1] = { block = { { { (#summary > 0 and table.concat(summary, ' · ') or 'no call of it in the map') .. ' (read from each call\'s line)', nil, true } } }, group = 'DeskMapDim' }
+    if #rows > 0 then sections[#sections + 1] = { block = rows } end
+    return { crumbs = { 'result' }, sections = sections }
+  end
   if answer.q == 'crossings' then
     local n_entries = #(answer.entries or {})
     sections[#sections + 1] = { head = 'how ' .. tostring(answer.from) .. ' uses ' .. tostring(answer.to) .. ' · ' .. n_entries
@@ -2081,6 +2116,9 @@ local function enter(view, ctx)
     local top = view.stack[#view.stack]
     local n = top.kind == 'pick' and top.candidates[t.index]
     if n and top.chosen then top.chosen(n.id, top) end
+  elseif t.kind == 'result' then
+    -- Where its result goes: each call of it, with its line read.
+    query(view, { '--q', 'calls-into', '--of', t.node.id }, item.key)
   elseif t.kind == 'crossings' then
     -- The calls from one part into another, by the entry function each reaches: a page of its own.
     query(view, { '--q', 'crossings', '--from', t.from, '--to', t.to }, item.key)
@@ -2207,10 +2245,10 @@ query = function(view, args, from, again, quiet)
     local top = view.stack[#view.stack]
     if again then
       if top ~= again then return end
-      view.stack[#view.stack] = { kind = 'query', answer = answer, args = args, keep = top.keep, selected = top.selected, all = top.all }
+      view.stack[#view.stack] = { kind = 'query', answer = answer, args = args, keep = top.keep, selected = top.selected, all = top.all, root = view.root }
       return load(view)
     end
-    local level = { kind = 'query', answer = answer, args = args }
+    local level = { kind = 'query', answer = answer, args = args, root = view.root }
     -- a trace restored after a restart: its folds and selected step as she left them
     if view.restoring and answer.q == 'trace' then
       level.folds, level.selected, view.select = view.restoring.folds, view.restoring.selected, view.restoring.selected
@@ -2583,6 +2621,24 @@ local function needs_reader(ctx)
 end
 -- In the pop-out a key is about the box selected there: Enter needs one, a question to the map a function.
 local function needs_selection(ctx) return not (ctx.view and not ctx.item) or 'nothing is selected' end
+-- What a call's line does with the result of `name` (a first answer, from the line alone: the value is not followed
+-- further). Pure.
+function M.result_use(line, name)
+  local l = vim.trim((line or ''):gsub('//.*$', ''))
+  local esc = vim.pesc(name)
+  local at = l:find('%f[%w_]' .. esc .. '%s*%(')
+  if not at then return 'used' end
+  local before = l:sub(1, at - 1)
+  if before:find('%(%s*void%s*%)%s*[%w_%.%->:]*$') then return 'discarded on purpose (void)' end
+  if before:find('^return%f[^%w_]') or before:find('^co_return%f[^%w_]') then return 'returned upward' end
+  if before:find('%f[%w_]if%s*%(') or before:find('%f[%w_]while%s*%(') or before:find('[!&|?]%s*[%w_%.%->:]*$') or before:find('%f[%w_]assert%w*%s*%(') then
+    return 'checked'
+  end
+  if before:find('[^=!<>]=%s*[%w_%.%->:]*$') or before:find('^[%w_:<>%*&%s]+[%w_]+%s*=%s*$') then return 'kept in a variable' end
+  if before:find('^[%w_%.%->:]*$') and l:find('%)%s*;%s*$') then return 'discarded' end
+  return 'used in an expression'
+end
+
 -- Findings inside a route's functions (her pick: "Findings on this path"): pure — the steps' spans (file, first line,
 -- lines) against each finding's file and line (relative to root, or absolute under it). → the findings that fall in a
 -- step, each with its step.
@@ -3031,6 +3087,8 @@ function M.strip_text(item, G)
       typed('in') .. ' ' .. G.said('opens its producer or consumer') .. ' · ' .. typed('handoff-drop') .. ' ' .. G.said(t.by_hand and 'forgets it' or 'drops it (it is wrong)') }
   elseif t.kind == 'field' then
     return { tostring(item.name), typed('in') .. ' ' .. G.said('follows it: its declaration, who writes it, or on this route') }
+  elseif t.kind == 'result' then
+    return { tostring(item.name), typed('in') .. ' ' .. G.said('shows where the result goes in each caller: checked, returned, kept or dropped') }
   elseif t.kind == 'crossings' then
     return { tostring(item.name), typed('in') .. ' ' .. G.said('shows the calls that cross, by the entry function they reach') }
   elseif t.kind == 'call' then

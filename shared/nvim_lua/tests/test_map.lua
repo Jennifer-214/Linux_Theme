@@ -525,6 +525,27 @@ do
   ok(text:find("how lua uses csrc · 1 entry function, 3 calls in", 1, true) and text:find("leaf  p.c:2 · 2 callers", 1, true) and text:find("from alpha · beta", 1, true),
     "the crossings: each entry function with its callers from the other part")
 end
+do
+  -- Where a function's result goes, read from each call's line.
+  local cases = {
+    { "  submit(order);", "discarded" }, { "  (void)submit(order);", "discarded on purpose (void)" }, { "  return submit(order);", "returned upward" },
+    { "  if (!submit(order)) retry();", "checked" }, { "  ok = ok && submit(order);", "checked" }, { "  auto st = submit(order);", "kept in a variable" },
+    { "  st = mgr.submit(order);", "kept in a variable" }, { "  log(submit(order));", "used in an expression" }, { "  mgr->submit(order); // fire", "discarded" },
+  }
+  for _, c in ipairs(cases) do eq(Map.result_use(c[1], "submit"), c[2], "result: " .. vim.trim(c[1])) end
+  local root = vim.fn.tempname()
+  vim.fn.mkdir(root, "p")
+  vim.fn.writefile({ "void a() {", "  if (!submit(o)) retry();", "  submit(p);", "}" }, root .. "/a.cpp")
+  local page = Map.layout(Map.level_query({ ok = true, q = "calls-into", to = { id = "o.cpp::submit", label = "Mgr::submit" },
+    callers = { { node = { id = "a.cpp::a", label = "a", file = "a.cpp", line = 1 }, sites = { { line = 2 }, { line = 3 } } } } }, nil, { root = root }), 110, false)
+  local text = table.concat(page.lines, "\n")
+  ok(text:find("where `Mgr::submit`'s result goes · 2 calls", 1, true) or text:find("where Mgr::submit's result goes · 2 calls", 1, true), "the page: how many calls")
+  ok(text:find("1 checked · 1 discarded (read from each call's line)", 1, true) and text:find("discarded  a  a.cpp:3  submit(p);", 1, true), "… what each does with it, the line shown")
+  vim.fn.delete(root, "rf")
+  local hit_page = Map.layout(Map.trace_page(trace_answer), 90, false)
+  local r, l = line_with(hit_page.lines, "→ bool")
+  eq(r and Map.item_at(hit_page, r, l:find("→ bool", 1, true)).target.kind, "result", "a step's → type is a hit: where its result goes")
+end
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11, to_line = 20 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)

@@ -315,6 +315,15 @@ int main(int, char** argv) {
         CHECK(dead["paths"].empty() && dead["why"] == "ran_out" && dead["ends"].empty() && dead["callers"].size() >= 2,
               "no way at all: both sides ran out of known calls; what calls F listed");
         CHECK(!desk_map::paths(g, g.at.at("entry"), g.at.at("x"), 16, 5).contains("why"), "a way found: no why");
+        // Every call into a function with its lines (where its result goes is read from them); a handoff takes no result.
+        {
+            const auto into = desk_map::calls_into(sg, sg.at.at("F"), 40);
+            bool sites_kept = false;
+            for (const auto& row : into["callers"]) if (row["node"]["id"] == "a" && row["sites"].size() == 2) sites_kept = true;
+            CHECK(sites_kept, "calls into F: a's two call lines kept");
+            const auto into_consumer = desk_map::calls_into(sg, sg.at.at("consumer"), 40);
+            CHECK(into_consumer["callers"].empty(), "… a handoff into a function is not a call that takes its result");
+        }
         // The interface one part uses of another: the calls that cross, by the entry function they reach.
         {
             J parts{{"version", 1}, {"nodes", J::array()}, {"edges", J::array()}};

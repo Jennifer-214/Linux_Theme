@@ -971,6 +971,24 @@ inline J paths(const Graph& g, size_t from, size_t to, int depth, size_t max) {
     return out;
 }
 
+// Every call into function `to`: each caller with the lines it calls it on (the reader's sites, else its first line) —
+// where the function's result goes is read from those lines.
+inline J calls_into(const Graph& g, size_t to, size_t cap) {
+    J callers = J::array();
+    for (const auto& [v, mask] : g.in[to]) {
+        if (callers.size() >= cap) break;
+        if (!(mask & 3)) continue;   // a handoff hands data on; it does not take a result
+        J row{{"node", g.node(v)}, {"sites", J::array()}};
+        const auto facts = g.calls.find({v, to});
+        if (facts != g.calls.end()) {
+            if (facts->second.contains("sites")) row["sites"] = facts->second["sites"];
+            else if (facts->second.contains("line")) row["sites"].push_back(J{{"line", facts->second["line"]}});
+        }
+        callers.push_back(row);
+    }
+    return J{{"ok", true}, {"q", "calls-into"}, {"to", g.node(to)}, {"callers", callers}};
+}
+
 // The calls from part `from` into part `to`, by the entry function they reach in `to` (the interface `from` uses), each
 // with its callers in `from`, the most-called first. A part's own helpers do not show: only calls that cross.
 inline J crossings(const Graph& g, const std::string& from, const std::string& to, size_t cap) {
