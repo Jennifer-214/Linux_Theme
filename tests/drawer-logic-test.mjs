@@ -8,6 +8,11 @@ vm.runInContext(fs.readFileSync(file, 'utf8').replace(/^\.pragma library\s*/, ''
 const logic = context;
 const plain = value => JSON.parse(JSON.stringify(value));
 
+// The open drawer's timer leaves the event stream's pages to it while it is live; others, and all without it, it reads.
+assert.equal(logic.timerReads('jobs', true), false);
+assert.equal(logic.timerReads('jobs', false), true);
+assert.equal(logic.timerReads('battery', true), true);
+assert.equal(logic.timerReads('root', false), false, 'Today has its own read every tick');
 assert.equal(logic.isNight(new Date(2026, 10, 6, 21, 59)), false);
 assert.equal(logic.isNight(new Date(2026, 10, 6, 22, 0)), true);
 assert.equal(logic.isNight(new Date(2026, 10, 6, 4, 59)), true);

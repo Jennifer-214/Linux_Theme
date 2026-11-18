@@ -66,7 +66,7 @@ Scope {
     readonly property bool flatBar: barTheme.style === "retro"
     // Between groups: retro's is odd, so its one-pixel │ has the same room on each side.
     readonly property int groupGap: flatBar ? 25 : 9
-    BarData { id: barData; active: bar.shown }
+    BarData { id: barData; active: bar.shown; flat: bar.flatBar }
     Variants {
         id: barWindows
         model: Quickshell.screens

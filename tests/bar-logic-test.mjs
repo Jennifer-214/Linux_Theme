@@ -14,6 +14,12 @@ const config = {'modules-left':['group/one'], 'modules-right':['custom/x'],
     'custom/x':{exec:'printf hello', interval:3}};
 assert.deepEqual(plain(ctx.enabled(config)), ['custom/x','memory']);
 assert.equal(ctx.pollers(config, config).length, 1);
+// The retro bar polls nothing it hides: memory and the hidden helpers drop out; paper keeps them.
+const busy = {'modules-left': ['custom/ai_status', 'custom/cpu'], 'modules-right': ['memory', 'group/g'], 'group/g': {modules: ['custom/disk', 'clock']},
+  'custom/ai_status': {exec: 'a', interval: 5}, 'custom/cpu': {exec: 'c', interval: 2}, 'custom/disk': {exec: 'd', interval: 30}};
+assert.deepEqual(plain(ctx.enabled(ctx.shown(busy, true))), ['custom/cpu', 'clock']);
+assert.deepEqual(plain(ctx.pollers(ctx.shown(busy, true), ctx.shown(busy, true)).map(r => r.name)), ['custom/cpu']);
+assert.deepEqual(plain(ctx.pollers(ctx.shown(busy, false), ctx.shown(busy, false)).map(r => r.name)), ['custom/ai_status', 'custom/cpu', 'custom/disk']);
 assert.equal(ctx.plain('<b>a &lt; b &amp; c</b>'), 'a < b & c');
 assert.deepEqual(plain(ctx.sample('{"text":"<b>42</b>","tooltip":"CPU\\n43°","class":"warning busy"}', {'return-type':'json'})),
     {text:'42',tooltip:'CPU\n43°',classes:['warning','busy']});

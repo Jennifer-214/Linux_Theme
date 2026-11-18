@@ -223,6 +223,13 @@ function identity(item) {
 
 // The row the cursor was on, after a refresh. Rows can share an identity (every job in one pane jumps to it), so the
 // match nearest its old place wins; when the row is gone, its neighbour does, not the top of the page.
+// The pages desk-work's event stream keeps fresh: an event reads them again (shell.qml's workRefresh).
+var WORK_PAGES = ["root", "workbench", "attention", "attention-snoozed", "work-history", "work-digest", "work-health", "backups", "reviews",
+    "agents", "jobs", "test-results", "next-steps", "failures", "worktrees"];
+function workPage(page) { return WORK_PAGES.indexOf(page) >= 0; }
+// Whether the open drawer's 4 s timer reads this page again: not a page the stream keeps fresh while the stream is live
+// (it said hello); every other page, and every page with an older desk-work that sends no events.
+function timerReads(page, streamLive) { return page !== "root" && !(streamLive && workPage(page)); }
 function restoreIndex(items, key, near) {
     var best = -1;
     items.forEach(function(item, at) {
@@ -281,7 +288,7 @@ var retroGlyphs = {
     today:"■", desk:"⌂", workbench:"\u{F1322}", sound:"♫", connections:"↔", comfort:"≈", system:"\u{F0493}",
     calendar:"\u{F00ED}", "earlier-notes":"§", apps:"\u{F003B}", projects:"\u{F024B}", "api-tasks":"☰",
     worktrees:"\u{F062C}", jobs:"\u{F0150}", "test-results":"√", reviews:"\u{F0208}", attention:"♦",
-    "work-history":"≡", "work-digest":"Σ", "work-health":"■", "next-steps":"»", failures:"!", bookmarks:"▼",
+    "work-history":"≡", "work-digest":"Σ", "work-health":"♥", "next-steps":"»", failures:"!", bookmarks:"▼",
     library:"\u{F00BA}", downloads:"↓", screenshots:"\u{F0100}", garden:"♣", models:"\u{F06A9}", windows:"◘",
     "clipboard-text":"¶", "clipboard-images":"\u{F02E9}", wallpapers:"▒", themes:"\u{F03D8}", "wallpaper-next":"→",
     "color-picker":"\u{F020A}", agents:"☺", volume:"♪", "volume-mute":"\u{F0581}", "audio-outputs":"◙",

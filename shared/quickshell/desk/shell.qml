@@ -452,13 +452,17 @@ ShellRoot {
         id: workWatch
         command: ["desk-work", "watch", "--all", "yes", "--client", "desktop", "--build", Build.id]
         running: true
+        // Live once it says hello (version 1); an older desk-work's watch never does, and the timer keeps every page fresh.
+        property bool live: false
         onExited: {
+            live = false;
             root.reportWork({stream: "retrying", "retry-at": Math.floor(Date.now() / 1000) + Math.ceil(workReconnect.interval / 1000)});
             workReconnect.restart();
         }
         stdout: SplitParser {
             onRead: line => {
                 try { if (JSON.parse(line).version === 1) {
+                    workWatch.live = true;
                     root.reportWork({stream: "connected", "event-at": Math.floor(Date.now() / 1000), "retry-at": 0});
                     workReconnect.interval = 1000; workRefresh.restart();
                 } } catch (_) {}
@@ -477,7 +481,7 @@ ShellRoot {
             if (desktopBar.item) desktopBar.item.refresh("custom/claude");
             if (!root.opened || root.searching || root.editing || root.pendingConfirm || root.actionBusy || root.pickerActive) return;
             if (!groupProcess.running) groupProcess.running = true;
-            if (["root", "workbench", "attention", "attention-snoozed", "work-history", "work-digest", "work-health", "backups", "reviews", "agents", "jobs", "test-results", "next-steps", "failures", "worktrees"].indexOf(root.page) >= 0 && !viewProcess.running) root.requestView();
+            if (Logic.workPage(root.page) && !viewProcess.running) root.requestView();
         }
     }
 
@@ -1109,7 +1113,8 @@ ShellRoot {
             ticks++;
             if (!groupProcess.running && (root.page === "root" || ticks % 5 === 0)) groupProcess.running = true;
             // A refresh would replace the request a slow page is still answering, and it would never finish.
-            if (root.page !== "root" && !viewProcess.running) root.requestView();
+            // A page the live event stream keeps fresh is read on its events, not on this timer too.
+            if (Logic.timerReads(root.page, workWatch.live) && !viewProcess.running) root.requestView();
         }
     }
 

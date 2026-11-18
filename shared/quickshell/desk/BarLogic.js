@@ -226,6 +226,9 @@ function withoutHidden(config) {
     });
     return out;
 }
+// What the bar reads and polls: on the retro bar, nothing it does not show (a hidden module's helper, cat /proc/meminfo
+// every 5 s, powerprofilesctl every 10 s, ran for no one; Codex's review, 2026-11-18).
+function shown(config, flat) { return flat ? withoutHidden(config) : config; }
 function retroZones(config) {
     config = withoutHidden(config);
     if (modules(config, "center").length) return config;

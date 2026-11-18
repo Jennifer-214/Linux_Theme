@@ -17,8 +17,10 @@ Scope {
     readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config"
     readonly property string fixture: Quickshell.env("FOXML_BAR_FIXTURE") || ""
     readonly property bool ready: Array.isArray(primaryConfig["modules-left"])
-    readonly property var enabledModules: BarLogic.enabled(primaryConfig).concat(BarLogic.enabled(secondaryConfig))
-    readonly property var pollers: fixture ? [] : BarLogic.pollers(primaryConfig, secondaryConfig)
+    // The retro bar (flat): its hidden modules are neither shown nor polled (BarLogic.shown).
+    property bool flat: false
+    readonly property var enabledModules: BarLogic.enabled(BarLogic.shown(primaryConfig, flat)).concat(BarLogic.enabled(BarLogic.shown(secondaryConfig, flat)))
+    readonly property var pollers: fixture ? [] : BarLogic.pollers(BarLogic.shown(primaryConfig, flat), BarLogic.shown(secondaryConfig, flat))
     signal actionFinished()
 
     function publish(name, value) { var next = Object.assign({}, snapshots); next[name] = value; snapshots = next; }
