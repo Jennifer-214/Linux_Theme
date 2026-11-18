@@ -107,9 +107,10 @@ def config(base, theme):
             (nvim / target).symlink_to(ROOT / "shared" / source)
     data = base / "seal/home/.local/share/nvim"
     data.mkdir(parents=True)
-    for part in ("lazy", "site", "mason"):
-        if (DATA / part).exists():
-            (data / part).symlink_to(DATA / part)
+    # Everything Neovim keeps there (plugins, parsers, mason's and copilot's servers), read-only under bwrap: a part left out
+    # is one a plugin downloads at start (copilot's server did, and Neovim waited a second on it to quit).
+    for part in DATA.iterdir():
+        (data / part.name).symlink_to(part)
 
 
 REVIEW_PROBE = r"""
