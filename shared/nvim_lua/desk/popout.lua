@@ -429,7 +429,10 @@ end
 --                          { type = 'pin' } (p flipped view.pinned). A kind with news of its own calls M.redraw(view)
 --                          kind.follows = false: it has follow but does not follow the cursor (no ↻ in the header)
 --   ctx_for(view, ref, index, line) → ctx   what a remote row runs with for that item; ctx.view, ctx.item (the ref),
---                          ctx.index, ctx.remote and ctx.also are added to it; ctx.origin, when set, is the window
+--                          ctx.index, ctx.remote and ctx.also are added to it, and ctx.surface when it names none
+--                          (the kind's surface: without it describe offers none of that surface's rows, and Enter, f
+--                          and a double click find no Enter row; fox-symdeps' gives { win, origin, sel } — 2026-11-17,
+--                          the board's keys did nothing in the pop-out); ctx.origin, when set, is the window
 --                          its Enter moves (Ctrl+o takes the editor back there). An Enter row that only acted in the
 --                          view (a zoom, a fold) sets ctx.stayed = true: f then keeps the keyboard in the pop-out
 --   attach(view)           o in the pop-out, and each pinned view when the pop-out goes on its own: the view back in
@@ -1449,8 +1452,8 @@ end
 -- The pop-out a message comes from: the one it names (pop), the first when it names none.
 local function from_pop(msg) return pops[msg.pop or 1] end
 
--- The pop-out, view, generation and item an ask names, as a ctx for the action registry: its kind's ctx_for (the
--- view's surface, and what that surface's rows read), with ctx.pop (the pop-out's id), ctx.view, ctx.item (the item's
+-- The pop-out, view, generation and item an ask names, as a ctx for the action registry: its kind's ctx_for (what that
+-- surface's rows read) on the view's surface (the kind's, where ctx_for names none), with ctx.pop (the pop-out's id), ctx.view, ctx.item (the item's
 -- ref), ctx.index, ctx.remote and the window's own surface (ctx.also). A view drawn again since refuses: its items are
 -- not the ones the pop-out saw.
 local function remote_ctx(msg)
@@ -1473,6 +1476,7 @@ local function remote_ctx(msg)
     local ok, made = pcall(kind.ctx_for, view, ref, msg.item, msg.line)
     if not ok or type(made) ~= 'table' then return nil, "can't tell what is selected there: " .. tostring(made):sub(1, 160) end
     ctx = made
+    ctx.surface = ctx.surface or kind.surface
   else
     ctx = actions.context(api.nvim_get_current_win())
     ctx.surface = kind and kind.surface or ON

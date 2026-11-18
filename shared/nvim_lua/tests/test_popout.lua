@@ -742,6 +742,17 @@ ok(keys:find('Enter%s+Open the card') and keys:find('c%s+Compare the card') and 
   "… its stand-ins and the window's own:\n" .. keys)
 press('q')
 ok(wait(2000, function() return state().current_win == state().win end), '… q closes the list')
+-- f: what Enter does there (the board's Enter row, in the editor), then the keyboard to the editor (2026-11-17: on the
+-- real plugin's board, whose ctx_for names no surface, it said "Nothing here goes anywhere.").
+press('j')
+ok(wait(2000, function() return state().selected == 'Fill' end), 'j: the last card, here')
+pop('_G.heard = {}; vim.notify = function(text) table.insert(_G.heard, text) end')
+mark = #read('hyprctl.log')
+press('f')
+ok(wait(2000, function() return host('return _G.board_test.opened') == 'Fill' end), "f: the board's Enter row, in the editor, for the card selected here")
+ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xa1' })", 1, true) end),
+  '… and the keyboard goes to the editor')
+eq(pop('return _G.heard'), {}, '… with nothing said (never "Nothing here goes anywhere.")')
 press('q')
 ok(wait(3000, function() return state().shown == 'graph' and state().tabs == 1 end), 'q: the board closes, the graph stays')
 eq(host('return _G.board_test.closed'), 'symdeps', '… its kind told')
