@@ -552,10 +552,16 @@ do
   tab.graph = { center = tab.drawn.boxes[1].item }
   local inspected
   package.loaded["fox-symdeps"] = { inspect_cursor = function() inspected = { vim.fn.fnamemodify(api.nvim_buf_get_name(0), ":t"), api.nvim_win_get_cursor(0)[1] } end }
-  eq(A.named(A.get("callgraph.symdeps"), { graph = tab }), "This function in symdeps · callee_one · b.lua:2", "gs in a menu names the selected box's function")
-  eq(A.named(A.get("callgraph.trace"), { graph = tab }), "Trace through this function · callee_one · b.lua:2", "… and t")
+  eq(A.about_of(A.get("callgraph.symdeps"), { graph = tab }):find("callee_one · b.lua:2 — ", 1, true), 1, "gs's description names the selected box's function first")
+  eq(A.about_of(A.get("callgraph.trace"), { graph = tab }):find("callee_one · b.lua:2 — ", 1, true), 1, "… and t's")
   A.get("callgraph.symdeps").run({ graph = tab })
   eq(inspected, { "b.lua", 2 }, "gs in a tab inspects the selected box's function, not the centre")
+  local Mp = require("desk.map")
+  local real_trace_at, traced = Mp.trace_at, nil
+  Mp.trace_at = function(path, line, opts) traced = { vim.fn.fnamemodify(path, ":t"), line, opts and opts.pop } end
+  A.get("callgraph.trace").run({ view = { pop = 2 }, item = tab.drawn.boxes[2].item })
+  Mp.trace_at = real_trace_at
+  eq(traced, { "b.lua", 2, 2 }, "t on pop-out 2's graph asks for the trace in pop-out 2")
   package.loaded["fox-symdeps"] = nil
   api.nvim_win_set_buf(0, was_buf)
   vim.fn.delete(d, "rf")

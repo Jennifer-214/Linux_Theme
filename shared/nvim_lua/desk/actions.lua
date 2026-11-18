@@ -388,12 +388,12 @@ function M.title(ctx)
   return 'Home' .. (place and (' · ' .. place) or '')
 end
 
--- A row's name where ctx is, with what it would act on (its subject: the selected function's qualified name and place),
--- so a menu says what Enter opens before it is pressed.
-function M.named(row, ctx)
-  if type(row.subject) ~= 'function' then return row.name end
+-- A row's description where ctx is, led by what it would act on (its subject: the selected function's qualified name
+-- and place), so a menu says what Enter opens before it is pressed. The name stays as it is (the menus' column).
+function M.about_of(row, ctx)
+  if type(row.subject) ~= 'function' then return row.about end
   local ok, what = pcall(row.subject, ctx)
-  return (ok and type(what) == 'string' and what ~= '') and (row.name .. ' · ' .. what) or row.name
+  return (ok and type(what) == 'string' and what ~= '') and (what .. ' — ' .. row.about) or row.about
 end
 
 -- The home menu: what applies where the cursor is, by group, in the menu kit the review uses (symdeps' when it is
@@ -405,8 +405,7 @@ function M.home(win)
   for _, row in ipairs(M.for_context(ctx)) do
     if row.menu ~= false then
       local why = M.available(row, ctx)
-      local name = M.named(row, ctx)
-      items[#items + 1] = { ident = row.id, name = name, label = name .. ' — ' .. row.about:gsub('`', ''),
+      items[#items + 1] = { ident = row.id, name = row.name, label = row.name .. ' — ' .. M.about_of(row, ctx):gsub('`', ''),
         group = row.group:lower(), bind = row.key, right = why ~= true and why or nil, run = function() M.run(row, ctx) end }
     end
   end
@@ -516,7 +515,7 @@ function M.describe(ctx)
   local out = {}
   for _, row in ipairs(M.for_context(ctx)) do
     if row.remote then
-      out[#out + 1] = { id = row.id, group = row.group, name = M.named(row, ctx), about = row.about, key = row.key, available = M.available(row, ctx),
+      out[#out + 1] = { id = row.id, group = row.group, name = row.name, about = M.about_of(row, ctx), key = row.key, available = M.available(row, ctx),
         input = row.input and M.offered(row.input, ctx) or nil, on = { unpack(list(row.on)) } }
       if row.menu == false then out[#out].menu = false end
       if row.doc == false then out[#out].doc = false end

@@ -1319,9 +1319,10 @@ function M.holds(view)
   local p = pop_of(view)
   return p ~= nil and not view.gone and p.views[view.id] == view
 end
-function M.view_of(name)
+-- The view of kind `name` (in pop-out `pop` when given: an answer goes to the pop-out it was asked from).
+function M.view_of(name, pop)
   for _, p in ipairs(pops) do
-    local view = kind_view(p, name)
+    local view = (pop == nil or p.id == pop) and kind_view(p, name)
     if view then return view end
   end
 end

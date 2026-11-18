@@ -2219,8 +2219,10 @@ local function adopt(to, from) for _, k in ipairs(STATE) do to[k] = from[k] end 
 -- Space c p: the trace through the function at the cursor, by its file and line (desk-work finds the function whose
 -- lines hold it): in the pop-out's map when the pop-out shows this checkout's map, else in the map's tab.
 function M.trace_here() return M.trace_at(api.nvim_buf_get_name(0), api.nvim_win_get_cursor(0)[1]) end
--- The trace through the function holding line `line` of file `path` (the call graph's t gives its box's).
-function M.trace_at(path, line)
+-- The trace through the function holding line `line` of file `path` (the call graph's t gives its box's). opts.pop:
+-- the pop-out it was asked from — the answer goes to that pop-out's map (opened there when it has none), never another
+-- screen's. Asked in the editor (no pop): the pop-out's map when one shows this checkout, else a map here.
+function M.trace_at(path, line, opts)
   local root = path ~= '' and vim.fs.root(path, '.git')
   if not root then return tell('Open a file of a git checkout first.') end
   root = uv.fs_realpath(root) or root
@@ -2228,9 +2230,19 @@ function M.trace_at(path, line)
   local rel = real:sub(1, #root + 1) == root .. '/' and real:sub(#root + 2) or nil
   if not rel then return tell('This file is not in the checkout.') end
   local P = package.loaded['desk.popout']
-  local out = P and P.view_of('map')
-  local view = (out and out.out and not out.gone and out.root == root) and out or nil
-  if view then P.show('map', actions.context(), { pop = view.pop }) else view = M.open(root) end
+  local pop = opts and opts.pop
+  local view
+  if P and pop then
+    local ctx = actions.context()
+    ctx.map_root = root
+    P.show('map', ctx, { pop = pop })
+    view = P.view_of('map', pop)
+    if not (view and view.out and not view.gone) then return tell('The map could not open in that pop-out.') end
+  else
+    local out = P and P.view_of('map')
+    view = (out and out.out and not out.gone and out.root == root) and out or nil
+    if view then P.show('map', actions.context(), { pop = view.pop }) else view = M.open(root) end
+  end
   query(view, { '--q', 'trace', '--file', rel, '--line', tostring(line), '--from', '' })
 end
 
@@ -2512,6 +2524,7 @@ local function target_window()
 end
 -- The checkout of the window a map was asked for in, else of the working directory.
 local function root_of(ctx)
+  if ctx and type(ctx.map_root) == 'string' then return ctx.map_root end   -- an answer for another checkout's map
   local name = ctx and ctx.buf and api.nvim_buf_is_valid(ctx.buf) and api.nvim_buf_get_name(ctx.buf) or ''
   local root = vim.fs.root(name ~= '' and name or vim.fn.getcwd(), '.git') or vim.fn.getcwd()
   return uv.fs_realpath(root) or root

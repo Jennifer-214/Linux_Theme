@@ -1530,7 +1530,8 @@ local ROWS = actions.add({
     run = function(ctx)
       local item = selected_item(ctx)
       if not (item and item.uri and item.range) then return tell('Select a function first.') end
-      require('desk.map').trace_at(vim.uri_to_fname(item.uri), item.range.start.line + 1)
+      -- from a pop-out, into that pop-out's map (never another screen's)
+      require('desk.map').trace_at(vim.uri_to_fname(item.uri), item.range.start.line + 1, { pop = ctx.view and ctx.view.pop })
     end },
   { id = 'callgraph.pin', group = 'Call graph', name = 'Pin the panel to this graph, or follow again', key = 'p', on = 'callgraph-panel',
     about = 'Pin the panel to the graph it shows (PINNED), or follow the cursor again', run = function() M.panel_pin() end },

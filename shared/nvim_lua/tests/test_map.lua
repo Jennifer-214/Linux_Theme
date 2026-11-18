@@ -1099,6 +1099,29 @@ for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids
 table.sort(remote_ids)
 eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.handoff-add", "map.handoff-drop", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
   "the pop-out can show more and retains its existing navigation keys")
+-- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
+do
+  local real_P, real_dw = package.loaded["desk.popout"], Map.desk_work
+  local repo = vim.fs.root(debug.getinfo(1, "S").source:sub(2), ".git")
+  local shown_in, asked = {}, nil
+  local maps = { [1] = { out = true, pop = 1, root = repo, stack = { { kind = "modules" } }, cache = {} } }
+  package.loaded["desk.popout"] = setmetatable({
+    show = function(name, ctx, opts)
+      shown_in[#shown_in + 1] = { name, opts.pop, ctx.map_root }
+      maps[opts.pop] = maps[opts.pop] or { out = true, pop = opts.pop, root = ctx.map_root, stack = { { kind = "modules" } }, cache = {} }
+    end,
+    view_of = function(name, pop) if pop then return maps[pop] end; return maps[1] end,
+    holds = function(v) return v ~= nil end,
+  }, { __index = real_P })
+  Map.desk_work = function(args, done) asked = { args = table.concat(args, " "), root = args[4] }; done({ ok = false, message = "stub" }, { code = 1 }) end
+  local said, real_notify = {}, vim.notify
+  vim.notify = function(m) said[#said + 1] = m end
+  Map.trace_at(repo .. "/shared/nvim_lua/desk/map.lua", 10, { pop = 2 })
+  vim.notify = real_notify
+  eq(shown_in, { { "map", 2, repo } }, "asked from pop-out 2: the map shown in pop-out 2, for that checkout")
+  ok(asked and asked.args:find("--q trace --file shared/nvim_lua/desk/map.lua --line 10", 1, true) and maps[2] ~= nil, "… and the trace asked there: " .. vim.inspect(asked))
+  package.loaded["desk.popout"], Map.desk_work = real_P, real_dw
+end
 local views_row = A.get("popout.view.map")
 eq(views_row and { views_row.group, views_row.name, views_row.remote }, { "Views", "Pop out the project map", true },
   "a row in Views opens it from anywhere, the pop-out too")
@@ -1182,8 +1205,8 @@ do
   local ref = { name = "tick", target = { kind = "node", node = { id = "e.cpp::tick", label = "tt::Engine::tick", file = "e.cpp", line = 11 } } }
   local ctx = ctx_on(nil)
   ctx.item = ref
-  eq({ A.named(A.get("map.trace"), ctx), A.named(A.get("map.in"), ctx) }, { "Trace through this function · tt::Engine::tick · e.cpp:11", "Zoom in, or go to the function · tt::Engine::tick · e.cpp:11" },
-    "the map's keys say in their menus which function they act on")
+  eq({ A.about_of(A.get("map.trace"), ctx):find("tt::Engine::tick · e.cpp:11 — ", 1, true), (A.about_of(A.get("map.in"), ctx):find("tt::Engine::tick · e.cpp:11 — ", 1, true)) }, { 1, 1 },
+    "the map's keys say in their descriptions which function they act on")
 end
 -- In the pop-out, a name that fits several is asked there, as a page: Enter on one asks again with it, in its place.
 do
