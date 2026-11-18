@@ -1902,6 +1902,7 @@ local function render_view(view, width, style)
   end
   local center = graph.center
   return { title = 'call graph' .. (center and center.name and (' · ' .. center.name) or ''), state = '',
+    tab = 'calls', subject = center and center.name or nil,
     lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer(view.pinned, drawn.left_out > 0),
     news = view.news == true }
 end

@@ -2691,12 +2691,52 @@ local function render_view(view, width, style)
     items[#items + 1] = { key = key, kind = 'box', line = p.line, name_col = p.name_col, x = p.x, w = p.w, spans = p.spans,
       centre = p.centre == true, gauge = p.gauge, gauge_band = p.gauge_band, name = tostring(p.item.name or ''), ref = p.item }
   end
+  -- The key line says what the selected thing is and what its keys do there (the pop-out shows it while it is selected).
+  for _, it in ipairs(items) do
+    local two = M.strip_text(it.ref, G)
+    if two then it.keys = two[1] .. ' — ' .. two[2] end
+  end
   local footer = view.has_more and vim.list_extend(vim.list_slice(FOOTER), { { ids = { 'map.more' }, words = 'show more' } })
     or FOOTER
   view.follows = tracing(view) ~= nil
   if view.follows then footer = vim.list_extend(vim.list_slice(footer), { { ids = { 'popout.pin' }, words = 'pin/follow' } }) end
+  local traced = tracing(view)
+  local focus_label
+  for _, st in ipairs(traced and traced.answer.steps or {}) do if st.id == traced.answer.focus then focus_label = st.label end end
   return { title = 'project map · ' .. vim.fn.fnamemodify(view.root or '', ':t'), state = '',
+    tab = traced and 'trace' or 'map', subject = traced and focus_label or vim.fn.fnamemodify(view.root or '', ':t'),
     lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer, news = view.news == true }
+end
+
+-- What the selected thing is, then what its keys do there (the pop-out's key line while it is selected) — a function's, a fold's, a handoff's, a step on a pick page. Words in the theme's voice, code and
+-- keys as typed. nil: nothing to say.
+function M.strip_text(item, G)
+  G = G or M.glyphs(false)
+  local t = item and item.target
+  if not t then return nil end
+  local function keys(list)
+    local out = {}
+    for _, k in ipairs(list) do out[#out + 1] = typed(k[1]) .. ' ' .. G.said(k[2]) end
+    return table.concat(out, ' · ')
+  end
+  if t.kind == 'node' and t.node then
+    local n = t.node
+    local list = { { 'in', 'source' }, { 'trace', 'trace' }, { 'centre', 'calls' }, { 'reach', 'reach' }, { 'callers', 'callers' } }
+    if n.file and ({ c = true, cpp = true })[vim.filetype.match({ filename = n.file }) or ''] then list[#list + 1] = { 'symdeps', 'inspect' } end
+    return { tostring(n.label) .. ' · ' .. where(n) .. (n.returns and (' → ' .. n.returns) or ''), keys(list) }
+  elseif t.kind == 'module' or t.kind == 'file' or t.kind == 'class' then
+    return { tostring(item.name), keys({ { 'in', 'zoom in' }, { 'back', 'out' } }) }
+  elseif t.kind == 'walk' then
+    return { G.said(t.q == 'callers' and 'what comes before ' or 'what comes after ') .. tostring(t.node and t.node.label or ''),
+      typed('in') .. ' ' .. G.said('opens its page, 3 levels (+ and - change it)') }
+  elseif t.kind == 'fold' then
+    return { tostring(item.name), typed('in') .. ' ' .. G.said(item.open and 'closes it' or 'opens it') }
+  elseif t.kind == 'handoff' then
+    return { G.said('handoff ') .. tostring(item.name) .. G.said(t.by_hand and ' — added by you' or ' — inferred from the code'),
+      typed('handoff-drop') .. ' ' .. G.said(t.by_hand and 'forgets it' or 'drops it (it is wrong)') .. ' · ' .. typed('handoff-add') .. ' ' .. G.said('on a step adds one') }
+  elseif t.kind == 'pick' then
+    return { tostring(item.name), typed('in') .. ' ' .. G.said('uses this one') }
+  end
 end
 
 -- The history's step back as it was (step); the layout record's { pinned, target } after a restart: that checkout's

@@ -93,7 +93,7 @@ local function render(view)
   if problem then return { title = view.title, state = mark, lines = { mark }, footer = footer } end
   local buf = view.buf
   view.title = vim.fn.fnamemodify(filename(buf), ':t')
-  return { title = view.title, lines = api.nvim_buf_get_lines(buf, 0, -1, true), state = mark, footer = footer,
+  return { title = view.title, tab = 'source', subject = view.title, lines = api.nvim_buf_get_lines(buf, 0, -1, true), state = mark, footer = footer,
     lang = vim.treesitter.language.get_lang(vim.bo[buf].filetype), tick = api.nvim_buf_get_changedtick(buf),
     cursor = position(view) }
 end

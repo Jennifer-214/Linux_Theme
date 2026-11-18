@@ -280,7 +280,7 @@ ok(wait(10000, function() return popped():find('callee_of_M.alpha', 1, true) end
 local s = state()
 eq({ s.connected, s.title, s.selected }, { true, 'call graph · M.alpha', 'M.alpha' }, '… titled with it, its own box selected')
 eq({ s.shown, s.kind }, { 'graph', 'graph' }, '… a view of kind graph')
-ok((s.header or ''):find('graph ↻', 1, true), '… following the editor, and the header says so: ' .. tostring(s.header))
+ok((s.header or ''):find('calls · .- ↻'), '… following the editor, and the header says so: ' .. tostring(s.header))
 ok(popped():find('║ M.alpha', 1, true) and popped():find('caller_of_M.alpha', 1, true), '… drawn: the function in a double box, its caller above')
 ok(pop("return #vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace('desk_popout'), 0, -1, {}) > 10"), '… with its marks')
 ok(next(pop("return vim.api.nvim_get_hl(0, { name = 'DeskCallGraphCentre', link = false })")) ~= nil, "… and the editor's highlight groups")
@@ -295,7 +295,7 @@ ok(wait(5000, function() return read('hyprctl.log'):find("dispatch hl.dsp.window
 ok(wait(5000, function() return not exists(dir .. '/pop.floating') and vim.trim(read('pop.workspace')) == '5' end), "… as Hyprland's own list says")
 -- The header is the tab line and the key line the window's status line; the drawing holds neither.
 s = state()
-eq({ s.tabs, s.tab, s.header:find('^ 1 graph ') ~= nil, s.header:find('H/L views · Space Space menu $') ~= nil }, { 1, 1, true, true },
+eq({ s.tabs, s.tab, s.header:find('^ 1 calls · M.alpha ') ~= nil, s.header:find('H/L views · Space Space menu $') ~= nil }, { 1, 1, true, true },
   "one view, one tab page; the header names it by its tab's number and kind, then the keys that switch: " .. s.header)
 eq(s.keyline, ' j/k/h/l move · Enter go · f go+focus · p pin · ? keys ', "the key line: the graph's five keys, as typed")
 ok(not popped():find('Enter go', 1, true) and not popped():find('PINNED', 1, true), '… and neither is in the drawing')
@@ -392,7 +392,7 @@ press('gs')
 ok(wait(2000, function() return vim.tbl_contains(pop('return _G.heard'), 'Requires symdeps.') end), '… gs in the pop-out says "Requires symdeps."')
 eq({ host('return vim.api.nvim_win_get_cursor(0)[1]'), state().title }, { line_before, 'call graph · M.beta' }, '… and does nothing else')
 eq(act({ action = 'popout.pin' }), { done = true }, 'a remote row runs')
-ok(wait(2000, function() return (state().header or ''):find('graph · PINNED', 1, true) end), '… pinned: the header says so')
+ok(wait(2000, function() return (state().header or ''):find('calls · .- · PINNED') end), '… pinned: the header says so')
 -- A key pressed in the pop-out whose action warns: the warning shows there too, where she is looking; plain
 -- information stays in the editor (her choice, 2026-11-16).
 host([[require('desk.actions').add({ { id = 'test.warns', group = 'Pop-out', name = 'Warns', about = 'Warns', on = 'popout', remote = true,
@@ -411,7 +411,7 @@ ok(wait(5000, settled), '… and the move has nothing left to send')
 eq({ state().received, state().title }, { received, 'call graph · M.beta' }, '… and the pinned graph stays: nothing was sent')
 press('p')
 ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'p: following again, from where the editor is')
-ok(not (state().header or ''):find('graph · PINNED', 1, true), '… no longer pinned')
+ok(not (state().header or ''):find('calls · .- · PINNED'), '… no longer pinned')
 
 -- ─── c: the graph of a box, pinned there (the graph tab's c, run in the editor for the pop-out's view) ────────────
 press('j')
@@ -419,20 +419,20 @@ ok(wait(2000, function() return state().selected == 'callee_of_gamma' end), 'j: 
 press('c')
 ok(wait(3000, function() return state().title == 'call graph · callee_of_gamma' and popped():find('caller_of_callee_of_gamma', 1, true) end),
   'c: the graph of the selected box, pinned there')
-ok((state().header or ''):find('graph · PINNED', 1, true), '… pinned')
+ok((state().header or ''):find('calls · .- · PINNED'), '… pinned')
 -- H: the graph before the centre, following as it was; L: the centred one again, read, pinned.
 press('<C-o>')
 ok(wait(3000, function() return state().title == 'call graph · gamma' and not state().header:find('PINNED', 1, true) end),
   'H: the graph before the centre, following again')
 press('<C-r>')
 ok(wait(3000, function()
-  return state().title == 'call graph · callee_of_gamma' and popped():find('caller_of_callee_of_gamma', 1, true) and state().header:find('graph · PINNED', 1, true)
+  return state().title == 'call graph · callee_of_gamma' and popped():find('caller_of_callee_of_gamma', 1, true) and state().header:find('calls · .- · PINNED')
 end), 'L: the centred graph again, as it was read, pinned')
 -- The graph sent again from the editor (o in another graph, the Views row) replaces the pinned one: a step H undoes.
 host("require('desk.popout').show('graph', require('desk.actions').context())")
 ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'sent again: the editor\'s function replaces the pinned graph')
 press('<C-o>')
-ok(wait(3000, function() return state().title == 'call graph · callee_of_gamma' and state().header:find('graph · PINNED', 1, true) end),
+ok(wait(3000, function() return state().title == 'call graph · callee_of_gamma' and state().header:find('calls · .- · PINNED') end),
   '… and H brings the pinned graph back: ' .. tostring(state().title))
 press('p')
 ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'p: following the editor again')
@@ -511,7 +511,7 @@ pop([[local m = require('desk.menu')._last
     if line:find('Pin, or follow', 1, true) and line:sub(1, 2) == '  ' then vim.api.nvim_win_set_cursor(m.win, { i, 0 }) end
   end]])
 press('<CR>')
-ok(wait(3000, function() return (state().header or ''):find('graph · PINNED', 1, true) end), 'a row run from that menu acts in the editor (pinned)')
+ok(wait(3000, function() return (state().header or ''):find('calls · .- · PINNED') end), 'a row run from that menu acts in the editor (pinned)')
 
 -- ─── ? lists the pop-out's keys, from its rows ─────────────────────────────────────────────────────────────────
 press('?')
@@ -569,14 +569,14 @@ host("vim.api.nvim_set_current_win(require('desk.callgraph').panel.win)")
 vim.rpcrequest(h, 'nvim_input', 'o')
 ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'o in the panel: the graph goes to the pop-out again')
 eq(host(panel_open), false, '… and leaves the editor')
-ok((state().header or ''):find('graph · PINNED', 1, true), '… still pinned')
+ok((state().header or ''):find('calls · .- · PINNED'), '… still pinned')
 host("vim.api.nvim_set_current_win(_G.popout_test.code_win); vim.api.nvim_win_set_cursor(0, { 3, 2 }); require('desk.callgraph').open_cursor()")
 ok(wait(3000, function() return host("local v = require('desk.callgraph').view(); return v ~= nil and v.graph.callees ~= nil") end),
   'a graph tab of M.alpha')
 vim.rpcrequest(h, 'nvim_input', 'o')
 ok(wait(3000, function() return state().title == 'call graph · M.alpha' end), 'o in the graph tab: the graph moves to the pop-out')
 eq(host("return require('desk.callgraph').view() == nil"), true, '… and the tab closes')
-ok((state().header or ''):find('graph · PINNED', 1, true), '… pinned: a tab shows one chosen function')
+ok((state().header or ''):find('calls · .- · PINNED'), '… pinned: a tab shows one chosen function')
 
 -- ─── a second kind: a list of rows (tests/popout_rows.lua), built from the kind interface alone ──────────────────
 host("require('desk.popout').show('rows', require('desk.actions').context())")
@@ -584,7 +584,7 @@ ok(wait(3000, function() return state().kind == 'rows' end), 'a view of another 
 s = state()
 eq({ s.shown, s.selected, s.title, host('return _G.rows_test.opens') }, { 'rows', 'alpha', 'rows', 1 }, '… opened by its kind, its first row selected')
 eq({ s.tabs, s.tab, s.keyline }, { 2, 2, ' Enter open ' }, '… in a tab page of its own, the second, with its own key line')
-ok(s.header:find(' 1 graph · PINNED   2 rows ', 1, true), '… the header names both, the graph PINNED: ' .. s.header)
+ok(s.header:find(' 1 calls · .- · PINNED   2 rows '), '… the header names both, the graph PINNED: ' .. s.header)
 -- Saved a moment later (the writes of a moment go as one), the rows in front.
 ok(wait(3000, function() return record().activeTab == 'rows' end), '… and the layout record has the rows in front')
 local function strip_lines() local l = state().lines; return { l[11], l[12] } end
@@ -653,10 +653,10 @@ press('gt')
 ok(wait(2000, function() return state().shown == 'rows' end), 'gt: the rows again')
 -- Something new in a view behind: the pinned graph's file saved, so it is read again; its name is marked until she looks.
 host("vim.api.nvim_set_current_win(_G.popout_test.code_win); vim.cmd('silent write')")
-ok(wait(3000, function() return state().header:find('graph · PINNED ✱', 1, true) end), 'the graph read again behind: ✱ after its name')
+ok(wait(3000, function() return state().header:find('calls · .- · PINNED ✱') end), 'the graph read again behind: ✱ after its name')
 pop("vim.g.desk_style = 'retro'; vim.cmd('redrawtabline')")
 s = state()
-ok(s.header:find(' 1 GRAPH·PINNED %* │ 2 ROWS ') and s.header:find('│ H/L VIEWS · Space Space MENU ', 1, true),
+ok(s.header:find(' 1 CALLS · M.alpha·PINNED %* │ 2 ROWS ') and s.header:find('│ H/L VIEWS · Space Space MENU ', 1, true),
   'retro: capitals, │ between views, * for news; the keys as typed: ' .. s.header)
 pop("vim.g.desk_style = 'paper'; vim.cmd('redrawtabline')")
 press('gT')
@@ -962,7 +962,7 @@ end), "DP-2 unplugged (desk-monitor rewrote its sidecar): the pop-out moves to t
 ok(wait(3000, function() return vim.tbl_contains(host('return _G.heard'), 'The pop-out moved to HDMI-A-1: DP-2 was unplugged.') end), '… and says so')
 eq({ host("return require('desk.popout').host.screen"), state().connected }, { 'HDMI-A-1', true }, '… still open, now on HDMI-A-1')
 press('p')
-ok(wait(3000, function() return state().header:find('graph · PINNED', 1, true) end), 'pinned there')
+ok(wait(3000, function() return state().header:find('calls · .- · PINNED') end), 'pinned there')
 -- A second view beside it, the graph in front: the layout record keeps both.
 host("require('desk.popout').show('rows', require('desk.actions').context())")
 ok(wait(3000, function() return state().tabs == 2 end), 'the rows beside it')
@@ -987,7 +987,7 @@ host("_G.rows_test.restored = 0; local A = require('desk.actions'); A.get('popou
 opened()
 ok(wait(10000, function() return state().tabs == 2 and state().shown == 'graph' end), '… both views come back, the graph in front: '
   .. tostring(state().tabs) .. ' tabs')
-ok(wait(5000, function() return state().header:find(' 1 graph · PINNED   2 rows ', 1, true) end), '… in their order: ' .. tostring(state().header))
+ok(wait(5000, function() return state().header:find(' 1 calls · .- · PINNED   2 rows ') end), '… in their order: ' .. tostring(state().header))
 eq(host('return _G.rows_test.restored'), 1, '… the rows restored by their kind')
 -- Gone on its own right after a change (a write of the views still on its way): the record keeps both views.
 host("local P = require('desk.popout'); P.save_layout(); P.fold('the screen went')")
@@ -1020,7 +1020,7 @@ open_row()
 opened()
 ok(wait(10000, function() return state().connected and state().title:find('call graph', 1, true) end), 'opened again')
 eq(notebook(), { shown = 'popout' }, 'the notebook names a function while the pop-out is open: it shows there')
-ok(wait(3000, function() return state().title == 'call graph · gamma' and state().header:find('graph · PINNED', 1, true) end), '… pinned on it')
+ok(wait(3000, function() return state().title == 'call graph · gamma' and state().header:find('calls · .- · PINNED') end), '… pinned on it')
 press('p')
 ok(wait(3000, function() return not state().header:find('PINNED', 1, true) end), 'p: following the editor again')
 
@@ -1066,7 +1066,7 @@ eq(host("local A = require('desk.actions'); return A.available(A.get('popout.res
 os.remove(dir .. '/kitty.listen')
 host("local A = require('desk.actions'); A.get('popout.restore').run(A.context())")
 opened()
-ok(wait(10000, function() return state().connected and state().title == 'call graph · M.alpha' and (state().header or ''):find('graph ↻', 1, true) end),
+ok(wait(10000, function() return state().connected and state().title == 'call graph · M.alpha' and (state().header or ''):find('calls · .- ↻') end),
   '… restored: the graph, following this editor')
 ok(wait(5000, function() return host("return require('desk.popout').host.screen") == 'DP-2' end), '… on the screen it was on')
 eq(host("local A = require('desk.actions'); return A.available(A.get('popout.restore'), A.context())"), false, '… and not offered while it is open')
@@ -1116,7 +1116,7 @@ do
   opened()
   ok(wait(10000, function() return state().connected and (state().title or ''):find('call graph', 1, true) end), 'a pop-out again')
   press('p')
-  ok(wait(3000, function() return (state().header or ''):find('graph · PINNED', 1, true) end), '… its graph pinned')
+  ok(wait(3000, function() return (state().header or ''):find('calls · .- · PINNED') end), '… its graph pinned')
   local count = tonumber(vim.trim(read('kitty.count')))
   host("_G.heard = {}")
   os.remove(dir .. '/kitty.listen')
@@ -1180,7 +1180,7 @@ end
 -- ─── q on its last view, while the editor refuses its acts ───────────────────────────────────────────────────────
 do
   press('p')
-  ok(wait(3000, function() return (state().header or ''):find('graph · PINNED', 1, true) end), 'the graph pinned')
+  ok(wait(3000, function() return (state().header or ''):find('calls · .- · PINNED') end), 'the graph pinned')
   host("_G.heard = {}")
   vim.rpcrequest(h, 'nvim_input', 'i')
   ok(wait(2000, function() return host('return vim.api.nvim_get_mode().mode') == 'i' end), 'the editor in insert mode: it refuses acts')
@@ -1354,7 +1354,7 @@ do
   vim.wait(300)
   eq(state_of(second).shown, 'graph.2', '… and it stays in front there')
   in_pop(second, "vim.api.nvim_input('p')")
-  ok(wait(3000, function() return (state_of(second).header or ''):find('graph · PINNED', 1, true) end), 'p in the second pop-out pins its graph: '
+  ok(wait(3000, function() return (state_of(second).header or ''):find('calls · .- · PINNED') end), 'p in the second pop-out pins its graph: '
     .. tostring(state_of(second).header))
   eq(host("local P = require('desk.popout'); return { P.pops[2].views['graph.2'].pinned, P.pops[1].views.graph.pinned }"), { true, false },
     '… and only that one')

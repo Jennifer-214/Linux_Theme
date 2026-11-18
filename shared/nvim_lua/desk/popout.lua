@@ -588,9 +588,11 @@ local function payload(view)
       gauge_band = gauge_band(item.gauge_band, item.line),
       name = tostring(item.name or ''):sub(1, 200), mark = cut(item.mark, 16),
       strip = type(item.strip) == 'table' and { cut(item.strip[1], 400) or '', cut(item.strip[2], 400) or '' } or nil,
+      keys = cut(item.keys, 300),
       zones = plain_zones(item.zones) }
   end
   return { type = 'view.set', id = view.id, kind = view.kind, surface = kind.surface, title = cut(drawn.title, 200) or kind.title,
+    tab = cut(drawn.tab, 24), subject = cut(drawn.subject, 60),
     state = cut(drawn.state, 200) or '', lines = lines, marks = marks, hl = definitions(drawn.hl), items = items,
     footer = plain_footer(drawn.footer), strip = num(drawn.strip), news = drawn.news == true,
     pinned = view.pinned == true, follows = kind.follow ~= nil and (kind.follows ~= false or view.follows == true),
@@ -1873,7 +1875,9 @@ local function centre(view)
   for i = 0, #lines - 1 do pcall(api.nvim_buf_set_extmark, view.buf, pad_ns, i, 0, { virt_text = pad, virt_text_pos = 'inline', right_gravity = false }) end
 end
 
+local set_keyline   -- below: the key line, which says the selected thing's own keys when it has some
 local function strip(view)
+  if set_keyline then set_keyline(view) end
   local at, index = view.strip, view.copy.index
   local item = index and view.items[index]
   if not (at and item and item.strip) or view.strip_for == index or not api.nvim_buf_is_valid(view.buf) then return end
@@ -1931,6 +1935,11 @@ local BOARD_MENU = { id = 'popout.board-menu', key = 'm', name = "Symdeps' actio
 
 local function keyline(view)
   local said, parts = actions.voice(graphs().retro()), {}
+  -- The selected thing's own line (a map's function: what it is, Enter source · t trace …), its view's keys otherwise.
+  local selected = view.copy and view.copy.index and view.items and view.items[view.copy.index]
+  if selected and selected.keys and not vim.tbl_contains(C.tiles, view.id) then
+    return '%#DeskPopoutWords# ' .. escape(selected.keys) .. ' · %#DeskPopoutKey#?%#DeskPopoutWords# ' .. escape(said('keys')) .. ' '
+  end
   if vim.tbl_contains(C.tiles, view.id) then
     local label = view.title
     if view.loading then label = label .. ' · ' .. said('loading')
@@ -1946,7 +1955,8 @@ local function keyline(view)
   end
   return '%#DeskPopoutWords# ' .. table.concat(parts, '%#DeskPopoutWords# · ') .. '%#DeskPopoutWords# '
 end
-local function set_keyline(view)
+M._keyline = keyline -- a view's key line, for tests
+set_keyline = function(view)
   if view.win and api.nvim_win_is_valid(view.win) then pcall(function() vim.wo[view.win].statusline = keyline(view) end) end
 end
 -- A status or tab line as Neovim draws it (opts: { use_tabline } or { winid }), its text only.
@@ -1966,18 +1976,21 @@ local function view_in_tab(tab)
   for _, view in pairs(C.views) do if view.win == win and view.buf == buf then return view end end
 end
 
--- The header: each view by its tab number and kind, PINNED, ✱ when something new is in it, the one in front in the
--- selection colour; then the keys that switch views and open the menu. Retro: capitals, │ between views, * for new.
+-- The header: each view by its tab number and what it is reading — its word in the theme's voice, then its subject as
+-- typed ("trace · DrainEventsAndSubmit", "calls · WorkerLoop", "source · orders.cpp"; a kind that names none, its kind)
+-- — PINNED or ↻, ✱ when something new is in it, the one in front in the selection colour; then the keys that switch
+-- views and open the menu. Retro: capitals (the words, not the code), │ between views, * for new.
 local function tabline()
   local retro = graphs().retro()
   local said, current, out = actions.voice(retro), api.nvim_get_current_tabpage(), {}
   for n, tab in ipairs(api.nvim_list_tabpages()) do
     local view = view_in_tab(tab)
     if not view and tab == current then view = shown() end
-    local label = view and (view.kind ~= '' and view.kind or view.id) or 'pop-out'
+    local label = view and (view.tab or (view.kind ~= '' and view.kind) or view.id) or 'pop-out'
     if view and vim.tbl_contains(C.tiles, view.id) then label = #C.tiles .. ' code panes' end
     local text = ' ' .. n .. ' ' .. said(label)
-    if view and view.tick then
+    if view and view.subject and not vim.tbl_contains(C.tiles, view.id) then text = text .. ' · ' .. view.subject
+    elseif view and view.tick then
       text = text .. ' · ' .. view.title
       if view.loading then text = text .. ' · ' .. said('loading')
       elseif view.state ~= '' then text = text .. ' · ' .. view.state end
@@ -2196,6 +2209,7 @@ local function valid_items(raw)
       gauge_band = gauge_band(item.gauge_band, item.line),
       name = type(item.name) == 'string' and item.name:sub(1, 200) or '', mark = short(item.mark, 16),
       strip = type(lines[1]) == 'string' and type(lines[2]) == 'string' and { lines[1]:sub(1, 400), lines[2]:sub(1, 400) } or nil,
+      keys = type(item.keys) == 'string' and item.keys:sub(1, 300) or nil,
       zones = valid_zones(item.zones) }
   end
   return items
@@ -2252,6 +2266,7 @@ local function valid_view(msg)
     -- Any surface by its name, known here or not (a plugin's, whose module this window never loads: client_view).
     surface = type(msg.surface) == 'string' and #msg.surface <= 32 and msg.surface:match('^[%w_-]+$') and msg.surface or nil,
     title = type(msg.title) == 'string' and msg.title:sub(1, 200) or msg.id, state = type(msg.state) == 'string' and msg.state:sub(1, 200) or '',
+    tab = short(msg.tab, 24), subject = short(msg.subject, 60),
     lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer),
     strip = type(msg.strip) == 'number' and msg.strip >= 1 and msg.strip < #lines and math.floor(msg.strip) or nil,
     select = short(msg.select, 120), front = msg.front == true, news = msg.news == true, views = valid_ids(msg.views),
@@ -2441,8 +2456,8 @@ local function handle(msg)
       C.views[got.id] = view
     end
     local before = view.copy.index and view.items[view.copy.index]
-    for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'state', 'marks', 'hl', 'items', 'footer', 'strip', 'pinned', 'follows',
-      'tick', 'total', 'cursor' }) do view[field] = got[field] end
+    for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'tab', 'subject', 'state', 'marks', 'hl', 'items', 'footer', 'strip', 'pinned',
+      'follows', 'tick', 'total', 'cursor' }) do view[field] = got[field] end
     if got.tick then
       if not view.loading and got.pinned and view.win and api.nvim_win_is_valid(view.win) then
         view.saved_scroll = api.nvim_win_call(view.win, vim.fn.winsaveview)

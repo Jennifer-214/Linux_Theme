@@ -1170,9 +1170,24 @@ local function shown() return K.render(pv, 80, "paper") end
 ok(vim.wait(1000, function() return item_named(shown(), "mod.lua") ~= nil end), "the pop-out's map: the part's files")
 local d = shown()
 eq({ d.title, d.state, d.news }, { "project map · " .. vim.fn.fnamemodify(tab_root, ":t"), "", false }, "its title, and no state: it follows nothing")
+do
+  -- The key line says what the selected thing is and what its keys do: a C++ function, a fold, a handoff, a pick.
+  local G = Map.glyphs(false)
+  local fn = { name = "tick", target = { kind = "node", node = { id = "e.cpp::tick", label = "tt::tick", file = "e.cpp", line = 11, returns = "bool" } } }
+  eq(Map.strip_text(fn, G), { "tt::tick · e.cpp:11 → bool", "Enter source · t trace · c calls · D reach · U callers · gs inspect" },
+    "a function: what it is, then Enter source · t trace · c calls …, gs where symdeps can look (C and C++)")
+  eq(Map.strip_text({ name = "layout (2)", open = false, target = { kind = "fold", fold = "x|layout" } }, G), { "layout (2)", "Enter opens it" }, "a fold: Enter opens it")
+  eq(Map.strip_text({ name = "tick ring", target = { kind = "handoff", by_hand = false } }, G)[2], "x drops it (it is wrong) · a on a step adds one", "a handoff: x drops it")
+  local payload = P._payload(pv)
+  ok(vim.iter(payload.items):any(function(i) return type(i.keys) == "string" and i.keys:find(" — Enter ", 1, true) ~= nil end), "the pop-out's items carry their line")
+  local line = P._keyline({ id = "v", copy = { index = 1 }, items = { { keys = "tt::tick · e.cpp:11 — Enter source · t trace" } }, footer = {} })
+  ok(line:find("tt::tick · e.cpp:11 — Enter source · t trace", 1, true) and line:find("?%#DeskPopoutWords# keys", 1, true), "the key line shows the selected thing's own line: " .. line)
+end
 eq(P._payload(pv).follows, false, "the map's pages do not follow the cursor (no ↻ sent)")
+eq({ P._payload(pv).tab, P._payload(pv).subject }, { "map", vim.fn.fnamemodify(tab_root, ":t") }, "its tab: map · the checkout")
 pv.stack[#pv.stack + 1] = { kind = "query", answer = trace_answer, args = {} }
 eq(P._payload(pv).follows, true, "… a trace does (↻ sent)")
+eq({ P._payload(pv).tab, P._payload(pv).subject }, { "trace", "tick" }, "… and its tab says what it reads: trace · tick")
 pv.stack[#pv.stack] = nil
 -- A file of its checkout saved: desk-work's status read again, so "stale since …" shows in the pop-out too (it was read
 -- on open only, 2026-11-16); a file elsewhere is not its business.
