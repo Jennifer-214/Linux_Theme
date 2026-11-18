@@ -368,6 +368,22 @@ local busy_page = Map.layout(Map.trace_page(busy, { ["e.cpp::tick|callees"] = tr
 local too_wide = vim.tbl_filter(function(l) return api.nvim_strwidth(l) > 70 end, busy_page.lines)
 eq(too_wide, {}, "a long list of other callees and a long call stay within the page")
 ok(line_with(busy_page.lines, "Callee_Number_8  e.cpp:8") and line_with(busy_page.lines, "… 22 more"), "… the list one a line, the rest counted")
+do
+  -- A long list of what a step reads wraps between the names inside its card, going on under the list's start.
+  local busy = vim.deepcopy(trace_answer)
+  local many = {}
+  for i = 1, 14 do many[i] = "field_number_" .. i end
+  busy.steps[2].params[1].reads = many
+  local drawn = Map.layout(Map.trace_page(busy, { ["e.cpp::tick|uses"] = true }), 60, false)
+  local text = table.concat(drawn.lines, "\n")
+  local wide = vim.tbl_filter(function(l) return api.nvim_strwidth(l) > 60 end, drawn.lines)
+  eq(wide, {}, "a long uses list stays inside a narrow page")
+  ok(text:find("field_number_14", 1, true) and not text:find("field_numb…", 1, true), "… every name kept, none cut")
+  local first, firstl = line_with(drawn.lines, "reads   field_number_1 ")
+  local next_line = first and drawn.lines[first + 1] or ""
+  local col = firstl and firstl:find("field_number_1 ", 1, true)
+  ok(col and next_line:find("field_number_", 1, true) == col, "… the next line under the list's start: " .. tostring(next_line))
+end
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)

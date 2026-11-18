@@ -672,7 +672,25 @@ function M.layout(page, width, retro)
       table.insert(hits[top_line], { s = title_col, e = title_col + #title, item = c.item })
       placed[#placed + 1] = { item = c.item, spans = { { top_line, title_col, title_col + #title } }, line = top_line, name_col = title_col,
                               x = width_of(left) + 3, w = width_of(title), centre = c.frame == 'double' }
+      -- A line holding a list (its first item marked `hang`) wraps between the items, going on under the list's start;
+      -- any other line is cut to the box.
+      local body = {}
       for _, l in ipairs(c.body or {}) do
+        local parts, room = l.parts or l, inner - 1
+        local cur, w, hang = {}, 0, nil
+        for _, part in ipairs(parts) do
+          if part.hang and not hang then hang = w end
+          local pw = width_of(parts_text({ part }))
+          if hang and #cur > 0 and w + pw > room and w > hang then
+            body[#body + 1] = cur
+            cur, w = { { string.rep(' ', hang) } }, hang
+          end
+          cur[#cur + 1] = part
+          w = w + pw
+        end
+        body[#body + 1] = cur
+      end
+      for _, l in ipairs(body) do
         local lnum, text = #lines + 1, left .. frame.v .. ' '
         add('')
         for _, part in ipairs(l.parts or l) do
@@ -1143,6 +1161,13 @@ function M.byte_map(rec, touched, retro, cap)
   if #key > 0 then legend[1] = { { '    ' .. string.rep(' ', w) .. '  ' }, { table.concat(key, '  '), nil, true, 'DeskMapDim' } } end
   return { rows = rows, legend = legend, padding = rec.complete and padding or nil }
 end
+-- A list on a card's line, a part per name ("px · ts · seq"), its first part marked to wrap under (a card wraps such a
+-- line between the names instead of cutting it).
+local function listed(names, group)
+  local parts = {}
+  for i, n in ipairs(names) do parts[#parts + 1] = { n .. (i < #names and ' · ' or ''), nil, nil, group, hang = i == 1 } end
+  return parts
+end
 -- A layout's shape, to tell a template's versions apart: the same size and members are one layout.
 local function layout_signature(rec)
   local t = { tostring(rec.size) }
@@ -1214,11 +1239,11 @@ function M.trace_page(answer, folds, layouts)
       for _, prm in ipairs(used) do
         local name = prm.name .. string.rep(' ', wname - vim.fn.strdisplaywidth(prm.name))
         if #(prm.reads or {}) > 0 then
-          rows[#rows + 1] = { { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  reads   ', nil, true, 'DeskMapDim' }, { table.concat(prm.reads, ' · ') } }
+          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  reads   ', nil, true, 'DeskMapDim' } }, listed(prm.reads))
           name = string.rep(' ', wname)
         end
         if #(prm.writes or {}) > 0 then
-          rows[#rows + 1] = { { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  writes  ', nil, true, 'DeskMapDim' }, { table.concat(prm.writes, ' · '), nil, nil, 'DeskMapFocus' } }
+          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  writes  ', nil, true, 'DeskMapDim' } }, listed(prm.writes, 'DeskMapFocus'))
         end
       end
       return rows
@@ -1271,7 +1296,7 @@ function M.trace_page(answer, folds, layouts)
             rows[#rows + 1] = { { '    ' }, { prm.name, nil, nil, 'DeskMapName' }, { '  ' .. base_type(prm.type) .. '  ' },
               { (rec.size and (rec.size .. ' B') or '? B') .. (rec.align and (', align ' .. rec.align) or '') .. (lines_ and (' · ' .. lines_ .. (lines_ == 1 and ' line' or ' lines')) or '')
                 .. (map.padding and map.padding > 0 and (' · ' .. map.padding .. ' B padding') or ''), nil, true, 'DeskMapDim' } }
-            if #touched > 0 then rows[#rows + 1] = { { '        ' }, { 'touches  ', nil, true, 'DeskMapDim' }, { table.concat(touched, ' · ') } } end
+            if #touched > 0 then rows[#rows + 1] = vim.list_extend({ { '        ' }, { 'touches  ', nil, true, 'DeskMapDim' } }, listed(touched)) end
             if rec.complete == false then
               rows[#rows + 1] = { { '        ' }, { 'partly laid out: ' .. (rec.why or 'symdeps could not size every member'), nil, nil, 'DeskMapDim' } }
             end
