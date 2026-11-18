@@ -1510,8 +1510,17 @@ do
   eq({ r.tabs[1].kind, r.activeTab, r.show.screen ~= nil, r.show.pops[1].id, r.show.pops[1].tabs[1].kind, r.show.pops[1].activeTab },
     { 'graph', 'graph', true, 2, 'rows', 'rows' }, "… the first's tabs where they always were, the second's in show.pops with its own")
   -- Both go (her screens unplugged, say); the record keeps them, and Restore brings both back, each on its screen.
-  host("local P = require('desk.popout'); P.fold('the screen went', P.pops[2]); P.fold('the screen went')")
+  -- Both on one screen, and it is unplugged (desk-monitor rewrote its sidecar): both close, and ONE notice says so (two
+  -- pop-outs on a screen said it twice, seen in a VM, 2026-11-18).
+  local monitors_before, sidecar_before = read('monitors.json'), vim.fn.readfile(sidecar)
+  host("_G.heard = {}; vim.notify = function(text) table.insert(_G.heard, text) end; local P = require('desk.popout'); P.pops[1].screen, P.pops[2].screen = 'HDMI-A-1', 'HDMI-A-1'")
+  write(dir .. '/monitors.json', vim.json.encode({ three[1] }))
+  vim.fn.writefile({ 'PRIMARY="eDP-1"', 'PORTRAIT_OUTPUTS=""', 'SECONDARY_OUTPUTS=""' }, sidecar)
   ok(wait(5000, function() return host("local P = require('desk.popout'); return P.pops[1].chan == nil and P.pops[2].chan == nil") end), 'both closed')
+  local unplugged = vim.tbl_filter(function(t) return t:find('HDMI-A-1 was unplugged', 1, true) end, host('return _G.heard'))
+  eq(unplugged, { 'HDMI-A-1 was unplugged. 2 pop-outs closed.' }, '… and one notice says so, for both')
+  write(dir .. '/monitors.json', monitors_before)
+  vim.fn.writefile(sidecar_before, sidecar)
   -- (This editor counts no writes: none is on its way or waiting once its timer is idle and nothing is pending.)
   ok(wait(5000, function()
     return host("local H = require('desk.popout').host; local t = H.save_timer; return not (t and t:is_active()) and not H.writing and not H.pending")

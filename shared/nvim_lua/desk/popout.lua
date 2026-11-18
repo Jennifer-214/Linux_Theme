@@ -778,11 +778,12 @@ forget = function(p, why, opts)
     if view and leave(view, opts.all or (opts.back and view.pinned)) then returned = returned + 1 end
   end
   if not any_views() then follow_stop() end
-  if had and why then
+  if had and why and not opts.quiet then
     local its = opts.all and ' Its' or ' Its pinned'
     tell(why .. (returned == 0 and '' or returned == 1 and (its .. ' view is back here.') or (its .. ' views are back here.')),
       opts.all and WARN or nil)
   end
+  return returned, had
 end
 -- The first pop-out, or the one named (p).
 function M.forget(why, opts, p) return forget(p or H, why, opts) end
@@ -1407,7 +1408,7 @@ end
 -- placed on is no longer among Hyprland's monitors, it moves to another screen that is not the editor's, when one is
 -- left; else it closes and its pinned views come back here as splits (one screen: no pop-out, as when it would not
 -- open). Hyprland itself would only park it on a workspace nobody sees. Each pop-out is looked at on its own.
-local function screen_gone(p, monitors)
+local function screen_gone(p, monitors, folded)
   if not (p.chan and p.screen) then return end
   for _, m in ipairs(monitors) do
     if type(m) == 'table' and m.name == p.screen and not m.disabled then return end
@@ -1417,13 +1418,26 @@ local function screen_gone(p, monitors)
     M.place(p.kitty, screen, p)
     return tell(sentence(('%s moved to %s: %s was unplugged'):format(named(p), screen.name, gone)))
   end
-  M.fold(gone .. ' was unplugged', p)
+  -- Folded quietly: the notice is one per screen, below (two pop-outs on it said it twice, seen in a VM 2026-11-18).
+  local returned, had = forget(p, sentence(gone .. ' was unplugged'), { back = true, quiet = true })
+  local f = folded[gone] or { pops = 0, views = 0 }
+  f.pops, f.views = f.pops + (had and 1 or 0), f.views + returned
+  folded[gone] = f
 end
 function M.screens_changed()
   if exiting() or not any_open() then return end
   hyprctl({ 'monitors' }, function(monitors)
     if type(monitors) ~= 'table' then return end
-    for _, p in ipairs(pops) do screen_gone(p, monitors) end
+    local folded = {}
+    for _, p in ipairs(pops) do screen_gone(p, monitors, folded) end
+    for gone, f in pairs(folded) do
+      if f.pops > 0 then
+        local closed = f.pops > 1 and (' ' .. f.pops .. ' pop-outs closed.') or ''
+        local its = f.pops > 1 and ' Their pinned' or ' Its pinned'
+        tell(sentence(gone .. ' was unplugged') .. closed
+          .. (f.views == 0 and '' or f.views == 1 and (its .. ' view is back here.') or (its .. ' views are back here.')))
+      end
+    end
   end)
 end
 -- A pop-out closes (the first, or p), its pinned views back here as splits; why: the one notice, which the pop-out
