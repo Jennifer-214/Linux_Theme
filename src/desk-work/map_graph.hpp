@@ -414,8 +414,16 @@ inline J clean_graph(const J& raw) {
                 for (const auto& p : n["params"]) {
                     if (params.size() >= 16) break;
                     if (!p.is_object() || !passes.count(text(p, "pass")) || (text(p, "dir") != "in" && text(p, "dir") != "inout")) continue;
-                    params.push_back(J{{"name", text(p, "name").substr(0, 64)}, {"type", text(p, "type").substr(0, 120)},
-                                       {"pass", text(p, "pass")}, {"dir", text(p, "dir")}});
+                    J param{{"name", text(p, "name").substr(0, 64)}, {"type", text(p, "type").substr(0, 120)},
+                            {"pass", text(p, "pass")}, {"dir", text(p, "dir")}};
+                    // The fields it reads and writes of this parameter (at most 12 each, each at most 80 characters).
+                    for (const char* side : {"reads", "writes"}) {
+                        if (!p.contains(side) || !p[side].is_array()) continue;
+                        J fields = J::array();
+                        for (const auto& f : p[side]) if (f.is_string() && fields.size() < 12) fields.push_back(f.get<std::string>().substr(0, 80));
+                        param[side] = fields;
+                    }
+                    params.push_back(param);
                 }
                 node["params"] = params;
             }
@@ -776,6 +784,28 @@ inline J trace(const Graph& g, size_t focus, int depth, long to = -1, long start
             if (span != spans->end() && span->is_array() && span->size() == 2 && (*span)[0].is_number_integer() && (*span)[1].is_number_integer())
                 step["lines"] = (*span)[1].get<long long>() - (*span)[0].get<long long>() + 1;
         }
+        // How many come before it (functions that reach it, up its callers) and after (functions it reaches), within depth.
+        const auto reach_count = [&](bool backwards) {
+            std::vector<char> seen(g.nodes.size(), 0);
+            std::deque<std::pair<size_t, int>> queue{{v, 0}};
+            seen[v] = 1;
+            long long count = 0;
+            while (!queue.empty()) {
+                const auto [x, d] = queue.front();
+                queue.pop_front();
+                if (d >= depth) continue;
+                for (const auto& [w, mask] : backwards ? g.in[x] : g.out[x]) {
+                    (void)mask;
+                    if (seen[w]) continue;
+                    seen[w] = 1;
+                    ++count;
+                    queue.push_back({w, d + 1});
+                }
+            }
+            return count;
+        };
+        step["before"] = reach_count(true);
+        step["after"] = reach_count(false);
         step["role"] = v == focus ? "focus" : (k < static_cast<size_t>(std::find(lane.begin(), lane.end(), focus) - lane.begin()) ? "up" : "down");
         const auto off = [&](const std::vector<std::pair<size_t, int>>& list, size_t skip) {
             J named = J::array();

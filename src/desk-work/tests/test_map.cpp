@@ -258,7 +258,8 @@ int main(int, char** argv) {
         J doc = J::parse(R"({"nodes": [], "edges": []})");
         for (const char* id : {"entry", "entry2", "mid", "a", "F", "b", "c", "end", "s", "x"})
             doc["nodes"].push_back(J{{"id", id}, {"label", id}, {"kind", "function"}, {"file", "f.cpp"}, {"line", 1}});
-        doc["nodes"][4]["params"] = J::array({J{{"name", "t"}, {"type", "const T &"}, {"pass", "const ref"}, {"dir", "in"}}});
+        doc["nodes"][4]["params"] = J::array({J{{"name", "t"}, {"type", "const T &"}, {"pass", "const ref"}, {"dir", "in"},
+                                                 {"reads", J::array({"px", "ts", 7})}, {"writes", J::array({"seq"})}}});
         const auto call = [&](const char* a, const char* b) { doc["edges"].push_back(J{{"from", a}, {"to", b}, {"kind", "call-by-name"}}); };
         call("entry", "a"); call("entry2", "mid"); call("mid", "a"); call("a", "F"); call("s", "F"); call("F", "b"); call("F", "x");
         call("b", "c"); call("c", "b"); call("c", "end");
@@ -272,7 +273,11 @@ int main(int, char** argv) {
               "the lane: up to the farthest start (entry2, not entry), down to the farthest end, a cycle walked once");
         CHECK(t["steps"][3]["role"] == "focus" && t["steps"][0]["role"] == "up" && t["steps"][6]["role"] == "down", "… each step says where it is");
         CHECK(t["steps"][3]["params"][0]["pass"] == "const ref", "… with its signature");
+        CHECK(desk_map::clean_graph(doc)["nodes"][4]["params"][0]["reads"] == J({"px", "ts"}) && desk_map::clean_graph(doc)["nodes"][4]["params"][0]["writes"] == J({"seq"}),
+              "… and what it reads and writes of each parameter, strings only");
         CHECK(t["steps"][3]["lines"] == 32 && !t["steps"][2].contains("lines"), "… and how big it is, where the reader gave its lines");
+        // F: up are a, s, entry, mid, entry2 (5); down b, x, c, end (4).
+        CHECK(t["steps"][3]["before"] == 5 && t["steps"][3]["after"] == 4, "… and how many come before it and after it");
         CHECK(t["steps"][3]["more_callers"] == 1 && t["steps"][3]["callers"][0]["id"] == "s" && t["steps"][3]["more_callees"] == 1
               && t["steps"][3]["callees"][0]["id"] == "x", "… and what is off the lane: F's other caller s and callee x");
         CHECK(t["steps"][2]["more_callers"] == 1 && t["steps"][2]["callers"][0]["id"] == "entry", "… a's other caller, entry");

@@ -104,7 +104,8 @@ for _, n in ipairs(graph.nodes) do if n.label == "point" then points = points + 
 eq(points, 1, "a struct named in a declaration is not a second struct")
 ok(edge("norm", "square") and edge("find", "norm"), "C calls by name")
 -- What a function takes and gives, for the trace: each parameter as written, how it is passed, which way data can go.
-eq(by_label["norm"].params, { { name = "p", type = "struct point *", pass = "pointer", dir = "inout" } }, "C: a pointer parameter, which the callee may write through")
+eq(by_label["norm"].params, { { name = "p", type = "struct point *", pass = "pointer", dir = "inout", reads = { "x", "y" } } },
+  "C: a pointer parameter, which the callee may write through, and the fields it reads of it")
 eq({ by_label["find"].returns, #by_label["find"].params, by_label["find"].params[2].pass }, { "int *", 2, "value" }, "… a pointer return, an int by value")
 local function call_of(from, to)
   for _, e in ipairs(graph.edges) do if e.from:match("::(.*)$") == from and e.to:match("::(.*)$") == to then return e end end
@@ -152,6 +153,10 @@ if has_parser("cpp") then
     "a subscripted ring pushed (tt:: is a namespace: the object is the first argument), its singular popped")
   ok(not handoff("Style", "Unstyle"), "a namespace's push and pop of a style stack name no object")
   ok(not handoff("Short", "Short2"), "a one- or two-letter object is too common to mean one ring")
+  -- What a function reads and writes of what it is passed (struct consumption).
+  local push_params = by_label["Ring_Push"].params
+  eq({ push_params[1].writes, push_params[1].reads, push_params[2].reads }, { { "head" }, nil, { "px" } }, "r->head written, t.px read")
+  eq(by_label["FanOut"].params[1].reads, { "tick_ring" }, "… &core->tick_ring passed on is core's tick_ring read")
 else skipped[#skipped + 1] = "cpp (no parser)" end
 
 -- The same headless, as desk-work runs it: a request file in, the answer written to a file.
@@ -257,10 +262,16 @@ local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16
   calls = { { from = "e.cpp::hot", to = "e.cpp::tick", kind = "call-by-name", line = 12, args = { "t" } },
             { from = "e.cpp::tick", to = "e.cpp::submit", kind = "call-by-name", line = 11, args = { "Order{t.px}", "3" } } } }
 trace_answer.steps[2].lines = 32
+trace_answer.steps[2].before, trace_answer.steps[2].after = 41, 23
+trace_answer.steps[2].params[1].reads, trace_answer.steps[2].params[1].writes = { "px", "ts" }, { "seq" }
 local traced = Map.layout(Map.trace_page(trace_answer), 90, false)
 ok(line_with(traced.lines, "trace through `tick` · 3 functions") or line_with(traced.lines, "trace through tick · 3 functions"), "the trace's heading")
 ok(line_with(traced.lines, "╔═ tick ") and line_with(traced.lines, " e.cpp:11 ═╗"), "a card per step: the function it goes through double, its name and place in the top border")
-ok(line_with(traced.lines, "║ → bool · 32 lines"), "… what it returns and how big it is")
+ok(line_with(traced.lines, "║ → bool · 32 lines · ▲ 41 ▼ 23"), "… what it returns, how big it is, how many come before and after it")
+ok(line_with(traced.lines, "▲ 41 before · ▼ 23 after it in the map"), "the function it goes through: before and after, under the heading")
+ok(line_with(traced.lines, "║ ▾ uses (1)") and line_with(traced.lines, "║     t  reads   px · ts") and line_with(traced.lines, "║        writes  seq"),
+  "what it reads and writes of each parameter, open on the function it goes through")
+ok(line_with(traced.lines, "║ ▸ layout (1)"), "… and its layout, folded until asked")
 ok(line_with(traced.lines, "║ ▾ parameters (1)") and line_with(traced.lines, "║     in  const ref  const Tick &  t"), "its parameters, open: which way, how passed, type, name")
 ok(line_with(traced.lines, "│     in  moved in  Order &&  order") and line_with(traced.lines, "│     in  value     int       retries"), "… aligned in columns")
 ok(line_with(traced.lines, "│     inout  ref  Ring &  ring"), "… inout where the callee can change the caller's value")
@@ -278,6 +289,17 @@ ok(line_with(opened.lines, "║ ▾ other callers (1)") and line_with(opened.lin
 ok(line_with(opened.lines, "║ ▸ parameters (1)") and not line_with(opened.lines, "const Tick &  t"), "… and the parameters folded when she closed them")
 local replay_row, replay_line = line_with(opened.lines, "replay  e.cpp:30")
 eq(replay_row and Map.item_at(opened, replay_row, replay_line:find("replay", 1, true)).target.node.id, "e.cpp::replay", "… each one Enter-able")
+-- The layout fold, from symdeps' census of the step's file: each struct passed, its size, and the fields it touches.
+eq(Map.base_type("const tt::Tick<F> &"), "Tick", "a type's own name, for the census")
+local lay = { ["e.cpp::tick|layout"] = true }
+ok(line_with(Map.layout(Map.trace_page(trace_answer, lay), 90, false).lines, "opening asks symdeps to lay this file out"), "layout open before an answer: says what it will do")
+ok(line_with(Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { pending = true } }), 90, false).lines, "symdeps is laying this file out…"), "… while symdeps works")
+local laid = Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { records = {
+  { name = "tt::Tick<double>", size = 24, align = 8, fields = { { name = "px", type = "double", off = 0 }, { name = "seq", type = "long", off = 8 }, { name = "ts", type = "long", off = 16 } } } } } }), 90, false)
+ok(line_with(laid.lines, "║     t  Tick  24 B, align 8 · 1 line") and line_with(laid.lines, "║         touches  px@0 · ts@16 · seq@8"),
+  "… its size, alignment, cache lines, and the fields this function touches with their offsets")
+ok(line_with(Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { error = "requires symdeps (an optional plugin for C and C++ layouts)" } }), 90, false).lines,
+  "requires symdeps (an optional plugin"), "… and without symdeps, says so")
 local traced_retro = Map.layout(Map.trace_page(trace_answer), 90, true)
 ok(line_with(traced_retro.lines, "║     IN  CONST REF  const Tick &  t") and line_with(traced_retro.lines, "║ ▸ OTHER CALLERS (1)")
   and line_with(traced_retro.lines, "32 LINES"), "retro: the words in capitals, the code as typed")
@@ -616,6 +638,20 @@ do
   eq(api.nvim_win_get_cursor(view.win)[1], line_with(view.drawn.lines, "other callers (1)"), "… the cursor still on its header")
   press("<CR>")
   ok(vim.wait(1000, function() return not line_with(view.drawn.lines, "replay  e.cpp:30") end), "… and Enter again closes it")
+  -- Opening the layout asks symdeps' census of the step's file once; its answer fills the page.
+  local censused = {}
+  package.loaded["fox-symdeps"] = {}
+  package.loaded["fox-symdeps.recordlayout"] = { census = function(buf, done)
+    censused[#censused + 1] = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+    vim.defer_fn(function() done({ records = { { name = "Tick", size = 24, align = 8, fields = { { name = "px", off = 0 } } },
+      { name = "Ring", size = 16, align = 8, fields = { { name = "head", off = 0 } } } } }) end, 5)
+  end }
+  local lay_row, lay_line = line_with(view.drawn.lines, "layout (1)")
+  api.nvim_win_set_cursor(view.win, { lay_row, (lay_line:find("layout", 1, true)) })
+  press("<CR>")
+  ok(vim.wait(1000, function() return line_with(view.drawn.lines, "Ring  16 B, align 8") end), "Enter on layout: symdeps lays the file out, the page shows it")
+  eq(censused, { "e.cpp" }, "… asked once, of the step's file")
+  package.loaded["fox-symdeps"], package.loaded["fox-symdeps.recordlayout"] = nil, nil
   ok(traced_args[1] and traced_args[1]:find("--q trace --from lua/mod.lua::M.alpha", 1, true), "… asked through the box's function: " .. tostring(traced_args[1]))
   vim.ui.input = function(opts, done) eq(opts.prompt, "Trace to: ", "e asks where to"); done("submit") end
   press("e")

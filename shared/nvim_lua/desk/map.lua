@@ -157,6 +157,14 @@ function M.signature(node, src)
   end
   return { params = params, returns = type_node and written(has_const(node, src), type_node, marks, src) or nil }
 end
+-- A parameter's uses: the fields read and the fields written, each named once in each (one both read and changed
+-- is in both); at most 12 of each.
+function M.note_use(prm, path, wrote)
+  if path == '' or #path > 80 then return end
+  local list = wrote and 'writes' or 'reads'
+  prm[list] = prm[list] or {}
+  if not vim.tbl_contains(prm[list], path) and #prm[list] < 12 then prm[list][#prm[list] + 1] = path end
+end
 -- A call's arguments as written (at most 12, each on one line, at most 80 characters).
 local function list_texts(list, src)
   local out = {}
@@ -317,7 +325,11 @@ function M.syntax_graph(request)
                                 family = FAMILY[lang] or lang, folder = rel:match('^(.*)/') or '' }
           if kind == 'function' and (FAMILY[lang] or lang) == 'c' then
             local fine, sig = pcall(M.signature, node, src)
-            if fine and sig then units[#units].sig = sig end
+            if fine and sig then
+              units[#units].sig = sig
+              units[#units].param_index = {}
+              for i, prm in ipairs(sig.params) do if prm.name ~= '' then units[#units].param_index[prm.name] = i end end
+            end
           end
           spans[id] = { first + 1, last + 1 }
           stats[kind == 'type' and 'types' or 'functions'] = stats[kind == 'type' and 'types' or 'functions'] + 1
@@ -337,6 +349,29 @@ function M.syntax_graph(request)
           calls[#calls + 1] = { from = owner, full = full, short = short, line = node:start() + 1, args = fine and args or nil }
           stats.calls = stats.calls + 1
           if (FAMILY[lang] or lang) == 'c' and fine then M.note_handoff(ops, passed, owner, full, short, args, node:start() + 1) end
+        end
+      end
+      -- What a function reads and writes of what it is passed: `tick.px`, `ring->head = …`, `core->cfg.fee_rate` (one
+      -- use, its whole path). Taken where the path starts (the parameter's own name), its role from where it ends.
+      if t == 'field_expression' and owner and units[owner].param_index then
+        local base = node:field('argument')[1]
+        local name = base and one_line(text_of(base, src)):gsub('^[%*&%(]+', ''):gsub('%)+$', '')
+        local at = name and units[owner].param_index[name]
+        if at then
+          local path, top = {}, node
+          while top do
+            local field = top:field('field')[1]
+            if field then path[#path + 1] = one_line(text_of(field, src)) end
+            local up = top:parent()
+            if up and up:type() == 'field_expression' and up:field('argument')[1] and up:field('argument')[1]:id() == top:id() then top = up else break end
+          end
+          local up = top:parent()
+          -- A method called (q.push(1)) is no field used.
+          local called = up and up:type() == 'call_expression' and up:field('function')[1] and up:field('function')[1]:id() == top:id()
+          if called then table.remove(path) end
+          local wrote = up and ((up:type() == 'assignment_expression' and up:field('left')[1] and up:field('left')[1]:id() == top:id())
+            or up:type() == 'update_expression')
+          if #path > 0 then M.note_use(units[owner].sig.params[at], table.concat(path, '.'), wrote) end
         end
       end
       if (FAMILY[lang] or lang) == 'c' and owner then
@@ -988,16 +1023,26 @@ end
 local PASS_WORD = { value = 'value', ['const ref'] = 'const ref', ref = 'ref', rvalue = 'moved in', pointer = 'pointer',
   ['const pointer'] = 'const ptr', array = 'array', ['const array'] = 'const array', smart = 'smart ptr' }
 -- folds: the page's open and closed folds by step and fold ("<id>|params"); a fold not named is as FOLDS_OPEN says.
-local FOLDS_OPEN = { params = true, callers = false, callees = false }
+local FOLDS_OPEN = { params = true, uses = false, layout = false, callers = false, callees = false }
 local function fold_item(id, name, open, count)
   return { name = name, target = { kind = 'fold', fold = id .. '|' .. name }, key = 'fold:' .. id .. '|' .. name, open = open, count = count }
 end
-function M.trace_page(answer, folds)
-  folds = folds or {}
+-- A type's own name: `const tt::Tick<F> &` is Tick (what symdeps' census names a record by, its last part).
+local function base_type(t)
+  local bare = tostring(t or ''):gsub('%b<>', ''):gsub('[%*&]', ''):gsub('%f[%w]const%f[%W]', ''):gsub('%f[%w]struct%f[%W]', '')
+  return vim.trim(bare):match('([%a_][%w_]*)$')
+end
+M.base_type = base_type
+-- layouts: symdeps' census of a step's file, by file: { records } | { pending = true } | { error = why }.
+function M.trace_page(answer, folds, layouts)
+  folds, layouts = folds or {}, layouts or {}
   local steps, calls = answer.steps or {}, answer.calls or {}
   local focus
   for _, st in ipairs(steps) do if st.id == answer.focus then focus = st end end
   local sections = { { head = 'trace through ' .. code(focus and focus.label) .. ' · ' .. #steps .. (#steps == 1 and ' function' or ' functions') } }
+  if focus and focus.before then
+    sections[#sections + 1] = { block = { { { '▲ ' .. focus.before .. ' before · ▼ ' .. (focus.after or 0) .. ' after it in the map', nil, true } } }, group = 'DeskMapDim' }
+  end
   if answer.to and answer.reached == false then
     sections[#sections + 1] = { parts = { { (focus and focus.label or '?') .. ' does not reach ' .. answer.to:gsub('^.*::', '') .. ' within '
       .. (answer.depth or '?') .. ' calls' } }, group = 'DeskMapDim' }
@@ -1012,12 +1057,13 @@ function M.trace_page(answer, folds)
     local first = {}
     if st.returns then first[#first + 1] = { '→ ' .. st.returns } end
     if size then first[#first + 1] = { (#first > 0 and ' · ' or '') .. size, nil, true, 'DeskMapDim' } end
+    if st.before then first[#first + 1] = { (#first > 0 and ' · ' or '') .. '▲ ' .. st.before .. ' ▼ ' .. (st.after or 0), nil, nil, 'DeskMapDim' } end
     if #first > 0 then body[#body + 1] = first end
     local function fold(name, title, count, rows)
       if count == 0 then return end
       local key = st.id .. '|' .. name
       local open = folds[key]
-      if open == nil then open = FOLDS_OPEN[name] end
+      if open == nil then open = FOLDS_OPEN[name] or (name == 'uses' and st.role == 'focus') end
       body[#body + 1] = { { (open and '▾ ' or '▸ ') }, { title .. ' (' .. count .. ')', fold_item(st.id, name, open, count), true, 'DeskMapHead' } }
       if open then for _, row in ipairs(rows()) do body[#body + 1] = row end end
     end
@@ -1035,6 +1081,57 @@ function M.trace_page(answer, folds)
       end
       return rows
     end)
+    -- What it reads and writes of each parameter (struct consumption), a line each way.
+    local used = vim.tbl_filter(function(prm) return #(prm.reads or {}) > 0 or #(prm.writes or {}) > 0 end, params)
+    fold('uses', 'uses', #used, function()
+      local rows, wname = {}, 0
+      for _, prm in ipairs(used) do wname = math.max(wname, vim.fn.strdisplaywidth(prm.name)) end
+      for _, prm in ipairs(used) do
+        local name = prm.name .. string.rep(' ', wname - vim.fn.strdisplaywidth(prm.name))
+        if #(prm.reads or {}) > 0 then
+          rows[#rows + 1] = { { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  reads   ', nil, true, 'DeskMapDim' }, { table.concat(prm.reads, ' · ') } }
+          name = string.rep(' ', wname)
+        end
+        if #(prm.writes or {}) > 0 then
+          rows[#rows + 1] = { { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  writes  ', nil, true, 'DeskMapDim' }, { table.concat(prm.writes, ' · '), nil, nil, 'DeskMapFocus' } }
+        end
+      end
+      return rows
+    end)
+    -- The structs it is passed, as symdeps lays them out: size, alignment, the fields this function touches and where.
+    if #params > 0 and st.file then
+      fold('layout', 'layout', #params, function()
+        local got = layouts[st.file]
+        if not got then return { { { '    ' }, { 'opening asks symdeps to lay this file out', nil, true, 'DeskMapDim' } } } end
+        if got.pending then return { { { '    ' }, { 'symdeps is laying this file out…', nil, true, 'DeskMapDim' } } } end
+        if got.error then return { { { '    ' }, { got.error, nil, nil, 'DeskMapDim' } } } end
+        local by = {}
+        for _, rec in ipairs(got.records or {}) do
+          local base = base_type(rec.name)
+          if base and not by[base] then by[base] = rec end
+        end
+        local rows = {}
+        for _, prm in ipairs(params) do
+          local rec = by[base_type(prm.type) or '']
+          if rec then
+            local touched, offset = {}, {}
+            for _, f in ipairs(rec.fields or {}) do offset[f.name] = f.off end
+            for _, list in ipairs({ prm.reads or {}, prm.writes or {} }) do
+              for _, path in ipairs(list) do
+                local head = path:match('^[^.]+')
+                if offset[head] and not touched[head] then touched[head] = true; touched[#touched + 1] = head .. '@' .. offset[head] end
+              end
+            end
+            local lines_ = rec.size and math.ceil(rec.size / 64) or nil
+            rows[#rows + 1] = { { '    ' }, { prm.name, nil, nil, 'DeskMapName' }, { '  ' .. base_type(prm.type) .. '  ' },
+              { (rec.size and (rec.size .. ' B') or '? B') .. (rec.align and (', align ' .. rec.align) or '') .. (lines_ and (' · ' .. lines_ .. (lines_ == 1 and ' line' or ' lines')) or ''), nil, true, 'DeskMapDim' } }
+            if #touched > 0 then rows[#rows + 1] = { { '        ' }, { 'touches  ', nil, true, 'DeskMapDim' }, { table.concat(touched, ' · ') } } end
+          end
+        end
+        if #rows == 0 then rows[1] = { { '    ' }, { 'no struct it is passed is laid out in this file', nil, true, 'DeskMapDim' } } end
+        return rows
+      end)
+    end
     for _, side in ipairs({ { 'callers', 'more_callers', 'other callers' }, { 'callees', 'more_callees', 'other callees' } }) do
       local list, more = st[side[1]] or {}, st[side[2]] or 0
       fold(side[1], side[3], more, function()
@@ -1071,7 +1168,7 @@ function M.trace_page(answer, folds)
 end
 
 function M.level_query(answer, all, level)
-  if answer.q == 'trace' then return M.trace_page(answer, level and level.folds) end
+  if answer.q == 'trace' then return M.trace_page(answer, level and level.folds, level and level.layouts) end
   local sections = {}
   if answer.q == 'paths' then
     local by = node_index(answer)
@@ -1532,8 +1629,35 @@ local function enter(view, ctx)
     top.folds = top.folds or {}
     top.folds[t.fold] = not item.open
     if view.out then top.selected = item.key else top.keep = { box = box_of(item), cursor = api.nvim_win_get_cursor(view.win) } end
+    -- Opening a step's layout: symdeps lays its file out (once per file and page; a census takes seconds).
+    local id = t.fold:match('^(.*)|layout$')
+    if id and not item.open then M.lay_out(view, top, id) end
     load(view)
   end
+end
+
+-- symdeps' census of a trace step's file, into the page's layouts (fox-symdeps.recordlayout: clang's record-layout
+-- dump of that file, through symdeps' guard). Without symdeps the fold says so.
+function M.lay_out(view, top, id)
+  local step
+  for _, st in ipairs(top.answer and top.answer.steps or {}) do if st.id == id then step = st end end
+  if not (step and step.file) then return end
+  top.layouts = top.layouts or {}
+  if top.layouts[step.file] then return end
+  local ok, census = pcall(require, 'fox-symdeps.recordlayout')
+  if not (actions.symdeps() and ok and type(census) == 'table' and type(census.census) == 'function') then
+    top.layouts[step.file] = { error = 'requires symdeps (an optional plugin for C and C++ layouts)' }
+    return
+  end
+  local path = view.root .. '/' .. step.file
+  local buf = vim.fn.bufadd(path)
+  pcall(vim.fn.bufload, buf)
+  top.layouts[step.file] = { pending = true }
+  local fine = pcall(census.census, buf, function(got)
+    top.layouts[step.file] = got and got.records and { records = got.records } or { error = (got and got.error) or 'symdeps could not lay it out' }
+    if valid(view) and view.stack[#view.stack] == top then load(view) end
+  end)
+  if not fine then top.layouts[step.file] = { error = 'symdeps could not lay it out' } end
 end
 
 local function ask(prompt, default, done)
