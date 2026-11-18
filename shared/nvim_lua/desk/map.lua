@@ -2379,6 +2379,15 @@ local function row(id, key, name, about, run, needs, extra)
   return r
 end
 local HERE, THERE = { remote = false }, { remote = true }
+-- What a key on the map acts on, for the menus: the selected box's (the pop-out's) or the one under the cursor (here).
+local function map_subject(ctx)
+  local view = ctx and ctx.map
+  local item = ctx and (ctx.item or (valid(view) and not view.out and here(view)) or nil)
+  local n = item and item.target and item.target.node
+  if n then return tostring(n.label) .. ' · ' .. where(n) end
+  return item and item.name and tostring(item.name) or nil
+end
+local ON_IT = { remote = true, subject = map_subject }
 -- j/k/h/l go box to box, as in the call graph (its nav): a box is several lines tall and the gaps hold
 -- nothing, so line by line left the cursor between boxes. In the pop-out they move its selection (ctx.copy); here they
 -- go from the box under the cursor (or the nearest one, from a gap) and put the cursor on the next box's name.
@@ -2415,7 +2424,7 @@ local ROWS = actions.add({
     run = function() M.open() end },
   row('in', '<CR>', 'Zoom in, or go to the function',
     'Zoom into the part, file or class under the cursor; on a function, go to its code (the map stays open)', enter,
-    needs_selection, THERE),
+    needs_selection, ON_IT),
   row('back', '<BS>', 'Zoom out, or back to the code',
     "Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open", back,
     nil, { remote = false, doc = "Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the "
@@ -2445,10 +2454,10 @@ local ROWS = actions.add({
     function(view, ctx) walk(view, 'callers', ctx) end, needs_function, THERE),
   row('centre', 'c', 'The call graph of this function',
     'The call graph centred on the selected function, where the map is: a graph tab here, the call graph in the pop-out (`Ctrl+o` there comes back to the map)',
-    centre, needs_function, THERE),
+    centre, needs_function, ON_IT),
   row('trace', 't', 'Trace through this function',
     'The lane through the selected function: up to where it starts, down to where it ends; each step with its parameters (how each is passed, and whether the callee can change it) and what it is called with. In the pop-out it follows the function at the cursor (`p` pins it)',
-    trace_from, needs_function, THERE),
+    trace_from, needs_function, ON_IT),
   row('trace-to', 'e', 'Trace to a chosen function', 'On a trace: down to the function you name instead of where the chain ends',
     trace_to, needs_trace, { remote = true, input = { prompt = 'Trace to: ' } }),
   row('trace-from', 'S', 'Trace from a chosen start', 'On a trace: up from the function you name (a thread body, the live path) instead of the farthest start',
@@ -2460,7 +2469,7 @@ local ROWS = actions.add({
     'On a trace: this function hands its data on to the one you name (a queue or a callback the map missed), so the trace goes on through it',
     add_handoff, needs_trace_step, { remote = true, input = { prompt = 'Hands off to: ' } }),
   row('symdeps', 'gs', 'This function in symdeps', "The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph",
-    in_symdeps, needs_c_function, THERE),
+    in_symdeps, needs_c_function, ON_IT),
   row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_function,
     { remote = true, input = { prompt = 'Ways to: ' } }),
   row('more', 'm', 'Show more boxes and calls',

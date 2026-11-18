@@ -60,7 +60,8 @@ M.PREFIXES = { ['review-list'] = { { '<leader>r', 'review' } }, ['review-diff'] 
 
 local KINDS = { id = 'string', group = 'string', name = 'string', about = 'string', key = 'string', mode = 'mode',
   on = 'surfaces', run = 'function', available = 'function', remote = 'boolean', drawn = 'boolean', input = 'input',
-  menu = 'boolean', line = 'string', doc = 'doc', also = 'string', popout_override = 'boolean', fallback = 'string' }
+  menu = 'boolean', line = 'string', doc = 'doc', also = 'string', popout_override = 'boolean', fallback = 'string',
+  subject = 'function' }
 local MODES = { n = true, x = true, v = true, o = true, i = true }
 
 local rows, by_id, source, bound = {}, {}, {}, {}
@@ -387,6 +388,14 @@ function M.title(ctx)
   return 'Home' .. (place and (' · ' .. place) or '')
 end
 
+-- A row's name where ctx is, with what it would act on (its subject: the selected function's qualified name and place),
+-- so a menu says what Enter opens before it is pressed.
+function M.named(row, ctx)
+  if type(row.subject) ~= 'function' then return row.name end
+  local ok, what = pcall(row.subject, ctx)
+  return (ok and type(what) == 'string' and what ~= '') and (row.name .. ' · ' .. what) or row.name
+end
+
 -- The home menu: what applies where the cursor is, by group, in the menu kit the review uses (symdeps' when it is
 -- installed, else desk.menu: the same look). A row that cannot run here is shown with why, never left out.
 function M.home(win)
@@ -396,7 +405,8 @@ function M.home(win)
   for _, row in ipairs(M.for_context(ctx)) do
     if row.menu ~= false then
       local why = M.available(row, ctx)
-      items[#items + 1] = { ident = row.id, name = row.name, label = row.name .. ' — ' .. row.about:gsub('`', ''),
+      local name = M.named(row, ctx)
+      items[#items + 1] = { ident = row.id, name = name, label = name .. ' — ' .. row.about:gsub('`', ''),
         group = row.group:lower(), bind = row.key, right = why ~= true and why or nil, run = function() M.run(row, ctx) end }
     end
   end
@@ -506,7 +516,7 @@ function M.describe(ctx)
   local out = {}
   for _, row in ipairs(M.for_context(ctx)) do
     if row.remote then
-      out[#out + 1] = { id = row.id, group = row.group, name = row.name, about = row.about, key = row.key, available = M.available(row, ctx),
+      out[#out + 1] = { id = row.id, group = row.group, name = M.named(row, ctx), about = row.about, key = row.key, available = M.available(row, ctx),
         input = row.input and M.offered(row.input, ctx) or nil, on = { unpack(list(row.on)) } }
       if row.menu == false then out[#out].menu = false end
       if row.doc == false then out[#out].doc = false end

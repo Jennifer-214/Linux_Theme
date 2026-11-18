@@ -305,7 +305,7 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `m` in a graph | Draw the callers and callees past the first 24 on each level (where it says "+N more") |
 | `r` in a graph | Ask the language server for the graph again (a graph that follows the cursor: for the function under it) |
 | `q` in the graph tab | Close the graph tab |
-| `gs` in a graph | The centre function in symdeps' card (C and C++); in the panel and the pop-out, the selected box's function, shown in the code |
+| `gs` in a graph | The selected box's function in symdeps' card (C and C++), shown in the code — in the tab, the panel and the pop-out alike |
 | `t` in a graph | The project map's trace through the selected function: up to where it starts, down to where it ends, each step with its parameters and the arguments it is called with |
 | `p` in the panel | Pin the panel to the graph it shows (PINNED), or follow the cursor again |
 | `q` in the panel | Close the panel |

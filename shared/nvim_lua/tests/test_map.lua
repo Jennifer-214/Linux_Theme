@@ -1178,6 +1178,13 @@ local function act(id, item, extra)
   for k, v in pairs(extra or {}) do ctx[k] = v end
   return { A.act(id, ctx) }
 end
+do
+  local ref = { name = "tick", target = { kind = "node", node = { id = "e.cpp::tick", label = "tt::Engine::tick", file = "e.cpp", line = 11 } } }
+  local ctx = ctx_on(nil)
+  ctx.item = ref
+  eq({ A.named(A.get("map.trace"), ctx), A.named(A.get("map.in"), ctx) }, { "Trace through this function · tt::Engine::tick · e.cpp:11", "Zoom in, or go to the function · tt::Engine::tick · e.cpp:11" },
+    "the map's keys say in their menus which function they act on")
+end
 -- In the pop-out, a name that fits several is asked there, as a page: Enter on one asks again with it, in its place.
 do
   local stack, inner, asked, history = pv.stack, Map.desk_work, {}, vim.deepcopy(P.host.history)

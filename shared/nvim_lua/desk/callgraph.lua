@@ -1404,6 +1404,16 @@ local function moving(how, key, name, about, line, doc)
     line = line and ('callgraph.' .. line) or nil, doc = doc, run = function(ctx) M.move(ctx.copy or ctx.graph, how) end }
 end
 local function picked(ctx) if ctx.view and not ctx.item then return 'no box is selected' end end
+-- The box a key acts on, the same everywhere: the pop-out's selection, the panel's, the tab's (once the centre in a tab).
+local function selected_item(ctx)
+  if ctx.view then return ctx.item end
+  if ctx.graph == panel then return M.selected(panel) end
+  if ctx.graph then return M.selected(ctx.graph) end
+end
+local function subject(ctx)
+  local item = selected_item(ctx)
+  return item and (tostring(item.name) .. (item.detail and item.detail ~= '' and (' · ' .. item.detail) or '')) or nil
+end
 local ROWS = actions.add({
   -- These two read this editor's current window (the function under its cursor; the tab the panel splits): asked from
   -- the pop-out they would act on whatever window is current here, not the box or row selected there. The editor's own.
@@ -1430,7 +1440,7 @@ local ROWS = actions.add({
     about = 'Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; `Enter` still goes',
     run = function(ctx) M.jump_boxes(ctx.copy or ctx.graph) end },
   { id = 'callgraph.go', group = 'Call graph', name = 'Go to the selected function', key = '<CR>', on = BOTH, also = 'a double click',
-    remote = true, available = picked,
+    remote = true, available = picked, subject = subject,
     about = "Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it)",
     run = function(ctx)
       if ctx.view then if ctx.item then jump(ctx.item, ctx.origin) end; return end
@@ -1493,44 +1503,32 @@ local ROWS = actions.add({
   { id = 'callgraph.close', group = 'Call graph', name = 'Close the call graph', key = 'q', on = GRAPH, about = 'Close the graph tab', remote = false,
     run = function(ctx) M.close_view(ctx.graph.buf) end },
   { id = 'callgraph.symdeps', group = 'Call graph', name = 'This function in symdeps', key = 'gs', on = BOTH, remote = true,
-    about = "The centre function in symdeps' card (C and C++); in the panel and the pop-out, the selected box's function, shown in the code",
+    about = "The selected box's function in symdeps' card (C and C++), shown in the code — in the tab, the panel and the pop-out alike",
+    subject = subject,
     available = function(ctx)
       if not actions.symdeps() then return 'requires symdeps' end
-      local item
-      if ctx.view then item = ctx.item elseif ctx.graph == panel then item = M.selected(panel) else return end
+      local item = selected_item(ctx)
       if not item then return 'no box is selected' end
       local ft = vim.filetype.match({ filename = item.uri and vim.uri_to_fname(item.uri) or '' })
       return (ft == 'c' or ft == 'cpp') or 'requires a C or C++ function'
     end,
     run = function(ctx)
       if ctx.view then return popout_symdeps(ctx) end
-      if ctx.graph == panel then
-        if not actions.symdeps() then return tell('Requires symdeps (an optional plugin for C and C++ symbols).') end
-        local item = M.selected(panel)
-        if item then popout_symdeps({ item = item, origin = panel.source_win }) end
-        return
-      end
-      local view = ctx.graph
-      local center = view.graph and view.graph.center
-      if not center or not center.uri then return end
-      if not actions.symdeps() then tell('Requires symdeps (an optional plugin for C and C++ symbols).'); return end
-      local inspect = actions.symdeps_card()
-      if not inspect then tell('This symdeps version does not expose its card.'); return end
-      jump(center, view.origin)
-      inspect()
+      if not actions.symdeps() then return tell('Requires symdeps (an optional plugin for C and C++ symbols).') end
+      local item = selected_item(ctx)
+      if not (item and item.uri) then return tell('Select a function first.') end
+      popout_symdeps({ item = item, origin = ctx.graph == panel and panel.source_win or (ctx.graph and ctx.graph.origin) })
     end },
   -- t: the trace through the selected box's function (desk.map's trace page: up to where it starts, down to where it ends).
-  { id = 'callgraph.trace', group = 'Call graph', name = 'Trace through this function', key = 't', on = BOTH, remote = true,
+  { id = 'callgraph.trace', group = 'Call graph', name = 'Trace through this function', key = 't', on = BOTH, remote = true, subject = subject,
     about = "The project map's trace through the selected function: up to where it starts, down to where it ends, each step with its parameters and the arguments it is called with",
     available = function(ctx)
-      local item
-      if ctx.view then item = ctx.item elseif ctx.graph == panel then item = M.selected(panel) elseif ctx.graph then item = M.selected(ctx.graph) end
+      local item = selected_item(ctx)
       if not item then return 'no box is selected' end
       return (item.uri and item.range) and true or 'that box has no place in the code'
     end,
     run = function(ctx)
-      local item
-      if ctx.view then item = ctx.item elseif ctx.graph == panel then item = M.selected(panel) elseif ctx.graph then item = M.selected(ctx.graph) end
+      local item = selected_item(ctx)
       if not (item and item.uri and item.range) then return tell('Select a function first.') end
       require('desk.map').trace_at(vim.uri_to_fname(item.uri), item.range.start.line + 1)
     end },

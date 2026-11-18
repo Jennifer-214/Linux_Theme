@@ -536,6 +536,30 @@ end
 eq({ A.key("callgraph.open"), A.key("callgraph.panel") }, { "<leader>cc", "<leader>co" }, "Space cc and Space co")
 eq(A.available(A.get("callgraph.open"), { surface = "callgraph" }), false, "inside the graph its own keys apply, not Space cc")
 eq(A.available(A.get("callgraph.symdeps"), { surface = "callgraph" }), "requires symdeps", "gs without symdeps says what it needs")
+-- gs in a graph tab: the selected box's function, as in the panel and the pop-out (it once took the centre's), and the
+-- menus say which before it is pressed.
+do
+  local d = vim.fn.tempname()
+  vim.fn.mkdir(d, "p")
+  vim.fn.writefile({ "local function middle() end", "local function callee_one()", "end" }, d .. "/b.lua")
+  local function box(name, line) return { item = { name = name, detail = "b.lua:" .. line, uri = vim.uri_from_fname(d .. "/b.lua"),
+    range = { start = { line = line - 1, character = 15 }, ["end"] = { line = line - 1, character = 25 } } } } end
+  local was_buf = api.nvim_get_current_buf()
+  vim.fn.writefile({ "local code_here = 1" }, d .. "/a.lua")
+  vim.cmd("edit " .. vim.fn.fnameescape(d .. "/a.lua")) -- a code window (the LSP jump reads the word under its cursor)
+  local code_win = api.nvim_get_current_win()
+  local tab = { drawn = { boxes = { box("middle", 1), box("callee_one", 2) } }, index = 2, origin = code_win }
+  tab.graph = { center = tab.drawn.boxes[1].item }
+  local inspected
+  package.loaded["fox-symdeps"] = { inspect_cursor = function() inspected = { vim.fn.fnamemodify(api.nvim_buf_get_name(0), ":t"), api.nvim_win_get_cursor(0)[1] } end }
+  eq(A.named(A.get("callgraph.symdeps"), { graph = tab }), "This function in symdeps · callee_one · b.lua:2", "gs in a menu names the selected box's function")
+  eq(A.named(A.get("callgraph.trace"), { graph = tab }), "Trace through this function · callee_one · b.lua:2", "… and t")
+  A.get("callgraph.symdeps").run({ graph = tab })
+  eq(inspected, { "b.lua", 2 }, "gs in a tab inspects the selected box's function, not the centre")
+  package.loaded["fox-symdeps"] = nil
+  api.nvim_win_set_buf(0, was_buf)
+  vim.fn.delete(d, "rf")
+end
 -- A count reaches the move through the registry's mapping: 3j is three steps down.
 local cbuf = api.nvim_create_buf(false, true)
 api.nvim_win_set_buf(0, cbuf)
