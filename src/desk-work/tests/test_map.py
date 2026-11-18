@@ -131,9 +131,19 @@ class Map(unittest.TestCase):
         self.assertEqual(self.git("status", "--porcelain"), "")
         tools = self.data("tools", "list", "--root", self.repo)
         self.assertFalse(any("refused" in json.dumps(f) and str(file) in json.dumps(f) for f in tools.get("files", [])), tools)
+        # A name that fits several: refused with the candidates and the flag they go back in (a picker's).
+        (self.repo / "lua/dup.lua").write_text("local function leaf(x) return x end\nreturn leaf\n")
+        self.git("add", "."); self.git("commit", "-qm", "a second leaf")
+        self.build("--provider", "syntax")
+        start = self.query("--q", "trace", "--from", "middle", "--start", "leaf", code=1)
+        self.assertEqual((start["flag"], len(start["candidates"]), start["message"][:7]), ("--start", 2, "Start: "))
+        to = self.query("--q", "trace", "--from", "middle", "--to", "leaf", code=1)
+        self.assertEqual(to["flag"], "--to")
+        dest = self.data("map", "handoff", "add", "--root", self.repo, "--from", "middle", "--to", "leaf", code=1)
+        self.assertEqual((dest["flag"], len(dest["candidates"])), ("--to", 2))
         # A file there desk-work cannot read is left as it is.
         file.write_text("not json")
-        self.assertIn("left as it is", self.data("map", "handoff", "add", "--root", self.repo, "--from", "leaf", "--to", "M.beta", code=1)["message"])
+        self.assertIn("left as it is", self.data("map", "handoff", "add", "--root", self.repo, "--from", "middle", "--to", "M.beta", code=1)["message"])
         self.assertEqual(file.read_text(), "not json")
 
     @unittest.skipUnless(NVIM, "nvim is not installed")

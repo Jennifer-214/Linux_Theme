@@ -1525,6 +1525,7 @@ local function page_of(view)
   local level = view.stack[#view.stack]
   if level.kind == 'modules' then return cached(view, 'modules') and M.level_modules(cached(view, 'modules'), level.all) end
   if level.kind == 'query' then return M.level_query(level.answer, level.all, level) end
+  if level.kind == 'pick' then return M.level_pick(level) end
   local answer = cached(view, 'module:' .. level.module)
   if not answer then return nil end
   if level.kind == 'files' then return M.level_files(answer, level.module, level.all) end
@@ -1793,6 +1794,37 @@ end
 -- The box a key is about: in the pop-out the one selected there (ctx.item), here the one under the cursor.
 local function about_item(view, ctx) if view.out then return ctx and ctx.item end; return here(view) end
 
+-- A candidate as a picker says it: its qualified name, its signature where the map has one, where it is.
+function M.candidate_text(n)
+  local types = {}
+  for _, prm in ipairs(n.params or {}) do types[#types + 1] = prm.type end
+  local sig = n.params and ('(' .. table.concat(types, ', ') .. ')') or ''
+  return tostring(n.label or n.id) .. sig .. (n.returns and (' → ' .. n.returns) or ''), where(n)
+end
+-- One picker for a name that fits several functions (a trace's start, end or focus, a handoff's destination): in the
+-- editor the desk menu (searchable), in the pop-out a page of its own, on the screen it was asked from; Enter on one
+-- calls chosen(id). The question is said with which end it is about.
+local function choose(view, answer, chosen)
+  local list = answer.candidates or {}
+  if view.out then
+    push(view, { kind = 'pick', message = answer.message, candidates = list, chosen = chosen })
+    return
+  end
+  vim.ui.select(list, { prompt = answer.message, format_item = function(n)
+    local name, at = M.candidate_text(n)
+    return name .. '  ' .. at
+  end }, function(choice) if choice then chosen(choice.id) end end)
+end
+function M.level_pick(level)
+  local sections = { { head = tostring(level.message or 'Pick one') } }
+  for i, n in ipairs(level.candidates or {}) do
+    local name, at = M.candidate_text(n)
+    sections[#sections + 1] = { block = { { { name, { name = name, target = { kind = 'pick', index = i }, key = 'pick:' .. tostring(n.id) } },
+      { '  ' .. at, nil, nil, 'DeskMapDim' } } } }
+  end
+  return { crumbs = { 'pick one' }, sections = sections }
+end
+
 local query   -- defined below (a page asked of desk-work); Enter on a trace's ▲ and ▼ asks one
 local function enter(view, ctx)
   local item = about_item(view, ctx)
@@ -1804,6 +1836,11 @@ local function enter(view, ctx)
   elseif t.kind == 'file' then push(view, { kind = 'functions', module = t.module, file = t.file }, item.key)
   elseif t.kind == 'class' then push(view, { kind = 'class', module = t.module, file = t.file, id = t.id, name = item.name, node = t.node }, item.key)
   elseif t.kind == 'node' then jump(view, t.node, ctx and ctx.origin)
+  elseif t.kind == 'pick' then
+    -- A name chosen on the pick page: the question asked again with its id, in the page's place.
+    local top = view.stack[#view.stack]
+    local n = top.kind == 'pick' and top.candidates[t.index]
+    if n and top.chosen then top.chosen(n.id, top) end
   elseif t.kind == 'walk' then
     -- The map's callers or reach page from that step (3 levels; + and - change it), a page of its own.
     query(view, { '--q', t.q, '--from', t.node.id, '--depth', '3' }, item.key)
@@ -1896,13 +1933,16 @@ query = function(view, args, from, again, quiet)
     -- a page asked by following the cursor says nothing when there is no answer (the cursor in no function)
     if quiet and (not answer or answer.ok == false) then return end
     view.news = true
-    if answer and answer.ok == false and type(answer.candidates) == 'table' and #answer.candidates > 0 and not view.out then
-      local flag = (answer.message or ''):find('^To: ') and '--to' or '--from'
-      return vim.ui.select(answer.candidates, { prompt = answer.message, format_item = function(n) return n.label .. '  ' .. where(n) end }, function(choice)
-        if not choice then return end
-        local again = vim.list_slice(args)
-        for i = 1, #again - 1 do if again[i] == flag then again[i + 1] = choice.id end end
-        query(view, again)
+    if answer and answer.ok == false and type(answer.candidates) == 'table' and #answer.candidates > 0 then
+      -- the name she gave fits several: which end it was (desk-work says; an older one only in its words)
+      local msg = answer.message or ''
+      local flag = answer.flag or (msg:find('^To: ') and '--to') or (msg:find('^Start: ') and '--start') or '--from'
+      return choose(view, answer, function(id, picked)
+        local args2 = vim.list_slice(args)
+        for i = 1, #args2 - 1 do if args2[i] == flag then args2[i + 1] = id end end
+        -- from the pick page: its answer takes the page's place; in the editor, as asked
+        if picked then return query(view, args2, nil, picked) end
+        query(view, args2, from, again)
       end)
     end
     if not answer or answer.ok == false then return tell(refusal(answer, out), vim.log.levels.WARN) end
@@ -2015,6 +2055,12 @@ local function trace_to(view, ctx) trace_end(view, ctx, '--to', 'Trace to: ') en
 local function correct_handoff(view, verb, from, to)
   local top = view.stack[#view.stack]
   M.desk_work({ 'map', 'handoff', verb, '--root', view.root, '--from', from, '--to', to }, function(answer, out)
+    if answer and answer.ok == false and type(answer.candidates) == 'table' and #answer.candidates > 0 then
+      return choose(view, answer, function(id, picked)
+        if picked and view.stack[#view.stack] == picked then table.remove(view.stack); load(view) end
+        correct_handoff(view, verb, answer.flag == '--from' and id or from, answer.flag == '--from' and to or id)
+      end)
+    end
     if not answer or answer.ok == false then return tell(refusal(answer, out), vim.log.levels.WARN) end
     tell('Handoff ' .. tostring(answer.did) .. ' (kept in ' .. vim.fn.fnamemodify(tostring(answer.file), ':~') .. ').')
     if valid(view) and view.stack[#view.stack] == top and top.args then query(view, top.args, nil, top) end

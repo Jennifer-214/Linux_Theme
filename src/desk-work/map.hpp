@@ -413,7 +413,7 @@ J map_handoff(const std::string& root, const std::string& verb, std::map<std::st
         const auto found = desk_map::resolve(g, opts[flags[i]]);
         if (found.index < 0) {
             auto refusal = refuse(std::string(i ? "To: " : "From: ") + found.message);
-            if (!found.candidates.empty()) refusal["candidates"] = found.candidates;
+            if (!found.candidates.empty()) { refusal["candidates"] = found.candidates; refusal["flag"] = i ? "--to" : "--from"; }
             return refusal;
         }
         ids[i] = desk_map::text(g.nodes[static_cast<size_t>(found.index)], "id");
@@ -469,6 +469,9 @@ J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
         if (index >= 0) return J();
         auto refusal = refuse(std::string(role) + found.message);
         refusal["candidates"] = found.candidates;
+        // which of the question's names it is: what a picker puts the chosen id back in
+        const std::string r = role;
+        refusal["flag"] = r == "To: " ? "--to" : r == "Start: " ? "--start" : !opts["--from"].empty() ? "--from" : "--of";
         return refusal;
     };
     J out;

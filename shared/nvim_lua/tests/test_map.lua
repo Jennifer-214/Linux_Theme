@@ -868,6 +868,34 @@ do
   press("S")
   ok(vim.wait(1000, function() return #traced_args == 3 and #view.stack == depth_before + 3 end), "S: asked again, a page of its own")
   ok(traced_args[3] and traced_args[3]:find("--from e.cpp::tick --to submit --start hot", 1, true), "… from the same function, the end kept, from the start named: " .. tostring(traced_args[3]))
+  -- S with a name that fits several: the desk menu, each with its signature and place; the one chosen goes back in as the
+  -- start (it once replaced the focus: the picker read only "To:").
+  do
+    local inner, real_select, offered = Map.desk_work, vim.ui.select, nil
+    Map.desk_work = function(args, done)
+      if table.concat(args, " "):find("--start dup", 1, true) then
+        traced_args[#traced_args + 1] = table.concat(args, " ")
+        return vim.defer_fn(function() done({ ok = false, message = "Start: Several things in the map are named dup; pick one", flag = "--start",
+          candidates = { { id = "a.cpp::dup", label = "ns::dup", file = "a.cpp", line = 3, params = { { name = "x", type = "int" } }, returns = "bool" },
+        { id = "b.cpp::dup", label = "other::dup", file = "b.cpp", line = 9 } } }, { code = 1 }) end, 5)
+      end
+      return inner(args, done)
+    end
+    vim.ui.select = function(items, opts, done)
+      offered = { prompt = opts.prompt, shown = vim.tbl_map(opts.format_item, items) }
+      done(items[2])
+    end
+    vim.ui.input = function(_, done) done("dup") end
+    local n = #traced_args
+    press("S")
+    ok(vim.wait(1000, function() return #traced_args == n + 2 end), "S with an ambiguous name: asked, then asked again with the one chosen")
+    eq(offered, { prompt = "Start: Several things in the map are named dup; pick one", shown = { "ns::dup(int) → bool  a.cpp:3", "other::dup  b.cpp:9" } },
+      "… the menu: each with its signature where known, and its place")
+    ok((traced_args[n + 2] or ""):find("--from e.cpp::tick --to submit --start b.cpp::dup", 1, true), "… the one chosen is the start, the focus and end kept: " .. tostring(traced_args[n + 2]))
+    vim.wait(100, function() return false end)
+    press("<BS>")
+    Map.desk_work, vim.ui.select = inner, real_select
+  end
   trace_answer.to = nil
   press("<BS>"); press("<BS>"); press("<BS>")
   ok(vim.wait(1000, function() return #view.stack == depth_before end), "Backspace goes back off the traces")
@@ -1112,6 +1140,32 @@ local function act(id, item, extra)
   local ctx = ctx_on(item)
   for k, v in pairs(extra or {}) do ctx[k] = v end
   return { A.act(id, ctx) }
+end
+-- In the pop-out, a name that fits several is asked there, as a page: Enter on one asks again with it, in its place.
+do
+  local stack, inner, asked, history = pv.stack, Map.desk_work, {}, vim.deepcopy(P.host.history)
+  pv.stack = { { kind = "modules" }, { kind = "query", answer = trace_answer, args = { "--q", "trace", "--from", "e.cpp::tick" } } }
+  Map.desk_work = function(args, done)
+    local line = table.concat(args, " ")
+    asked[#asked + 1] = line
+    if line:find("--to dup", 1, true) then
+      return vim.defer_fn(function() done({ ok = false, message = "To: Several things in the map are named dup; pick one", flag = "--to",
+        candidates = { { id = "a.cpp::dup", label = "ns::dup", file = "a.cpp", line = 3, params = { { name = "x", type = "int" } }, returns = "bool" },
+        { id = "b.cpp::dup", label = "other::dup", file = "b.cpp", line = 9 } } }, { code = 1 }) end, 5)
+    end
+    if args[2] == "query" then return vim.defer_fn(function() done(trace_answer, { code = 0 }) end, 5) end
+    return inner(args, done)
+  end
+  act("map.trace-to", nil, { text = "dup" })
+  ok(vim.wait(1000, function() return pv.stack[#pv.stack].kind == "pick" end), "the pop-out: an ambiguous end becomes a page to pick from")
+  local drawn = shown()
+  local pick = item_named(drawn, "other::dup")
+  ok(pick and table.concat(drawn.lines, "\n"):find("ns::dup(int) → bool  a.cpp:3", 1, true), "… each candidate with its signature and place")
+  act("map.in", pick)
+  ok(vim.wait(1000, function() return pv.stack[#pv.stack].kind == "query" and #pv.stack == 3 end), "Enter on one: its answer in the page's place")
+  ok(asked[#asked]:find("--from e.cpp::tick --to other", 1, true) == nil and asked[#asked]:find("--to b.cpp::dup", 1, true) ~= nil,
+    "… asked with the one chosen as the end: " .. tostring(asked[#asked]))
+  pv.stack, Map.desk_work, P.host.history = stack, inner, history
 end
 do
   local stack, cache = pv.stack, pv.cache
