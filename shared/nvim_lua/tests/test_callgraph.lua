@@ -620,11 +620,10 @@ do
     G.select(layered, named(layered, name), true)
     local band = layered.drawn.boxes[layered.index].gauge_band
     local expected = {}
-    -- The plane of the selected box's layer, lit and a cell wider: two rows, the top one a cell right.
-    for k = 0, 1 do expected[#expected + 1] = { band[1] + k, 0, { { G.slab(k, '█', true), 'Title' } } } end
+    for row = band[1], band[2] do expected[#expected + 1] = { row, 1, { { '█', 'Title' } } } end
     local solid = api.nvim_buf_get_extmarks(layered.buf, G.gauge_ns, 0, -1, { details = true })
     eq(vim.tbl_map(function(mark) return { mark[2] + 1, mark[3], mark[4].virt_text } end, solid), expected,
-      'retro lights the selected layer\'s plane for ' .. name)
+      'retro lights the full selected bar for ' .. name)
   end
   vim.g.desk_style = 'paper'
   ok(line_with(layered.drawn.lines, '+2') and line_with(layered.drawn.lines, '4 functions'), 'the header counts the layered functions')

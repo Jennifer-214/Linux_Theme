@@ -316,12 +316,12 @@ ok(wait(3000, function() return popped():find('LAYERS -1 .. +2', 1, true) end), 
 ok(pop([=[
   local G = require('desk.callgraph')
   local marks = vim.api.nvim_buf_get_extmarks(0, G.gauge_ns, 0, -1, { details = true })
-  if #marks ~= 2 then return false end
+  if #marks < 4 then return false end
   local first = vim.api.nvim_buf_get_lines(0, marks[1][2], marks[1][2] + 1, false)[1]
-  return first:find('+2', 1, true) ~= nil and marks[2][2] == marks[1][2] + 1
-    and vim.deep_equal({ marks[1][3], marks[1][4].virt_text, marks[2][3], marks[2][4].virt_text },
-      { 0, { { G.slab(0, '█', true), 'Title' } }, 0, { { G.slab(1, '█', true), 'Title' } } })
-]=]), 'the selected layer\'s lit plane reaches the pop-out')
+  return first:find('+2', 1, true) ~= nil and vim.iter(marks):all(function(mark)
+    return mark[3] == 1 and vim.deep_equal(mark[4].virt_text, { { '█', 'Title' } })
+  end)
+]=]), 'the full selected Retro bar reaches the pop-out')
 pop("vim.g.desk_style = 'paper'")
 host("vim.g.desk_style = 'paper'")
 press('-')

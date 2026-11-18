@@ -289,7 +289,7 @@ function M.layout(page, width, retro)
   local lines, hits, marks, placed, bands = {}, {}, {}, {}, {}
   local graph = require('desk.callgraph')
   local gauge = width >= 28 and (page.zoom or page.layered)
-  if gauge then width = width - graph.gauge_width(retro) end
+  if gauge then width = width - graph.GAUGE_WIDTH end
   local function add(text, group, from, to)
     lines[#lines + 1] = text
     if group then marks[#marks + 1] = { #lines, from or 0, to or #text, group } end
@@ -349,12 +349,9 @@ function M.layout(page, width, retro)
   end
   for _, h in ipairs(page.header or {}) do add(fit(h[1], width, G.ellipsis), h[2]) end
   if gauge and page.zoom then
-    -- Retro: a plane per level, two rows each (callgraph.slab).
-    local rows = retro and 2 or 1
     for i, label in ipairs({ 'all', 'dir', 'src', 'cls' }) do
-      local first = (i - 1) * rows + 1
-      for line = first, first + rows - 1 do if not lines[line] then add('') end end
-      bands[#bands + 1] = { first = first, last = first + rows - 1, level = i - page.zoom, label = retro and label:upper() or label, active = i == page.zoom }
+      if not lines[i] then add('') end
+      bands[#bands + 1] = { first = i, last = i, level = i - 1, label = retro and label:upper() or label, active = i == page.zoom }
     end
   end
   for _, s in ipairs(page.sections or {}) do

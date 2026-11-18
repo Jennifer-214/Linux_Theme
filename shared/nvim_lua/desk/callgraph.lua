@@ -43,16 +43,6 @@ end
 local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width_of(s))) end
 
 M.GAUGE_WIDTH = 7
--- Retro draws the levels as a stack of planes (her ask, 2026-11-18: the isometric stack): each a slab two rows deep, its
--- top row one cell right of its bottom one, in the shade of its distance; the lit one a cell wider. Code page 437 only.
-M.RETRO_GAUGE_WIDTH = 10
-function M.gauge_width(retro) return retro and M.RETRO_GAUGE_WIDTH or M.GAUGE_WIDTH end
--- Row k of a band's plane (0 its top, 1 its bottom; nothing below), wide for the lit one.
-function M.slab(k, shade, wide)
-  local w = wide and 4 or 3
-  if k == 0 then return ' ' .. shade:rep(w) elseif k == 1 then return shade:rep(w) .. ' ' end
-  return ''
-end
 function M.gauge_range(boxes)
   local first, last
   for _, box in ipairs(boxes) do
@@ -70,26 +60,13 @@ function M.gauge(drawn, bands, retro, group, active_group)
     local marker = band.active and not retro and '‹' or ' '
     if retro and band.active then shade = '█' end
     for line = band.first, band.last do
-      local text = line == band.first and fit(label, 3, retro and '..' or '…') or ''
-      if retro then
-        local plane = M.slab(line - band.first, shade, band.active)
-        rail[line] = pad(plane, 5) .. ' ' .. pad(text, 3) .. ' '
-        if band.active and plane ~= '' then active[line] = #plane end
-      else
-        rail[line] = marker .. shade .. ' ' .. pad(text, 3) .. ' '
-      end
+      rail[line] = marker .. shade .. ' ' .. pad(line == band.first and fit(label, 3, retro and '..' or '…') or '', 3) .. ' '
       selectable[line] = not band.label and band or nil
-    end
-  end
-  local gutter = M.gauge_width(retro)
-  -- The axis the planes sit on, from the first to the last.
-  if retro and #bands > 1 then
-    for line = bands[1].first, math.min(bands[#bands].last, bands[#bands].first + 1) do
-      if not rail[line] or rail[line]:match('^%s*$') then rail[line] = pad('  │', gutter) end
+      if retro and band.active then active[line] = true end
     end
   end
   for i, line in ipairs(drawn.lines) do
-    local prefix = rail[i] or string.rep(' ', gutter)
+    local prefix = rail[i] or string.rep(' ', M.GAUGE_WIDTH)
     offsets[i], drawn.lines[i] = #prefix, prefix .. line
   end
   for _, m in ipairs(drawn.marks) do m[2], m[3] = m[2] + offsets[m[1]], m[3] + offsets[m[1]] end
@@ -100,11 +77,11 @@ function M.gauge(drawn, bands, retro, group, active_group)
     local band = selectable[box.line]
     box.gauge = band ~= nil
     if band then box.gauge_band = { band.first, band.last } end
-    box.x, box.name_col = box.x + gutter, box.name_col + offsets[box.line]
+    box.x, box.name_col = box.x + M.GAUGE_WIDTH, box.name_col + offsets[box.line]
     for _, span in ipairs(box.spans) do span[2], span[3] = span[2] + offsets[span[1]], span[3] + offsets[span[1]] end
   end
   for i, prefix in pairs(rail) do drawn.marks[#drawn.marks + 1] = { i, 0, #prefix, group or 'DeskCallGraphDim' } end
-  for i, bytes in pairs(active) do drawn.marks[#drawn.marks + 1] = { i, 0, bytes, active_group or 'DeskCallGraphCentre', 1 } end
+  for i in pairs(active) do drawn.marks[#drawn.marks + 1] = { i, 1, 1 + #'█', active_group or 'DeskCallGraphCentre', 1 } end
 end
 
 local SIDES = { 'callers', 'callees' }
@@ -132,7 +109,7 @@ function M.layout(graph, width, retro)
   local G = M.glyphs(retro)
   local lines, boxlist, marks, bands, left_out = {}, {}, {}, {}, 0
   local gauge = graph.layers and width >= 36
-  if gauge then width = width - M.gauge_width(retro) end
+  if gauge then width = width - M.GAUGE_WIDTH end
   local function add(text, group, from, to)
     lines[#lines + 1] = text
     if group then marks[#marks + 1] = { #lines, from or 0, to or #text, group } end
@@ -257,7 +234,7 @@ function M.layout(graph, width, retro)
     tier('callees', list, d, 1, 'calls nothing found', 'callee')
   end
   local drawn = { lines = lines, boxes = boxlist, marks = marks, left_out = left_out }
-  if gauge then M.gauge(drawn, bands, retro); width = width + M.gauge_width(retro) end
+  if gauge then M.gauge(drawn, bands, retro); width = width + M.GAUGE_WIDTH end
   if graph.message then
     if #lines > 0 then add('') end
     for _, line in ipairs(vim.split(graph.message, '\n')) do centred(G.said(fit(line, width, G.ellipsis)), 'DeskCallGraphDim') end
@@ -405,14 +382,10 @@ local function paint(s)
   end
   if box and box.gauge then
     if M.retro() then
-      -- The selected box's plane, lit and a cell wider, over its shade.
       local band = box.gauge_band or { box.line, box.line }
-      for k = 0, 1 do
-        local line = band[1] + k
-        if line <= math.min(band[2], api.nvim_buf_line_count(s.buf)) then
-          pcall(api.nvim_buf_set_extmark, s.buf, M.gauge_ns, line - 1, 0,
-            { virt_text = { { M.slab(k, '█', true), 'Title' } }, virt_text_pos = 'overlay', priority = 300 })
-        end
+      local opts = { virt_text = { { '█', 'Title' } }, virt_text_pos = 'overlay', priority = 300 }
+      for line = band[1], math.min(band[2], api.nvim_buf_line_count(s.buf)) do
+        pcall(api.nvim_buf_set_extmark, s.buf, M.gauge_ns, line - 1, 1, opts)
       end
     else
       pcall(api.nvim_buf_set_extmark, s.buf, M.gauge_ns, box.line - 1, 0,
