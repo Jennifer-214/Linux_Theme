@@ -3514,7 +3514,9 @@ require("lualine").setup({
   },
   sections = {
     lualine_a = { "mode" },
-    lualine_b = { "branch", "diff", "diagnostics" },
+    -- The branch only outside tmux: inside it, the pane's footer right below says it, with its sync counts (one bottom
+    -- line says where — tmux; the other what — this file).
+    lualine_b = { { "branch", cond = function() return (vim.env.TMUX or "") == "" end }, "diff", "diagnostics" },
     lualine_c = { filename_component, draft_component,
       { function() local ok, sync = pcall(require, "desk.sync"); return ok and sync.status() or "" end, color = { fg = P.pink },
         on_click = function() local ok, sync = pcall(require, "desk.sync"); if ok then sync.menu() end end },
