@@ -419,6 +419,13 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   editor, the one last used). Each pop-out has its own views, its own `Ctrl+o` / `Ctrl+r` and its own screen; one that
   closes or crashes brings back only its own pinned views, and the others go on. Restore brings them all back, each on
   its screen.
+- **symdeps' board in the pop-out** (with fox-symdeps installed): Space Space › views › "Pop out symdeps' board". The
+  pop-out never loads symdeps: the board's keys are symdeps' own rows, bound there from the editor and run in the
+  editor on the row selected there (Enter opens, as on the board; `f` does what Enter does and puts the keyboard in the
+  editor). `j` and `k` move from row to row in the pop-out itself; `h` and `l` are left to the board (fold and open,
+  as in the editor, with a symdeps that offers them there). symdeps' two keys answer there too: `Space dm` is the
+  pop-out's menu (what `Space Space` shows, the board's rows among it), and `Space dd` says why its card does not open
+  there (on the board it is the card drawn; on another view symdeps runs in the editor, `Space Tab` away).
 - **Live code in the pop-out**. Press `Space cv` on a file, or choose **View this file in the pop-out** under Views.
   Each file gets its own tab. Edits appear as you type and `●` (or `*` in retro) marks unsaved changes.
   Use `p` to keep your reading position or resume following the editor. Search with `/` and `n`. Enter takes the
