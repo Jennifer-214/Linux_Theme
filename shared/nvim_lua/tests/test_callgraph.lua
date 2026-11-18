@@ -726,6 +726,31 @@ do
   G.close_view(v.buf)
   G.transport = transport
 end
+-- The callers side reads desk-work's steps the other way: a step's from is the caller (map_graph.hpp walk).
+do
+  local Map = require('desk.map')
+  local transport, incoming = G.transport, 0
+  G.transport = function(client, source_buf, method, params, done)
+    if method == 'callHierarchy/incomingCalls' then incoming = incoming + 1 end
+    return transport(client, source_buf, method, params, done)
+  end
+  local function names(tier) return vim.tbl_map(function(i) return i.name end, tier or {}) end
+  local function node(id, label, line, depth) return { id = id, label = label, file = 'sample.lua', line = line, depth = depth } end
+  Map.desk_work = function(_, done) vim.schedule(function() done({ ok = true, root = dir, q = 'callers',
+    nodes = { node('alpha', 'M.alpha', 2, 0), node('gamma', 'gamma', 8, 1), node('beta', 'M.beta', 5, 2) },
+    steps = { { from = 'gamma', to = 'alpha', depth = 1, mark = 'follow' }, { from = 'beta', to = 'gamma', depth = 2, mark = 'leaf' } } }) end) end
+  local v = G.open({ buf = buf, row = 1, col = 11, name = 'M.alpha', key = 'B1 callers' })
+  ok(vim.wait(2000, function() return v.graph and v.graph.callers end), 'callers: the graph is read')
+  api.nvim_set_current_win(v.win)
+  G.select(v, (named(v, 'caller_of_M.alpha')), true)
+  incoming = 0
+  key('+')
+  ok(vim.wait(2000, function() return not (v.depth_requests or {}).callers end), 'callers: the next level is read')
+  eq({ names(v.graph.layers.callers[1]), names(v.graph.layers.callers[2]), incoming }, { { 'caller_of_M.alpha' }, { 'M.beta' }, 0 },
+    "callers: the map's level under the server's (caller_of_M.alpha is gamma's place), read from the caller's end")
+  G.close_view(v.buf)
+  G.transport = transport
+end
 
 vim.fn.delete(dir, "rf")
 print(string.format("test_callgraph: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
