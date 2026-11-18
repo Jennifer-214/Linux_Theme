@@ -1047,8 +1047,10 @@ local function member_size(mb)
 end
 -- A struct's bytes, 16 to a row: each member's letter over its bytes; ▒ where members share a byte (bit-fields packed
 -- together, a union); · padding, only on a layout symdeps placed completely; ░ bytes it could not account for (a partial
--- layout's gaps: they may be a member it could not read). The members `touched` names are lit. Long runs of the same
--- row fold into one line; at most `cap` lines. → { rows = parts lines, legend = parts lines, padding = bytes or nil }.
+-- layout's gaps: they may be a member it could not read). Beside each row, the members that start in it, by letter, name
+-- and size (a hex editor's text column), so no legend has to be matched. The members `touched` names are lit. Long runs
+-- of the same row fold into one line; at most `cap` lines. → { rows = parts lines, legend = parts lines (the marks'
+-- key), padding = bytes or nil }.
 function M.byte_map(rec, touched, retro, cap)
   touched, cap = touched or {}, cap or 24
   local more = retro and '..' or '…'
@@ -1073,7 +1075,7 @@ function M.byte_map(rec, touched, retro, cap)
     return LETTERS:sub(o[1], o[1]) ~= '' and LETTERS:sub(o[1], o[1]) or '#', lit and 'DeskMapFocus' or nil
   end
   local seen, padding = {}, 0
-  local w = #tostring(math.max(0, size - 1))
+  local w = math.max(4, #tostring(math.max(0, size - 1))) -- one offset width, so maps under each other line up
   local rows, raw = {}, {}
   for r = 0, math.ceil(size / 16) - 1 do
     local cells, key = {}, ''
@@ -1086,6 +1088,12 @@ function M.byte_map(rec, touched, retro, cap)
     end
     raw[#raw + 1] = { off = r * 16, cells = cells, key = key }
   end
+  local starts = {}
+  for i, mb in ipairs(rec.members or {}) do
+    local r = math.floor((mb.off or 0) / 16)
+    starts[r] = starts[r] or {}
+    table.insert(starts[r], i)
+  end
   local function row(rw)
     local parts = { { '    ' .. string.format('%' .. w .. 'd', rw.off) .. ' │', nil, nil, 'DeskMapDim' } }
     for k, c in ipairs(rw.cells) do
@@ -1095,6 +1103,12 @@ function M.byte_map(rec, touched, retro, cap)
       else parts[#parts + 1] = { c[1], nil, nil, c[2], cell = true } end
     end
     parts[#parts + 1] = { '│', nil, nil, 'DeskMapDim' }
+    for _, i in ipairs(starts[rw.off / 16] or {}) do
+      local mb, letter = rec.members[i], LETTERS:sub(i, i) ~= '' and LETTERS:sub(i, i) or '#'
+      parts[#parts + 1] = { '  ' }
+      parts[#parts + 1] = { letter .. ' ', nil, nil, 'DeskMapDim' }
+      parts[#parts + 1] = { mb.name .. ' ' .. member_size(mb), nil, nil, touched[mb.name] and 'DeskMapFocus' or nil }
+    end
     return parts
   end
   local k = 1
@@ -1120,27 +1134,13 @@ function M.byte_map(rec, touched, retro, cap)
       k = k + 1
     end
   end
-  local entries = {}
-  for i, mb in ipairs(rec.members or {}) do
-    entries[#entries + 1] = { (LETTERS:sub(i, i) ~= '' and LETTERS:sub(i, i) or '#') .. ' ' .. mb.name .. ' ' .. member_size(mb), touched[mb.name] and 'DeskMapFocus' or nil }
-  end
-  if seen.shared then entries[#entries + 1] = { '▒ shared', 'DeskMapDim', true } end
-  if seen.pad then entries[#entries + 1] = { '· padding', 'DeskMapDim', true } end
-  if seen.unknown then entries[#entries + 1] = { '░ not accounted for', 'DeskMapDim', true } end
-  local legend, line, used = {}, nil, 0
-  for _, e in ipairs(entries) do
-    local wdt = vim.fn.strdisplaywidth(e[1])
-    if not line or used + 2 + wdt > 64 then
-      line = { { '      ' } }
-      legend[#legend + 1] = line
-      used = 0
-    else
-      line[#line + 1] = { '  ' }
-      used = used + 2
-    end
-    line[#line + 1] = { e[1], nil, e[3], e[2] }
-    used = used + wdt
-  end
+  -- the marks' key, under the map's cells
+  local key = {}
+  if seen.shared then key[#key + 1] = '▒ shared' end
+  if seen.pad then key[#key + 1] = '· padding' end
+  if seen.unknown then key[#key + 1] = '░ not accounted for' end
+  local legend = {}
+  if #key > 0 then legend[1] = { { '    ' .. string.rep(' ', w) .. '  ' }, { table.concat(key, '  '), nil, true, 'DeskMapDim' } } end
   return { rows = rows, legend = legend, padding = rec.complete and padding or nil }
 end
 -- A layout's shape, to tell a template's versions apart: the same size and members are one layout.

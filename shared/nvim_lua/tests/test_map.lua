@@ -319,8 +319,10 @@ local function lit(drawn, row)
   end
   return out
 end
-eq(row0 and lit(laid, row0), { "aaaaaaaa" }, "… the bytes this function touches lit, the rest not")
-ok(line_with(laid.lines, "a px 8 B  b flags 3 bits  c kind 10 bits") and line_with(laid.lines, "▒ shared  · padding"), "… and what each letter and mark is")
+ok(line_with(laid.lines, "   0 │aaaaaaaa ▒c······│  a px 8 B  b flags 3 bits  c kind 10 bits") and line_with(laid.lines, "  16 │dddddddd eeeeeeee│  d seq 8 B  e ts 8 B"),
+  "… beside each row, the members that start in it: letter, name and size")
+eq(row0 and lit(laid, row0), { "aaaaaaaa", "px 8 B" }, "… the touched member's name lit with its bytes")
+ok(line_with(laid.lines, "           ▒ shared  · padding"), "… and a key for the marks, under the cells")
 -- A partial layout (an older symdeps, or a member symdeps could not size): its gaps are never called padding.
 local partial = vim.tbl_extend("force", TICK, { complete = false, why = "no size for `seq`", members = {
   { kind = "field", name = "px", off = 0, size = 8 }, { kind = "field", name = "seq", off = 16 }, { kind = "field", name = "ts", off = 24, size = 8 } } })
@@ -338,6 +340,8 @@ local big = { name = "Ring", size = 4096, align = 64, complete = true, members =
   { kind = "field", name = "buf", off = 64, size = 4032 } } }
 local bm = Map.byte_map(big, {}, false)
 local bm_text = vim.tbl_map(function(r) return table.concat(vim.tbl_map(function(pt) return pt[1] end, r)) end, bm.rows)
+local small = Map.byte_map({ size = 8, complete = true, members = { { name = "x", off = 0, size = 8 } } }, {}, false)
+eq({ small.rows[1][1][1], bm.rows[1][1][1] }, { "       0 │", "       0 │" }, "a small struct's map and a big one's line up (one offset width)")
 ok(bm_text[1]:find("0 │aaaaaaaa ········│", 1, true) and bm_text[2]:find("16 │········ ········│", 1, true), "big: the head, then its padding")
 ok(vim.tbl_contains(bm_text, "         ─── line 2 ───"), "… a cache line's start marked: " .. vim.inspect(bm_text))
 ok(vim.iter(bm_text):any(function(t) return t:find("… the same to byte 4095, line 64", 1, true) end) and #bm.rows < 10, "… and the buffer's 252 rows folded into one line, saying the line it ends on")
