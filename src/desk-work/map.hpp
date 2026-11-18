@@ -527,6 +527,9 @@ J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
         if (!refusal.is_null()) return refusal;
         out = desk_map::paths(g, static_cast<size_t>(a), static_cast<size_t>(b), std::clamp(map_number(opts["--depth"], 10), 1, 16),
                               static_cast<size_t>(std::clamp(map_number(opts["--max"], 20), 1, 100)));
+    } else if (q == "crossings") {
+        if (opts["--from"].empty() || opts["--to"].empty()) return refuse("Name the two parts: --from PART --to PART");
+        out = desk_map::crossings(g, opts["--from"], opts["--to"], static_cast<size_t>(std::clamp(map_number(opts["--cap"], 40), 1, 400)));
     } else if (q == "module") {
         out = opts["--name"].empty() ? desk_map::modules(g)
                                      : desk_map::module_contents(g, opts["--name"], static_cast<size_t>(std::clamp(map_number(opts["--cap"], 3000), 1, 20000)));

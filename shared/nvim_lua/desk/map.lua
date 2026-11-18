@@ -909,7 +909,10 @@ function M.level_modules(answer, all)
     local shown = all and #edges or math.min(#edges, 12)
     for i = 1, shown do
       local e = edges[i]
-      sections[#sections + 1] = { parts = { { '  ' }, { e.from, item(e.from) }, { ' → ' }, { e.to, item(e.to) }, { ' · ' .. e.count } } }
+      -- the count a hit too: Enter shows the crossings themselves (the interface one part uses of the other)
+      sections[#sections + 1] = { parts = { { '  ' }, { e.from, item(e.from) }, { ' → ' }, { e.to, item(e.to) }, { ' · ' },
+        { e.count .. (e.count == 1 and ' call' or ' calls'), { name = e.from .. ' → ' .. e.to, key = 'crossings:' .. e.from .. '>' .. e.to,
+          target = { kind = 'crossings', from = e.from, to = e.to } } } } }
     end
     if shown < #edges then sections[#sections + 1] = { more = #edges - shown } end
   end
@@ -1516,6 +1519,22 @@ end
 function M.level_query(answer, all, level)
   if answer.q == 'trace' then return M.trace_page(answer, level and level.folds, level and level.layouts, level and level.field) end
   local sections = {}
+  if answer.q == 'crossings' then
+    local n_entries = #(answer.entries or {})
+    sections[#sections + 1] = { head = 'how ' .. tostring(answer.from) .. ' uses ' .. tostring(answer.to) .. ' · ' .. n_entries
+      .. (n_entries == 1 and ' entry function, ' or ' entry functions, ') .. tostring(answer.calls or 0) .. ' calls in' }
+    if #(answer.entries or {}) == 0 then sections[#sections + 1] = { parts = { { 'No call crosses from ' .. tostring(answer.from) .. ' into ' .. tostring(answer.to) .. '.' } }, group = 'DeskMapDim' } end
+    for _, e in ipairs(answer.entries or {}) do
+      local n = e.node or {}
+      local rows = { { { n.label, node_item(n) }, { '  ' .. where(n) .. ' · ' .. tostring(e.count) .. (e.count == 1 and ' caller' or ' callers'), nil, nil, 'DeskMapDim' } } }
+      local callers = { { '    from ', nil, true, 'DeskMapDim' } }
+      for i, c in ipairs(e.callers or {}) do callers[#callers + 1] = { c.label .. (i < #e.callers and ' · ' or ''), node_item(c), nil, nil } end
+      rows[#rows + 1] = callers
+      sections[#sections + 1] = { block = rows }
+    end
+    if (answer.more or 0) > 0 then sections[#sections + 1] = { parts = { { '… and ' .. answer.more .. ' more entry functions', nil, true } }, group = 'DeskMapDim' } end
+    return { crumbs = { 'interface' }, sections = sections }
+  end
   if answer.q == 'paths' then
     local by = node_index(answer)
     local from, to = answer.from or {}, answer.to or {}
@@ -2062,6 +2081,9 @@ local function enter(view, ctx)
     local top = view.stack[#view.stack]
     local n = top.kind == 'pick' and top.candidates[t.index]
     if n and top.chosen then top.chosen(n.id, top) end
+  elseif t.kind == 'crossings' then
+    -- The calls from one part into another, by the entry function each reaches: a page of its own.
+    query(view, { '--q', 'crossings', '--from', t.from, '--to', t.to }, item.key)
   elseif t.kind == 'walk' then
     -- The map's callers or reach page from that step (3 levels; + and - change it), a page of its own.
     query(view, { '--q', t.q, '--from', t.node.id, '--depth', '3' }, item.key)
@@ -3009,6 +3031,8 @@ function M.strip_text(item, G)
       typed('in') .. ' ' .. G.said('opens its producer or consumer') .. ' · ' .. typed('handoff-drop') .. ' ' .. G.said(t.by_hand and 'forgets it' or 'drops it (it is wrong)') }
   elseif t.kind == 'field' then
     return { tostring(item.name), typed('in') .. ' ' .. G.said('follows it: its declaration, who writes it, or on this route') }
+  elseif t.kind == 'crossings' then
+    return { tostring(item.name), typed('in') .. ' ' .. G.said('shows the calls that cross, by the entry function they reach') }
   elseif t.kind == 'call' then
     local n = #(t.sites or {})
     return { tostring(t.caller) .. ' → ' .. tostring(t.callee) .. G.said(n > 1 and (' — ' .. n .. ' calls') or ''),

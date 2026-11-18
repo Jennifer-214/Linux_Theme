@@ -971,6 +971,31 @@ inline J paths(const Graph& g, size_t from, size_t to, int depth, size_t max) {
     return out;
 }
 
+// The calls from part `from` into part `to`, by the entry function they reach in `to` (the interface `from` uses), each
+// with its callers in `from`, the most-called first. A part's own helpers do not show: only calls that cross.
+inline J crossings(const Graph& g, const std::string& from, const std::string& to, size_t cap) {
+    std::map<size_t, std::set<size_t>> by_entry;
+    for (size_t v = 0; v < g.nodes.size(); ++v) {
+        if (g.module[v] != from) continue;
+        for (const auto& [w, mask] : g.out[v]) if (g.module[w] == to && w != v) by_entry[w].insert(v);
+    }
+    std::vector<std::pair<size_t, std::set<size_t>>> list(by_entry.begin(), by_entry.end());
+    std::stable_sort(list.begin(), list.end(), [&](const auto& x, const auto& y) {
+        return x.second.size() != y.second.size() ? x.second.size() > y.second.size() : text(g.nodes[x.first], "label") < text(g.nodes[y.first], "label");
+    });
+    J entries = J::array();
+    size_t calls = 0;
+    for (const auto& [w, callers] : list) {
+        calls += callers.size();
+        if (entries.size() >= cap) continue;
+        J who = J::array();
+        for (const auto v : callers) if (who.size() < 12) who.push_back(g.node(v));
+        entries.push_back(J{{"node", g.node(w)}, {"callers", who}, {"count", callers.size()}});
+    }
+    return J{{"ok", true}, {"q", "crossings"}, {"from", from}, {"to", to}, {"entries", entries}, {"calls", calls},
+             {"more", list.size() > cap ? list.size() - cap : 0}};
+}
+
 // The checkout's parts with their sizes, and how many distinct calls go from each part to each other one.
 inline J modules(const Graph& g) {
     struct Size { std::set<std::string> files; long long functions = 0, types = 0; };

@@ -511,6 +511,20 @@ do
   local text = table.concat(Map.layout(Map.level_findings({ on = on, tools = 1 }), 100, false).lines, "\n")
   ok(text:find("findings on this path · 2 (from 1 tool)", 1, true) and text:find("error  unchecked result  e.cpp:52 · in submit · lint", 1, true), "… drawn with severity, place, step and tool")
 end
+do
+  -- The parts page's count is a hit: the interface one part uses of the other, by entry function.
+  local parts = Map.layout(Map.level_modules({ ok = true, modules = { { name = "lua", files = 2, functions = 9 }, { name = "csrc", files = 1, functions = 3 } },
+    edges = { { from = "lua", to = "csrc", count = 4 } } }), 100, false)
+  local row, l = line_with(parts.lines, "lua → csrc · 4 calls")
+  local hit = row and Map.item_at(parts, row, l:find("4 calls", 1, true))
+  eq(hit and hit.target, { kind = "crossings", from = "lua", to = "csrc" }, "the count of calls between two parts is a hit")
+  local page = Map.layout(Map.level_query({ ok = true, q = "crossings", from = "lua", to = "csrc", calls = 3,
+    entries = { { node = { id = "csrc/p.c::leaf", label = "leaf", file = "csrc/p.c", line = 2 }, count = 2,
+      callers = { { id = "lua/a.lua::alpha", label = "alpha", file = "lua/a.lua", line = 3 }, { id = "lua/b.lua::beta", label = "beta", file = "lua/b.lua", line = 5 } } } } }), 100, false)
+  local text = table.concat(page.lines, "\n")
+  ok(text:find("how lua uses csrc · 1 entry function, 3 calls in", 1, true) and text:find("leaf  p.c:2 · 2 callers", 1, true) and text:find("from alpha · beta", 1, true),
+    "the crossings: each entry function with its callers from the other part")
+end
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11, to_line = 20 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)

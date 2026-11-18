@@ -315,6 +315,18 @@ int main(int, char** argv) {
         CHECK(dead["paths"].empty() && dead["why"] == "ran_out" && dead["ends"].empty() && dead["callers"].size() >= 2,
               "no way at all: both sides ran out of known calls; what calls F listed");
         CHECK(!desk_map::paths(g, g.at.at("entry"), g.at.at("x"), 16, 5).contains("why"), "a way found: no why");
+        // The interface one part uses of another: the calls that cross, by the entry function they reach.
+        {
+            J parts{{"version", 1}, {"nodes", J::array()}, {"edges", J::array()}};
+            for (const auto& [id, file] : std::vector<std::pair<std::string, std::string>>{{"a1", "a/x.cpp"}, {"a2", "a/y.cpp"}, {"b1", "b/z.cpp"}, {"b2", "b/w.cpp"}})
+                parts["nodes"].push_back(J{{"id", id}, {"label", id}, {"kind", "function"}, {"file", file}, {"line", 1}});
+            for (const auto& [f, t2] : std::vector<std::pair<std::string, std::string>>{{"a1", "b1"}, {"a2", "b1"}, {"a1", "b2"}, {"b1", "b2"}, {"a1", "a2"}})
+                parts["edges"].push_back(J{{"from", f}, {"to", t2}, {"kind", "call"}});
+            const desk_map::Graph pg(desk_map::clean_graph(parts));
+            const auto x = desk_map::crossings(pg, "a", "b", 40);
+            CHECK(x["entries"].size() == 2 && x["entries"][0]["node"]["id"] == "b1" && x["entries"][0]["count"] == 2 && x["entries"][1]["node"]["id"] == "b2"
+                  && x["calls"] == 3, "a's calls into b by entry function, the most-called first; b's own and a's own calls left out");
+        }
         // Her corrections: the handoff dropped is gone; one she adds carries the lane on, marked by_hand.
         const desk_map::Graph dropped(desk_map::corrected(desk_map::clean_graph(handed), J{{"drop", J::array({J{{"from", "end"}, {"to", "consumer"}}})}}));
         CHECK(lane(desk_map::trace(dropped, dropped.at.at("F"), 16)).back() == "end", "a dropped handoff is gone: the lane ends at the calls' end");
