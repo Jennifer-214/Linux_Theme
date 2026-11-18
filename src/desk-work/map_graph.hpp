@@ -746,6 +746,13 @@ inline J trace(const Graph& g, size_t focus, int depth, long to = -1) {
     for (size_t k = 0; k < lane.size(); ++k) {
         const auto v = lane[k];
         J step = g.node(v);
+        // How big it is: its lines, from the reader's spans (first and last line).
+        const auto spans = g.doc.find("spans");
+        if (spans != g.doc.end() && spans->is_object()) {
+            const auto span = spans->find(text(g.nodes[v], "id"));
+            if (span != spans->end() && span->is_array() && span->size() == 2 && (*span)[0].is_number_integer() && (*span)[1].is_number_integer())
+                step["lines"] = (*span)[1].get<long long>() - (*span)[0].get<long long>() + 1;
+        }
         step["role"] = v == focus ? "focus" : (k < static_cast<size_t>(std::find(lane.begin(), lane.end(), focus) - lane.begin()) ? "up" : "down");
         const auto off = [&](const std::vector<std::pair<size_t, int>>& list, size_t skip) {
             J named = J::array();

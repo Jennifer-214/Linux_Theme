@@ -612,6 +612,51 @@ function M.layout(page, width, retro)
     elseif s.arrow then centred(G.down, 'DeskMapBox')
     elseif s.parts then
       put_parts(s.parts, '', s.group)
+    elseif s.card then
+      -- A box with lines inside (a trace step): its name and where it is in the top border, the name a hit with where
+      -- Enter goes; each line inside a line of parts (folds, parameters, names), cut to the page.
+      local c = s.card
+      local frame = c.frame == 'double' and G.double or G.single
+      local title, right = fit(c.title or '', width - 12, G.ellipsis), c.right or ''
+      -- The top line needs the title and the place with `─ ` before, ` ` between, ` ─` after (7), or the title alone (3).
+      local inner = width_of(title) + width_of(right) + 7
+      for _, l in ipairs(c.body or {}) do inner = math.max(inner, width_of(parts_text(l.parts or l)) + 2) end
+      inner = math.min(inner, width - 2)
+      if width_of(title) + width_of(right) + 7 > inner then right = '' end
+      local left = string.rep(' ', math.max(0, math.floor((width - inner - 2) / 2)))
+      local top_line = #lines + 1
+      local top = left .. frame.tl .. frame.h .. ' '
+      local title_col = #top
+      local tail = right ~= '' and (' ' .. right .. ' ' .. frame.h .. frame.tr) or frame.tr
+      -- The gap fills the top line to the bottom line's width (left, the corners and `inner` between them).
+      local gap = width_of(left) + inner + 2 - width_of(top .. title .. ' ' .. tail)
+      top = top .. title .. ' ' .. string.rep(frame.h, math.max(1, gap)) .. tail
+      add(top, 'DeskMapBox')
+      marks[#marks + 1] = { top_line, title_col, title_col + #title, c.frame == 'double' and 'DeskMapFocus' or 'DeskMapName', 1 }
+      hits[top_line] = hits[top_line] or {}
+      table.insert(hits[top_line], { s = title_col, e = title_col + #title, item = c.item })
+      placed[#placed + 1] = { item = c.item, spans = { { top_line, title_col, title_col + #title } }, line = top_line, name_col = title_col,
+                              x = width_of(left) + 3, w = width_of(title), centre = c.frame == 'double' }
+      for _, l in ipairs(c.body or {}) do
+        local lnum, text = #lines + 1, left .. frame.v .. ' '
+        add('')
+        for _, part in ipairs(l.parts or l) do
+          local piece = part[3] and G.said(tostring(part[1] or '')) or tostring(part[1] or '')
+          local room = inner - 1 - width_of(text) + width_of(left) + width_of(frame.v)
+          if width_of(piece) > room then piece = fit(piece, math.max(1, room), G.ellipsis) end
+          if part[2] then
+            hits[lnum] = hits[lnum] or {}
+            table.insert(hits[lnum], { s = #text, e = #text + #piece, item = part[2] })
+            placed[#placed + 1] = { item = part[2], spans = { { lnum, #text, #text + #piece } }, line = lnum, name_col = #text,
+                                    x = width_of(text), w = width_of(piece) }
+          end
+          if part[4] or part[2] then marks[#marks + 1] = { lnum, #text, #text + #piece, part[4] or 'DeskMapName', 1 } end
+          text = text .. piece
+        end
+        lines[lnum] = text .. string.rep(' ', math.max(0, width_of(left) + inner + 1 - width_of(text))) .. frame.v
+        marks[#marks + 1] = { lnum, 0, #lines[lnum], 'DeskMapBox' }
+      end
+      add(left .. frame.bl .. string.rep(frame.h, inner) .. frame.br, 'DeskMapBox')
     elseif s.block then
       -- Lines left-aligned among themselves, the block centred (a trace step's parameters under its box). A line wider
       -- than the page wraps between its parts, going on indented (a busy function's other callees).
@@ -942,7 +987,13 @@ end
 -- and each argument → the parameter it lands in.
 local PASS_WORD = { value = 'value', ['const ref'] = 'const ref', ref = 'ref', rvalue = 'moved in', pointer = 'pointer',
   ['const pointer'] = 'const ptr', array = 'array', ['const array'] = 'const array', smart = 'smart ptr' }
-function M.trace_page(answer)
+-- folds: the page's open and closed folds by step and fold ("<id>|params"); a fold not named is as FOLDS_OPEN says.
+local FOLDS_OPEN = { params = true, callers = false, callees = false }
+local function fold_item(id, name, open, count)
+  return { name = name, target = { kind = 'fold', fold = id .. '|' .. name }, key = 'fold:' .. id .. '|' .. name, open = open, count = count }
+end
+function M.trace_page(answer, folds)
+  folds = folds or {}
   local steps, calls = answer.steps or {}, answer.calls or {}
   local focus
   for _, st in ipairs(steps) do if st.id == answer.focus then focus = st end end
@@ -952,32 +1003,45 @@ function M.trace_page(answer)
       .. (answer.depth or '?') .. ' calls' } }, group = 'DeskMapDim' }
   end
   for k, st in ipairs(steps) do
-    sections[#sections + 1] = { boxes = { node_item(st, { detail = where(st) .. (st.returns and (' → ' .. st.returns) or '') }) },
-      frame = st.role == 'focus' and 'double' or 'single' }
-    local block, params = {}, st.params or {}
-    local wpass, wtype = 0, 0
-    for _, prm in ipairs(params) do
-      wpass = math.max(wpass, #(PASS_WORD[prm.pass] or prm.pass))
-      wtype = math.max(wtype, vim.fn.strdisplaywidth(prm.type))
+    local body = {}
+    local size = st.lines and (st.lines .. (st.lines == 1 and ' line' or ' lines')) or nil
+    local first = {}
+    if st.returns then first[#first + 1] = { '→ ' .. st.returns } end
+    if size then first[#first + 1] = { (#first > 0 and ' · ' or '') .. size, nil, true, 'DeskMapDim' } end
+    if #first > 0 then body[#body + 1] = first end
+    local function fold(name, title, count, rows)
+      if count == 0 then return end
+      local key = st.id .. '|' .. name
+      local open = folds[key]
+      if open == nil then open = FOLDS_OPEN[name] end
+      body[#body + 1] = { { (open and '▾ ' or '▸ ') }, { title .. ' (' .. count .. ')', fold_item(st.id, name, open, count), true, 'DeskMapHead' } }
+      if open then for _, row in ipairs(rows()) do body[#body + 1] = row end end
     end
-    for _, prm in ipairs(params) do
-      local word = PASS_WORD[prm.pass] or prm.pass
-      block[#block + 1] = { { string.format('%-5s  %-' .. wpass .. 's  ', prm.dir, word), nil, true },
-        { prm.type .. string.rep(' ', wtype - vim.fn.strdisplaywidth(prm.type)) .. '  ' .. prm.name } }
-    end
-    for _, side in ipairs({ { 'callers', 'more_callers', 'other caller' }, { 'callees', 'more_callees', 'other callee' } }) do
-      local list, more = st[side[1]] or {}, st[side[2]] or 0
-      if more > 0 then
-        local line = { parts = { { '+' .. more .. ' ' .. side[3] .. (more == 1 and '' or 's') .. ': ', nil, true } }, group = 'DeskMapDim' }
-        for i, other in ipairs(list) do
-          if i > 1 then line.parts[#line.parts + 1] = { ', ' } end
-          line.parts[#line.parts + 1] = { other.label, node_item(other) }
-        end
-        if more > #list then line.parts[#line.parts + 1] = { ' …' } end
-        block[#block + 1] = line
+    local params = st.params or {}
+    fold('params', 'parameters', #params, function()
+      local rows, wpass, wtype, wdir = {}, 0, 0, 0
+      for _, prm in ipairs(params) do
+        wpass = math.max(wpass, #(PASS_WORD[prm.pass] or prm.pass))
+        wtype = math.max(wtype, vim.fn.strdisplaywidth(prm.type))
+        wdir = math.max(wdir, #prm.dir)
       end
+      for _, prm in ipairs(params) do
+        rows[#rows + 1] = { { '    ' .. string.format('%-' .. wdir .. 's  %-' .. wpass .. 's  ', prm.dir, PASS_WORD[prm.pass] or prm.pass), nil, true, 'DeskMapDim' },
+          { prm.type .. string.rep(' ', wtype - vim.fn.strdisplaywidth(prm.type)) .. '  ' }, { prm.name, nil, nil, 'DeskMapName' } }
+      end
+      return rows
+    end)
+    for _, side in ipairs({ { 'callers', 'more_callers', 'other callers' }, { 'callees', 'more_callees', 'other callees' } }) do
+      local list, more = st[side[1]] or {}, st[side[2]] or 0
+      fold(side[1], side[3], more, function()
+        local rows = {}
+        for _, other in ipairs(list) do rows[#rows + 1] = { { '    ' }, { other.label, node_item(other) }, { '  ' .. where(other), nil, nil, 'DeskMapDim' } } end
+        if more > #list then rows[#rows + 1] = { { '    … ' .. (more - #list) .. ' more', nil, true, 'DeskMapDim' } } end
+        return rows
+      end)
     end
-    if #block > 0 then sections[#sections + 1] = { block = block } end
+    sections[#sections + 1] = { card = { item = node_item(st), title = st.label, right = where(st), body = body,
+      frame = st.role == 'focus' and 'double' or 'single' } }
     local call, after = calls[k], steps[k + 1]
     if call and after and call.kind == 'handoff' then
       -- No call between the two: what one gives, the other takes (a ring's push and pop, a thread started with it, a
@@ -1002,8 +1066,8 @@ function M.trace_page(answer)
   return { crumbs = { 'trace' }, sections = sections }
 end
 
-function M.level_query(answer, all)
-  if answer.q == 'trace' then return M.trace_page(answer) end
+function M.level_query(answer, all, level)
+  if answer.q == 'trace' then return M.trace_page(answer, level and level.folds) end
   local sections = {}
   if answer.q == 'paths' then
     local by = node_index(answer)
@@ -1179,7 +1243,7 @@ local function cached(view, key) return view.cache[key] or (view.previous or {})
 local function page_of(view)
   local level = view.stack[#view.stack]
   if level.kind == 'modules' then return cached(view, 'modules') and M.level_modules(cached(view, 'modules'), level.all) end
-  if level.kind == 'query' then return M.level_query(level.answer, level.all) end
+  if level.kind == 'query' then return M.level_query(level.answer, level.all, level) end
   local answer = cached(view, 'module:' .. level.module)
   if not answer then return nil end
   if level.kind == 'files' then return M.level_files(answer, level.module, level.all) end
@@ -1457,7 +1521,15 @@ local function enter(view, ctx)
   if t.kind == 'module' then push(view, { kind = 'files', module = t.module }, item.key)
   elseif t.kind == 'file' then push(view, { kind = 'functions', module = t.module, file = t.file }, item.key)
   elseif t.kind == 'class' then push(view, { kind = 'class', module = t.module, file = t.file, id = t.id, name = item.name, node = t.node }, item.key)
-  elseif t.kind == 'node' then jump(view, t.node, ctx and ctx.origin) end
+  elseif t.kind == 'node' then jump(view, t.node, ctx and ctx.origin)
+  elseif t.kind == 'fold' then
+    -- A trace's fold: open or closed, kept with the page, the cursor (the pop-out's selection) staying on its header.
+    local top = view.stack[#view.stack]
+    top.folds = top.folds or {}
+    top.folds[t.fold] = not item.open
+    if view.out then top.selected = item.key else top.keep = { box = box_of(item), cursor = api.nvim_win_get_cursor(view.win) } end
+    load(view)
+  end
 end
 
 local function ask(prompt, default, done)

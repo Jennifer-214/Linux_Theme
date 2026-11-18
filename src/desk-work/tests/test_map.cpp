@@ -263,6 +263,8 @@ int main(int, char** argv) {
         call("entry", "a"); call("entry2", "mid"); call("mid", "a"); call("a", "F"); call("s", "F"); call("F", "b"); call("F", "x");
         call("b", "c"); call("c", "b"); call("c", "end");
         doc["edges"][3]["line"] = 12; doc["edges"][3]["args"] = J::array({"tick"});
+        doc["spans"] = J::object();
+        doc["spans"]["F"] = J::array({10, 41});
         const desk_map::Graph g(doc);
         const auto lane = [](const J& t) { std::vector<std::string> ids; for (const auto& st : t["steps"]) ids.push_back(st["id"]); return ids; };
         const auto t = desk_map::trace(g, g.at.at("F"), 16);
@@ -270,6 +272,7 @@ int main(int, char** argv) {
               "the lane: up to the farthest start (entry2, not entry), down to the farthest end, a cycle walked once");
         CHECK(t["steps"][3]["role"] == "focus" && t["steps"][0]["role"] == "up" && t["steps"][6]["role"] == "down", "… each step says where it is");
         CHECK(t["steps"][3]["params"][0]["pass"] == "const ref", "… with its signature");
+        CHECK(t["steps"][3]["lines"] == 32 && !t["steps"][2].contains("lines"), "… and how big it is, where the reader gave its lines");
         CHECK(t["steps"][3]["more_callers"] == 1 && t["steps"][3]["callers"][0]["id"] == "s" && t["steps"][3]["more_callees"] == 1
               && t["steps"][3]["callees"][0]["id"] == "x", "… and what is off the lane: F's other caller s and callee x");
         CHECK(t["steps"][2]["more_callers"] == 1 && t["steps"][2]["callers"][0]["id"] == "entry", "… a's other caller, entry");

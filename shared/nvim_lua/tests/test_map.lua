@@ -256,36 +256,43 @@ local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16
       callers = {}, more_callers = 0, callees = {}, more_callees = 0 } },
   calls = { { from = "e.cpp::hot", to = "e.cpp::tick", kind = "call-by-name", line = 12, args = { "t" } },
             { from = "e.cpp::tick", to = "e.cpp::submit", kind = "call-by-name", line = 11, args = { "Order{t.px}", "3" } } } }
+trace_answer.steps[2].lines = 32
 local traced = Map.layout(Map.trace_page(trace_answer), 90, false)
 ok(line_with(traced.lines, "trace through `tick` · 3 functions") or line_with(traced.lines, "trace through tick · 3 functions"), "the trace's heading")
-ok(line_with(traced.lines, "╔") and line_with(traced.lines, "║ tick"), "the function it goes through, in a double box")
-ok(line_with(traced.lines, "in     const ref  const Tick &  t"), "a parameter: which way, how it is passed, its type and name")
-ok(line_with(traced.lines, "in     moved in  Order &&  order") and line_with(traced.lines, "in     value     int       retries"), "… aligned in columns")
-ok(line_with(traced.lines, "inout  ref  Ring &  ring"), "… inout where the callee can change the caller's value")
+ok(line_with(traced.lines, "╔═ tick ") and line_with(traced.lines, " e.cpp:11 ═╗"), "a card per step: the function it goes through double, its name and place in the top border")
+ok(line_with(traced.lines, "║ → bool · 32 lines"), "… what it returns and how big it is")
+ok(line_with(traced.lines, "║ ▾ parameters (1)") and line_with(traced.lines, "║     in  const ref  const Tick &  t"), "its parameters, open: which way, how passed, type, name")
+ok(line_with(traced.lines, "│     in  moved in  Order &&  order") and line_with(traced.lines, "│     in  value     int       retries"), "… aligned in columns")
+ok(line_with(traced.lines, "│     inout  ref  Ring &  ring"), "… inout where the callee can change the caller's value")
+ok(line_with(traced.lines, "║ ▸ other callers (1)") and not line_with(traced.lines, "replay"), "its other callers, folded, counted")
+for i, line in ipairs(traced.lines) do
+  if line:find("┌", 1, true) or line:find("╔", 1, true) then ok(api.nvim_strwidth(line) == api.nvim_strwidth(traced.lines[i + 1]), "a card's top line meets its sides: " .. line) end
+end
 ok(line_with(traced.lines, ":11   Order{t.px} → order · 3 → retries"), "between steps the call: its line, each argument → its parameter")
 ok(line_with(traced.lines, ":12   t"), "… an argument named as its parameter is said once")
-ok(line_with(traced.lines, "e.cpp:11 → bool"), "… each box says where it is and what it returns")
-local replay_row = line_with(traced.lines, "+1 other caller: replay")
-ok(replay_row, "the other callers, by name")
-local _, replay_line = line_with(traced.lines, "+1 other caller: replay")
-eq(replay_row and Map.item_at(traced, replay_row, replay_line:find("replay", 1, true)).target.node.id, "e.cpp::replay", "… each one Enter-able")
+local fold_row, fold_line = line_with(traced.lines, "other callers (1)")
+local fold = fold_row and Map.item_at(traced, fold_row, fold_line:find("other callers", 1, true))
+eq(fold and fold.target, { kind = "fold", fold = "e.cpp::tick|callers" }, "a fold's header is a hit, to open it")
+local opened = Map.layout(Map.trace_page(trace_answer, { ["e.cpp::tick|callers"] = true, ["e.cpp::tick|params"] = false }), 90, false)
+ok(line_with(opened.lines, "║ ▾ other callers (1)") and line_with(opened.lines, "║     replay  e.cpp:30"), "open: one caller a line, with where it is")
+ok(line_with(opened.lines, "║ ▸ parameters (1)") and not line_with(opened.lines, "const Tick &  t"), "… and the parameters folded when she closed them")
+local replay_row, replay_line = line_with(opened.lines, "replay  e.cpp:30")
+eq(replay_row and Map.item_at(opened, replay_row, replay_line:find("replay", 1, true)).target.node.id, "e.cpp::replay", "… each one Enter-able")
 local traced_retro = Map.layout(Map.trace_page(trace_answer), 90, true)
-ok(line_with(traced_retro.lines, "IN     CONST REF  const Tick &  t") and line_with(traced_retro.lines, "+1 OTHER CALLER: replay"),
-  "retro: the words in capitals, the code as typed")
+ok(line_with(traced_retro.lines, "║     IN  CONST REF  const Tick &  t") and line_with(traced_retro.lines, "║ ▸ OTHER CALLERS (1)")
+  and line_with(traced_retro.lines, "32 LINES"), "retro: the words in capitals, the code as typed")
 local unreached = Map.layout(Map.trace_page(vim.tbl_extend("force", trace_answer, { to = "e.cpp::flush", reached = false })), 90, false)
 ok(line_with(unreached.lines, "tick does not reach flush within 16 calls"), "e to a function it does not reach: says so")
--- A busy function (the trader's draw loop has 55 other callees) and a long call wrap at the page, every name still a hit.
+-- A busy function (the trader's draw loop has 55 other callees) and a long call stay within the page.
 local busy = vim.deepcopy(trace_answer)
 busy.steps[2].callees, busy.steps[2].more_callees = {}, 30
 for i = 1, 8 do busy.steps[2].callees[i] = { id = "e.cpp::Callee_Number_" .. i, label = "Callee_Number_" .. i, file = "e.cpp", line = i } end
 busy.calls[2].args = {}
 for i = 1, 12 do busy.calls[2].args[i] = "&state->field_number_" .. i end
-local busy_page = Map.layout(Map.trace_page(busy), 70, false)
+local busy_page = Map.layout(Map.trace_page(busy, { ["e.cpp::tick|callees"] = true }), 70, false)
 local too_wide = vim.tbl_filter(function(l) return api.nvim_strwidth(l) > 70 end, busy_page.lines)
-eq(too_wide, {}, "a long list of other callees and a long call wrap within the page")
-local eighth = line_with(busy_page.lines, "Callee_Number_8")
-local _, eighth_line = line_with(busy_page.lines, "Callee_Number_8")
-eq(eighth and Map.item_at(busy_page, eighth, eighth_line:find("Callee_Number_8", 1, true)).target.node.id, "e.cpp::Callee_Number_8", "… a name on a wrapped line still Enter-able")
+eq(too_wide, {}, "a long list of other callees and a long call stay within the page")
+ok(line_with(busy_page.lines, "Callee_Number_8  e.cpp:8") and line_with(busy_page.lines, "… 22 more"), "… the list one a line, the rest counted")
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)
@@ -598,7 +605,15 @@ do
   local depth_before = #view.stack
   cursor_on("M.alpha")
   press("t")
-  ok(vim.wait(1000, function() return line_with(view.drawn.lines, "║ tick") end), "t: the trace page, drawn")
+  ok(vim.wait(1000, function() return line_with(view.drawn.lines, "╔═ tick ") end), "t: the trace page, drawn")
+  -- Enter on a fold's header opens it there, the cursor staying on the header.
+  local fold_row, fold_line = line_with(view.drawn.lines, "other callers (1)")
+  api.nvim_win_set_cursor(view.win, { fold_row, (fold_line:find("other callers", 1, true)) })
+  press("<CR>")
+  ok(vim.wait(1000, function() return line_with(view.drawn.lines, "replay  e.cpp:30") end), "Enter on a fold: open")
+  eq(api.nvim_win_get_cursor(view.win)[1], line_with(view.drawn.lines, "other callers (1)"), "… the cursor still on its header")
+  press("<CR>")
+  ok(vim.wait(1000, function() return not line_with(view.drawn.lines, "replay  e.cpp:30") end), "… and Enter again closes it")
   ok(traced_args[1] and traced_args[1]:find("--q trace --from lua/mod.lua::M.alpha", 1, true), "… asked through the box's function: " .. tostring(traced_args[1]))
   vim.ui.input = function(opts, done) eq(opts.prompt, "Trace to: ", "e asks where to"); done("submit") end
   press("e")
