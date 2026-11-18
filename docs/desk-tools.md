@@ -67,6 +67,28 @@ refused":
 - an `id` declared twice for one checkout, in one file or in two. Both are refused, "declared twice: A and B";
   desk-work never picks one.
 
+## Handoff corrections (`map`)
+
+The project map infers handoffs between functions that do not call each other: a push and a pop on one queue, a
+function passed by name, a function pointer. When it gets one wrong or misses one, the trace page corrects it: `x` on
+a `══[ handoff ]══` drops it, `a` on a step names the function it hands off to. desk-work keeps the corrections in a
+file of its own in desk.d, `map-<checkout folder>.json` (never in the checkout), in this format, with no tools:
+
+```json
+{ "version": 1, "root": "/srv/code/engine", "written_by": "desk-work map handoff", "tools": [],
+  "map": { "handoffs": { "drop": [ { "from": "engine.cpp::Tick", "to": "orders.cpp::Submit" } ],
+                         "add":  [ { "from": "feed.cpp::Producer", "to": "engine.cpp::Drain", "label": "tick ring" } ] } } }
+```
+
+A project's own `.desk/tools.json` may carry the same `map` field. Every query reads the map with them applied: a
+dropped handoff is gone (a call between the two functions stays), an added one is walked like the others and drawn
+as "added by you". Dropping one you added forgets it.
+
+```sh
+desk-work map handoff list [--root DIR]
+desk-work map handoff add|drop|forget --from NAME --to NAME [--label TEXT] [--root DIR]
+```
+
 ## Kinds
 
 | `gives` | The answer | Where it shows today |

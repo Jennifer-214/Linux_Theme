@@ -104,6 +104,39 @@ class Map(unittest.TestCase):
         self.assertEqual(list((Path(self.env["XDG_STATE_HOME"]) / "foxml/work").glob("projects/*/map/graph.json")), [])
 
     @unittest.skipUnless(NVIM, "nvim is not installed")
+    def test_handoff_corrections_are_hers_and_kept_outside_the_checkout(self):
+        self.build("--provider", "syntax")
+        lane = lambda t: [st["label"] for st in t["steps"]]
+        self.assertEqual(lane(self.query("--q", "trace", "--from", "leaf")), ["main", "middle", "leaf"])
+        added = self.data("map", "handoff", "add", "--root", self.repo, "--from", "leaf", "--to", "M.beta", "--label", "a queue")
+        self.assertEqual(added["did"], "added")
+        file = Path(added["file"])
+        self.assertEqual(file.parent, Path(self.env["XDG_CONFIG_HOME"]) / "foxml/desk.d")
+        self.assertEqual(file.name, "map-project with spaces.json")
+        decl = json.loads(file.read_text())
+        self.assertEqual((decl["version"], decl["root"], decl["tools"]), (1, str(self.repo), []))
+        traced = self.query("--q", "trace", "--from", "leaf")
+        self.assertEqual(lane(traced), ["main", "middle", "leaf", "M.beta", "helper"], "an added handoff carries the lane on")
+        self.assertEqual({k: traced["calls"][2][k] for k in ("kind", "label", "by_hand")}, {"kind": "handoff", "label": "a queue", "by_hand": True})
+        self.assertEqual(self.data("map", "handoff", "drop", "--root", self.repo, "--from", "leaf", "--to", "M.beta")["did"], "forgotten (it was yours)")
+        self.assertEqual(lane(self.query("--q", "trace", "--from", "leaf")), ["main", "middle", "leaf"], "dropping one she added forgets it")
+        self.assertEqual(self.data("map", "handoff", "drop", "--root", self.repo, "--from", "main", "--to", "middle")["did"], "dropped")
+        self.assertEqual(lane(self.query("--q", "trace", "--from", "leaf")), ["main", "middle", "leaf"], "a dropped pair that is a call stays a call")
+        listed = self.data("map", "handoff", "list", "--root", self.repo)["handoffs"]
+        self.assertEqual((len(listed["drop"]), len(listed["add"])), (1, 0))
+        self.assertEqual(self.data("map", "handoff", "forget", "--root", self.repo, "--from", "main", "--to", "middle")["did"], "forgotten")
+        refused = self.data("map", "handoff", "add", "--root", self.repo, "--from", "nobody", "--to", "leaf", code=1)
+        self.assertIn("From: ", refused["message"])
+        # Never in the checkout; the declaration reader takes the file as one of its own (no tools, nothing refused).
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        tools = self.data("tools", "list", "--root", self.repo)
+        self.assertFalse(any("refused" in json.dumps(f) and str(file) in json.dumps(f) for f in tools.get("files", [])), tools)
+        # A file there desk-work cannot read is left as it is.
+        file.write_text("not json")
+        self.assertIn("left as it is", self.data("map", "handoff", "add", "--root", self.repo, "--from", "leaf", "--to", "M.beta", code=1)["message"])
+        self.assertEqual(file.read_text(), "not json")
+
+    @unittest.skipUnless(NVIM, "nvim is not installed")
     def test_syntax_build_status_staleness_and_queries(self):
         status = self.build("--provider", "syntax")
         self.assertTrue(status["built"], status)

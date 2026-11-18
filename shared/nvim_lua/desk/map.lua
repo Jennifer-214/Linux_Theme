@@ -1298,7 +1298,11 @@ function M.trace_page(answer, folds, layouts)
     if call and after and call.kind == 'handoff' then
       -- No call between the two: what one gives, the other takes (a ring's push and pop, a thread started with it, a
       -- function pointer). Inferred from the code, and said so.
-      sections[#sections + 1] = { block = { { { '══[ ' .. (call.label or 'handoff') .. ' ]══' }, { '  inferred', nil, true } } }, group = 'DeskMapFocus' }
+      -- `x` on it drops a wrong one; one she added says so.
+      local item = { name = call.label or 'handoff', target = { kind = 'handoff', from = call.from, to = call.to, by_hand = call.by_hand == true },
+        key = 'handoff:' .. tostring(call.from) .. '>' .. tostring(call.to) }
+      sections[#sections + 1] = { block = { { { '══[ ' .. (call.label or 'handoff') .. ' ]══', item },
+        { call.by_hand and '  added by you' or '  inferred', nil, true } } }, group = 'DeskMapFocus' }
     elseif call and after then
       sections[#sections + 1] = { arrow = true }
       local flow, into = {}, after.params or {}
@@ -1981,6 +1985,36 @@ local function trace_end(view, ctx, flag, prompt)
   ask(prompt, '', go)
 end
 local function trace_to(view, ctx) trace_end(view, ctx, '--to', 'Trace to: ') end
+-- x on a trace's handoff (one the reader got wrong) and a on a step (a handoff it missed): her correction, kept by
+-- desk-work outside the checkout (desk.d), then the trace asked again in place. Dropping one she added forgets it.
+local function correct_handoff(view, verb, from, to)
+  local top = view.stack[#view.stack]
+  M.desk_work({ 'map', 'handoff', verb, '--root', view.root, '--from', from, '--to', to }, function(answer, out)
+    if not answer or answer.ok == false then return tell(refusal(answer, out), vim.log.levels.WARN) end
+    tell('Handoff ' .. tostring(answer.did) .. ' (kept in ' .. vim.fn.fnamemodify(tostring(answer.file), ':~') .. ').')
+    if valid(view) and view.stack[#view.stack] == top and top.args then query(view, top.args, nil, top) end
+  end)
+end
+local function drop_handoff(view, ctx)
+  local item = about_item(view, ctx)
+  local t = item and item.target
+  if not (t and t.kind == 'handoff') then return tell('Put the cursor on a handoff (══[ … ]══) first.') end
+  local function go(yes) if yes:lower():sub(1, 1) == 'y' then correct_handoff(view, 'drop', t.from, t.to) end end
+  local said = ctx and type(ctx.text) == 'string' and vim.trim(ctx.text) ~= '' and vim.trim(ctx.text) or nil
+  if said then return go(said) end
+  if view.out then return end
+  ask(t.by_hand and 'Forget the handoff you added? y/n: ' or 'Drop this handoff (it is wrong)? y/n: ', '', go)
+end
+local function add_handoff(view, ctx)
+  local item = about_item(view, ctx)
+  local node = item and item.target and item.target.kind == 'node' and item.target.node
+  if not node then return tell('Put the cursor on a step of the trace first.') end
+  local function go(name) correct_handoff(view, 'add', node.id, name) end
+  local said = ctx and type(ctx.text) == 'string' and vim.trim(ctx.text) ~= '' and vim.trim(ctx.text) or nil
+  if said then return go(said) end
+  if view.out then return end
+  ask('Hands off to: ', '', go)
+end
 local function trace_start(view, ctx) trace_end(view, ctx, '--start', 'Trace from: ') end
 
 -- gs: the function in symdeps' card (C and C++), as gs in the call graph: its code, the cursor on its NAME, then the
@@ -2211,6 +2245,18 @@ local function needs_trace(ctx)
   if why ~= true then return why end
   return on_trace(ctx and ctx.map) and true or 'open a trace first (`t` on a function)'
 end
+local function needs_handoff(ctx)
+  local why = needs_trace(ctx)
+  if why ~= true then return why end
+  local t = ctx.item and ctx.item.target
+  return (not ctx.view or (t and t.kind == 'handoff')) or 'select a handoff (══[ … ]══) first'
+end
+local function needs_trace_step(ctx)
+  local why = needs_trace(ctx)
+  if why ~= true then return why end
+  local t = ctx.item and ctx.item.target
+  return (not ctx.view or (t and t.kind == 'node')) or 'select a step of the trace first'
+end
 local function needs_c_function(ctx)
   if not actions.symdeps() then return 'requires symdeps' end
   local why = needs_function(ctx)
@@ -2311,6 +2357,12 @@ local ROWS = actions.add({
     trace_to, needs_trace, { remote = true, input = { prompt = 'Trace to: ' } }),
   row('trace-from', 'S', 'Trace from a chosen start', 'On a trace: up from the function you name (a thread body, the live path) instead of the farthest start',
     trace_start, needs_trace, { remote = true, input = { prompt = 'Trace from: ' } }),
+  row('handoff-drop', 'x', 'Drop this handoff',
+    'On a trace, on a `══[ handoff ]══`: the map inferred it wrongly, so it is dropped (one you added is forgotten). Kept by desk-work outside the checkout, in `~/.config/foxml/desk.d/`',
+    drop_handoff, needs_handoff, { remote = true, input = { prompt = 'Drop this handoff? y/n: ' } }),
+  row('handoff-add', 'a', 'Add a handoff from this step',
+    'On a trace: this function hands its data on to the one you name (a queue or a callback the map missed), so the trace goes on through it',
+    add_handoff, needs_trace_step, { remote = true, input = { prompt = 'Hands off to: ' } }),
   row('symdeps', 'gs', 'This function in symdeps', "The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph",
     in_symdeps, needs_c_function, THERE),
   row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_function,

@@ -373,6 +373,13 @@ handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff"
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)
 ok(line_with(handed_page.lines, "══[ tick_ring: push :11 → pop :20 ]══  inferred"), "a handoff between steps: what it went through, said as inferred")
 ok(not line_with(handed_page.lines, ":11   Order{t.px}"), "… with no call's arguments, as there is no call")
+do
+  local row, text = line_with(handed_page.lines, "══[ tick_ring")
+  local hit = row and Map.item_at(handed_page, row, text:find("tick_ring", 1, true))
+  eq(hit and hit.target, { kind = "handoff", from = "e.cpp::tick", to = "e.cpp::submit", by_hand = false }, "… the handoff a hit (x drops it), naming its two ends")
+  handed.calls[2].by_hand = true
+  ok(line_with(Map.layout(Map.trace_page(handed), 90, false).lines, "══[ tick_ring: push :11 → pop :20 ]══  added by you"), "one she added says so")
+end
 local way_row, way = line_with(ways.lines, "use → M.alpha → M.beta")
 ok(way_row and way:find("(by name)", 1, true), "a way, with the part found by name said")
 eq(Map.item_at(ways, way_row, way:find("M.alpha", 1, true)).target.node.id, "lua/mod.lua::M.alpha", "each name on a way is a hit")
@@ -382,7 +389,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -737,6 +744,47 @@ do
     api.nvim_win_close(cw, true)
     for i = #traced_args, n + 1, -1 do table.remove(traced_args, i) end -- the checks below count from t's ask
   end
+  -- x on a handoff drops it (one the map got wrong), a on a step adds one; desk-work keeps them, the trace is asked again.
+  do
+    local n, corrections, saved_call = #traced_args, {}, trace_answer.calls[2]
+    trace_answer.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring", line = 11 }
+    local inner = Map.desk_work
+    Map.desk_work = function(args, done)
+      if args[2] == "handoff" then
+        corrections[#corrections + 1] = table.concat(args, " ")
+        return vim.defer_fn(function() done({ ok = true, did = args[3] == "add" and "added" or "dropped", file = "/c/foxml/desk.d/map-x.json" }, { code = 0 }) end, 5)
+      end
+      return inner(args, done)
+    end
+    press("r")
+    ok(vim.wait(1000, function() return line_with(view.drawn.lines, "══[ tick_ring ]══  inferred") end), "the trace with a handoff, read again")
+    vim.wait(300, function() return false end) -- r reads the status too: its redraw lands before the cursor is placed
+    local said, real_notify, real_input = {}, vim.notify, vim.ui.input
+    vim.notify = function(m) said[#said + 1] = m end
+    local hrow, htext = line_with(view.drawn.lines, "══[ tick_ring")
+    api.nvim_win_set_cursor(view.win, { hrow, (htext:find("tick_ring", 1, true)) })
+    vim.ui.input = function(opts, done) eq(opts.prompt, "Drop this handoff (it is wrong)? y/n: ", "x asks first"); done("n") end
+    press("x")
+    vim.wait(200, function() return false end)
+    eq(corrections, {}, "… no: nothing dropped")
+    local asked_before = #traced_args
+    vim.ui.input = function(_, done) done("y") end
+    press("x")
+    ok(vim.wait(1000, function() return #corrections == 1 end), "… yes: desk-work drops it")
+    eq(corrections[1], "map handoff drop --root " .. view.root .. " --from e.cpp::tick --to e.cpp::submit", "… that handoff, by its two ends")
+    ok(vim.wait(1000, function() return #traced_args == asked_before + 1 end), "… and the trace is asked again")
+    ok(vim.iter(said):any(function(m) return m:find("Handoff dropped", 1, true) ~= nil end), "… saying what it did: " .. vim.inspect(said))
+    local trow, ttext = line_with(view.drawn.lines, "╔═ tick ")
+    api.nvim_win_set_cursor(view.win, { trow, (ttext:find("tick", 1, true)) })
+    vim.ui.input = function(opts, done) eq(opts.prompt, "Hands off to: ", "a asks where to"); done("consumer") end
+    press("a")
+    ok(vim.wait(1000, function() return #corrections == 2 end), "a on a step: desk-work adds a handoff")
+    eq(corrections[2], "map handoff add --root " .. view.root .. " --from e.cpp::tick --to consumer", "… from that step to the one named")
+    vim.wait(200, function() return false end)
+    vim.notify, vim.ui.input, Map.desk_work = real_notify, real_input, inner
+    trace_answer.calls[2] = saved_call
+    for i = #traced_args, n + 1, -1 do table.remove(traced_args, i) end
+  end
   -- Enter on a fold's header opens it there, the cursor staying on the header.
   local fold_row, fold_line = line_with(view.drawn.lines, "other callers (1)")
   api.nvim_win_set_cursor(view.win, { fold_row, (fold_line:find("other callers", 1, true)) })
@@ -968,7 +1016,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
+eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.handoff-add", "map.handoff-drop", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
   "the pop-out can show more and retains its existing navigation keys")
 local views_row = A.get("popout.view.map")
 eq(views_row and { views_row.group, views_row.name, views_row.remote }, { "Views", "Pop out the project map", true },

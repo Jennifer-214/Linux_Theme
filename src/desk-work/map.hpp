@@ -348,8 +348,118 @@ int map_number(const std::string& s, int fallback) {
     return !s.empty() && parsed.ec == std::errc{} && parsed.ptr == s.data() + s.size() ? n : fallback;
 }
 
-J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
+// ─── her corrections to the handoffs, in the declaration format (docs/desk-tools.md, "map") ───────────────────────
+// Read from the checkout's own .desk/tools.json and every desk.d file naming it (root), each "map": { "handoffs" }
+// joined; written only to a desk.d file of desk-work's own (map-<folder>.json), never into the checkout.
+std::vector<fs::path> desk_d_files();   // tools.hpp
+fs::path desk_d();
+J declaration_doc(const fs::path& file) {
+    struct stat st{};
+    if (::lstat(file.c_str(), &st) != 0 || !S_ISREG(st.st_mode) || st.st_size > 64 * 1024) return J();
+    auto doc = J::parse(read(file, 64 * 1024), nullptr, false);
+    return doc.is_object() && doc.contains("version") && doc["version"] == 1 ? doc : J();
+}
+bool names_root(const J& doc, const std::string& root) {
+    const auto named = str(doc, "root");
+    if (named.empty() || !fs::path(named).is_absolute()) return false;
+    std::error_code ec;
+    const auto folder = fs::canonical(named, ec);
+    return !ec && root_of(folder.string()) == root;
+}
+J map_corrections(const std::string& root) {
+    J out{{"drop", J::array()}, {"add", J::array()}};
+    const auto take = [&](const J& doc) {
+        if (!doc.is_object() || !doc.contains("map") || !doc["map"].is_object()) return;
+        const auto& h = doc["map"].value("handoffs", J::object());
+        if (!h.is_object()) return;
+        for (const char* side : {"drop", "add"})
+            for (const auto& p : desk_map::list(h, side)) if (p.is_object() && out[side].size() < 4096) out[side].push_back(p);
+    };
+    take(declaration_doc(fs::path(root) / ".desk/tools.json"));
+    for (const auto& file : desk_d_files()) if (auto doc = declaration_doc(file); names_root(doc, root)) take(doc);
+    return out;
+}
+// The stored graph with her corrections applied: what every query reads.
+J corrected_graph(const std::string& root) {
     auto doc = map_json(map_dir(root) / "graph.json");
+    return doc.is_object() ? desk_map::corrected(std::move(doc), map_corrections(root)) : doc;
+}
+// desk-work's own desk.d file for a checkout: map-<folder>.json, or map-<folder>-<hash>.json when that name is another
+// checkout's (two checkouts with one folder name).
+fs::path corrections_file(const std::string& root) {
+    const auto base = "map-" + fs::path(root).filename().string();
+    const auto plain = desk_d() / (base + ".json");
+    const auto doc = declaration_doc(plain);
+    std::error_code ec;
+    // an unreadable file there is not passed over: the write refuses, naming it
+    if (!fs::exists(plain, ec) || !doc.is_object() || names_root(doc, root)) return plain;
+    char hash[16];
+    std::snprintf(hash, sizeof hash, "%06zx", std::hash<std::string>{}(root) & 0xffffff);
+    return desk_d() / (base + "-" + hash + ".json");
+}
+// desk-work map handoff add|drop|forget|list --from A --to B [--label L]: a name as `trace` takes one (an id, a label, a
+// unique last part). add: a handoff the reader missed; drop: one it got wrong (one she added is forgotten instead);
+// forget: her correction of that pair undone.
+J map_handoff(const std::string& root, const std::string& verb, std::map<std::string, std::string>& opts) {
+    const auto file = corrections_file(root);
+    if (verb == "list") return J{{"ok", true}, {"file", file.string()}, {"handoffs", map_corrections(root)}};
+    if (verb != "add" && verb != "drop" && verb != "forget") return refuse("desk-work map handoff add|drop|forget|list --from A --to B [--label L]");
+    auto graph = map_json(map_dir(root) / "graph.json");
+    if (!graph.is_object()) return refuse("No project map of this checkout yet; build one with desk-work map build --root " + root);
+    const desk_map::Graph g(desk_map::corrected(std::move(graph), map_corrections(root)));
+    std::string ids[2];
+    const char* flags[2] = {"--from", "--to"};
+    for (int i = 0; i < 2; ++i) {
+        const auto found = desk_map::resolve(g, opts[flags[i]]);
+        if (found.index < 0) {
+            auto refusal = refuse(std::string(i ? "To: " : "From: ") + found.message);
+            if (!found.candidates.empty()) refusal["candidates"] = found.candidates;
+            return refusal;
+        }
+        ids[i] = desk_map::text(g.nodes[static_cast<size_t>(found.index)], "id");
+    }
+    std::error_code ec;
+    J doc = declaration_doc(file);
+    if (fs::exists(file, ec) && !doc.is_object()) return refuse(file.string() + " is not a declaration desk-work can read; it is left as it is");
+    if (!doc.is_object()) doc = J{{"version", 1}, {"root", root}, {"written_by", "desk-work map handoff"}, {"tools", J::array()}};
+    if (!doc.contains("map") || !doc["map"].is_object()) doc["map"] = J::object();
+    if (!doc["map"].contains("handoffs") || !doc["map"]["handoffs"].is_object()) doc["map"]["handoffs"] = J::object();
+    auto& h = doc["map"]["handoffs"];
+    for (const char* side : {"drop", "add"}) if (!h.contains(side) || !h[side].is_array()) h[side] = J::array();
+    const auto same = [&](const J& p) { return p.is_object() && desk_map::text(p, "from") == ids[0] && desk_map::text(p, "to") == ids[1]; };
+    const auto remove = [&](const char* side) {
+        const auto before = h[side].size();
+        J kept = J::array();
+        for (const auto& p : h[side]) if (!same(p)) kept.push_back(p);
+        h[side] = kept;
+        return kept.size() != before;
+    };
+    std::string did;
+    if (verb == "forget") did = (remove("add") | remove("drop")) ? "forgotten" : "nothing to forget";
+    else if (verb == "drop") {
+        if (remove("add")) did = "forgotten (it was yours)";
+        else { h["drop"].push_back(J{{"from", ids[0]}, {"to", ids[1]}}); did = "dropped"; }
+    } else {
+        remove("drop"); remove("add");
+        J pair{{"from", ids[0]}, {"to", ids[1]}};
+        if (!opts["--label"].empty()) pair["label"] = opts["--label"].substr(0, 80);
+        h["add"].push_back(pair);
+        did = "added";
+    }
+    fs::create_directories(desk_d(), ec);
+    const auto tmp = file.string() + ".tmp-" + std::to_string(::getpid());
+    {
+        std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
+        o << doc.dump(2) << '\n';
+        if (!o.good()) { fs::remove(tmp, ec); return refuse("could not write " + file.string()); }
+    }
+    fs::rename(tmp, file, ec);
+    if (ec) { fs::remove(tmp, ec); return refuse("could not write " + file.string()); }
+    return J{{"ok", true}, {"did", did}, {"from", ids[0]}, {"to", ids[1]}, {"file", file.string()}};
+}
+
+J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
+    auto doc = corrected_graph(root);
     if (!doc.is_object()) return refuse("No project map of this checkout yet; build one with desk-work map build --root " + root);
     const desk_map::Graph g(std::move(doc));
     const auto q = opts["--q"];
@@ -501,13 +611,14 @@ int map_command(const A& args, std::map<std::string, std::string>& opts) {
     if (sub == "build-run") return map_build_run(root, opts["--provider"]);
     if (sub == "status") out = map_status(root);
     else if (sub == "query") out = map_query(root, opts);
+    else if (sub == "handoff") out = map_handoff(root, args.size() > 2 ? args[2] : std::string(), opts);
     else if (sub == "show" || sub == "export") {
         auto doc = map_json(map_dir(root) / "graph.json");
         if (!doc.is_object()) out = refuse("No project map of this checkout yet; build one with desk-work map build --root " + root);
         else if (sub == "show") { std::cout << doc.dump(-1, ' ', false, J::error_handler_t::replace) << '\n'; return 0; }
         else if (opts["--format"] != "dot") out = refuse("Export writes DOT: --format dot");
         else {
-            const desk_map::Graph g(std::move(doc));
+            const desk_map::Graph g(desk_map::corrected(std::move(doc), map_corrections(root)));
             std::cout << desk_map::dot(g, opts["--level"] == "functions" || !opts["--module"].empty() ? "functions" : "modules", opts["--module"]);
             return 0;
         }

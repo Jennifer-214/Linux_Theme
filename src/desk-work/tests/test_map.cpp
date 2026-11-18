@@ -297,6 +297,20 @@ int main(int, char** argv) {
         CHECK(ht["calls"].back()["kind"] == "handoff" && ht["calls"].back()["label"] == "ring: push :3 → pop :41",
               "… said as a handoff, with what it went through");
         CHECK(desk_map::paths(hg, hg.at.at("entry"), hg.at.at("consumer"), 16, 5)["paths"].size() == 1, "… and the map's ways go through it");
+        // Her corrections: the handoff dropped is gone; one she adds carries the lane on, marked by_hand.
+        const desk_map::Graph dropped(desk_map::corrected(desk_map::clean_graph(handed), J{{"drop", J::array({J{{"from", "end"}, {"to", "consumer"}}})}}));
+        CHECK(lane(desk_map::trace(dropped, dropped.at.at("F"), 16)).back() == "end", "a dropped handoff is gone: the lane ends at the calls' end");
+        J calls_too = handed;
+        calls_too["edges"].push_back(J{{"from", "end"}, {"to", "consumer"}, {"kind", "call"}});
+        const desk_map::Graph kept_call(desk_map::corrected(desk_map::clean_graph(calls_too), J{{"drop", J::array({J{{"from", "end"}, {"to", "consumer"}}})}}));
+        CHECK(lane(desk_map::trace(kept_call, kept_call.at.at("F"), 16)).back() == "consumer", "… a call between the two stays");
+        const desk_map::Graph added(desk_map::corrected(desk_map::clean_graph(handed), J{{"add", J::array({J{{"from", "consumer"}, {"to", "s"}, {"label", "order queue"}},
+            J{{"from", "consumer"}, {"to", "nobody"}}, J{{"from", "end"}, {"to", "consumer"}, {"label", "mine"}}})}}));
+        const auto at = desk_map::trace(added, added.at.at("F"), 16, static_cast<long>(added.at.at("s")));
+        CHECK(lane(at).back() == "s" && at["reached"] == true && at["calls"].back()["kind"] == "handoff" && at["calls"].back()["by_hand"] == true
+              && at["calls"].back()["label"] == "order queue", "an added handoff: walked, marked by hand, with her label");
+        CHECK(added.all.size() == desk_map::Graph(desk_map::clean_graph(handed)).all.size() + 1,
+              "… one naming a function the map does not have, or one already inferred, is skipped");
         const auto from_entry = desk_map::trace(g, g.at.at("F"), 16, -1, static_cast<long>(g.at.at("entry")));
         CHECK(lane(from_entry) == std::vector<std::string>({"entry", "a", "F", "b", "c", "end"}) && from_entry["start_reached"] == true,
               "--start: up from the start she chose (entry, not the farther entry2)");

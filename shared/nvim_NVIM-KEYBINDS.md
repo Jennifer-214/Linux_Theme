@@ -360,6 +360,8 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `t` in the map | The lane through the selected function: up to where it starts, down to where it ends; each step with its parameters (how each is passed, and whether the callee can change it) and what it is called with. In the pop-out it follows the function at the cursor (`p` pins it) |
 | `e` in the map | On a trace: down to the function you name instead of where the chain ends |
 | `S` in the map | On a trace: up from the function you name (a thread body, the live path) instead of the farthest start |
+| `x` in the map | On a trace, on a `══[ handoff ]══`: the map inferred it wrongly, so it is dropped (one you added is forgotten). Kept by desk-work outside the checkout, in `~/.config/foxml/desk.d/` |
+| `a` in the map | On a trace: this function hands its data on to the one you name (a queue or a callback the map missed), so the trace goes on through it |
 | `gs` in the map | The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph |
 | `P` in the map | Every way from one function to another, shortest first |
 | `m` in the map | Show the boxes and calls left out of this page |

@@ -537,6 +537,40 @@ inline J merge(const J& syntax, const J& binary, const std::string& near = {}) {
     return out;
 }
 
+// ─── her corrections to the inferred handoffs ─────────────────────────────────────────────────────────────────
+// The syntax reader infers handoffs (a push to a pop on one object, a function passed by name, a function pointer set)
+// and can be wrong or miss one. Her corrections, { drop: [ { from, to } ], add: [ { from, to, label? } ] } (a desk.d
+// file's "map": { "handoffs" }, kept out of the checkout), apply as a query reads the stored graph: a dropped handoff
+// is gone (a call between the two stays), an added one is a handoff marked by_hand. A pair naming a function the map
+// does not have is skipped; one the reader already inferred is kept as it is.
+inline J corrected(J doc, const J& handoffs) {
+    if (!doc.is_object() || !handoffs.is_object() || !doc.contains("edges") || !doc["edges"].is_array()) return doc;
+    std::set<std::pair<std::string, std::string>> drop, have;
+    for (const auto& d : list(handoffs, "drop")) if (d.is_object()) drop.insert({text(d, "from"), text(d, "to")});
+    std::set<std::string> ids;
+    for (const auto& n : list(doc, "nodes")) if (n.is_object()) ids.insert(text(n, "id"));
+    J kept = J::array();
+    for (const auto& e : doc["edges"]) {
+        const std::pair<std::string, std::string> pair{text(e, "from"), text(e, "to")};
+        if (text(e, "kind") == "handoff") {
+            if (drop.count(pair)) continue;
+            have.insert(pair);
+        }
+        kept.push_back(e);
+    }
+    for (const auto& a : list(handoffs, "add")) {
+        if (!a.is_object()) continue;
+        const std::pair<std::string, std::string> pair{text(a, "from"), text(a, "to")};
+        if (!ids.count(pair.first) || !ids.count(pair.second) || pair.first == pair.second || drop.count(pair) || have.count(pair)) continue;
+        const auto label = text(a, "label");
+        kept.push_back(J{{"from", pair.first}, {"to", pair.second}, {"kind", "handoff"}, {"by_hand", true},
+                         {"label", label.empty() ? std::string("by hand") : label.substr(0, 80)}});
+        have.insert(pair);
+    }
+    doc["edges"] = kept;
+    return doc;
+}
+
 // ─── the stored graph, indexed for queries ─────────────────────────────────────────────────────────────────────
 struct Graph {
     J doc;
@@ -571,6 +605,7 @@ struct Graph {
                     if (e.contains("line")) facts["line"] = e["line"];
                     if (e.contains("args")) facts["args"] = e["args"];
                     if (e.contains("label")) facts["label"] = e["label"];
+                    if (e.contains("by_hand")) facts["by_hand"] = e["by_hand"];
                     calls[{a->second, b->second}] = facts;
                 }
             }
