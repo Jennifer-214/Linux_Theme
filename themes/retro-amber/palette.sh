@@ -634,10 +634,3 @@ MAKO_ICONS=0
 HYPRLOCK_FP_READY='FINGER READER READY'
 HYPRLOCK_FP_PRESENT='READING FINGER...'
 HYPR_SHADOW_SHARP=true
-
-# The stack (templates/foxml/stack.svg, ~/.config/foxml/stack.svg): each plane's face and its quieter edge; the plane
-# you are on, enlarged: its brighter face and the glow along its edge.
-STACK_FACE=ffb000
-STACK_EDGE=c88a00
-STACK_LIT=ffd27a
-STACK_GLOW=fff0c8

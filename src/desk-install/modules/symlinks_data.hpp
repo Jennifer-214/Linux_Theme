@@ -113,8 +113,6 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
 
     // FoxML Shared ANSI colors (for C++ CLI tools)
     { "foxml/ansi_colors.json",       "~/.config/foxml/ansi_colors.json" },
-    // The stack (isometric planes, the one you are on lit), in the theme's STACK_* colours
-    { "foxml/stack.svg",              "~/.config/foxml/stack.svg" },
 
     // Cursor / VS Code
     { "cursor/foxml-color-theme.json","~/.cursor/extensions/foxml-theme/themes/foxml-color-theme.json" },
