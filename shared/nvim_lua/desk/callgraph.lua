@@ -97,15 +97,17 @@ end
 
 -- ─── layout (pure) ─────────────────────────────────────────────────────────────────────────────────────────────
 -- graph: { center = item?, callers = {item}?, callees = {item}?, more = {callers, callees}?, message = text?,
---          notes = {text}?, keys = {{key, words}}? (the key line, last), header = text? (first) }
+--          notes = {text}?, keys = {{key, words, more?}}? (the key line, last; more: only while something is left
+--          out), header = text? (first) }
 -- item: { name, detail, uri?, range?, enc? }. Returns the lines, the highlights and the boxes in reading order
 -- (callers row by row, the centre, callees row by row), each with its role (caller, centre, callee), its top line, the
 -- line its name is on (line), its byte span on each of its four lines, where its name starts and its column and width
--- on screen. Boxes flow left to right, wrap at `width`, and every row is centred.
+-- on screen, and left_out: how many boxes M.MAX left out ("+N more"). Boxes flow left to right, wrap at `width`, and
+-- every row is centred.
 function M.layout(graph, width, retro)
   width = math.max(16, width or 80)
   local G = M.glyphs(retro)
-  local lines, boxlist, marks, bands = {}, {}, {}, {}
+  local lines, boxlist, marks, bands, left_out = {}, {}, {}, {}, 0
   local gauge = graph.layers and width >= 36
   if gauge then width = width - M.GAUGE_WIDTH end
   local function add(text, group, from, to)
@@ -167,7 +169,14 @@ function M.layout(graph, width, retro)
     if items == nil then return end
     centred(G.said(label .. (#items > 0 and (' · ' .. (#items + (more or 0))) or '')), 'DeskCallGraphHead')
     if #items == 0 then centred(G.said(none), 'DeskCallGraphDim') else boxes(items, G.single, 'DeskCallGraphBox', 'DeskCallGraphName', role) end
-    if (more or 0) > 0 then centred(G.said('+' .. more .. ' more'), 'DeskCallGraphDim') end
+    if (more or 0) > 0 then
+      -- The key that draws them, as typed (between backticks: retro keeps its case) and marked as a key.
+      local key = M.typed('more')
+      centred(G.said('+' .. more .. ' more · `' .. key .. '` shows them'), 'DeskCallGraphDim')
+      local at = lines[#lines]:find(' · ' .. key .. ' ', 1, true)
+      if at then marks[#marks + 1] = { #lines, at + #' · ' - 1, at + #' · ' - 1 + #key, 'DeskCallGraphKey', 1 } end
+      left_out = left_out + more
+    end
   end
   local more = graph.more or {}
   local function display_layers(side)
@@ -223,7 +232,7 @@ function M.layout(graph, width, retro)
     if graph.center or d > 1 then centred(G.down, 'DeskCallGraphBox') end
     tier('callees', list, d, 1, 'calls nothing found', 'callee')
   end
-  local drawn = { lines = lines, boxes = boxlist, marks = marks }
+  local drawn = { lines = lines, boxes = boxlist, marks = marks, left_out = left_out }
   if gauge then M.gauge(drawn, bands, retro); width = width + M.GAUGE_WIDTH end
   if graph.message then
     if #lines > 0 then add('') end
@@ -242,7 +251,7 @@ function M.layout(graph, width, retro)
       for _, span in ipairs(spans) do marks[#marks + 1] = { #lines, span[1], span[2], 'DeskCallGraphKey', 1 } end
       text, spans = '', {}
     end
-    for _, k in ipairs(graph.keys) do
+    for _, k in ipairs(vim.tbl_filter(function(k) return not k.more or left_out > 0 end, graph.keys)) do
       local part = fit(k[1] .. ' ' .. G.said(k[2]), width, G.ellipsis)
       if text ~= '' and width_of(text .. ' · ' .. part) > width then flush() end
       if text ~= '' then text = text .. ' · ' end
@@ -1540,11 +1549,13 @@ function M.typed(...)
 end
 -- ? (desk.keys, every view's) lists them all, the ones these lines leave out too.
 local KEYS = { actions.key('desk.keys') or '?', 'keys' }
+-- m only while the drawing leaves something out (M.layout reads `more`).
+local MORE = { M.typed('more'), 'show all', more = true }
 M.VIEW_KEYS = { { M.typed('down', 'up', 'left', 'right'), 'move' }, { M.typed('go'), 'go' }, { M.typed('back'), 'back' },
-  { M.typed('centre'), 'centre' }, { M.typed('reload'), 'reload' }, { M.typed('close'), 'close' }, KEYS }
+  { M.typed('centre'), 'centre' }, { M.typed('reload'), 'reload' }, { M.typed('close'), 'close' }, MORE, KEYS }
 function M.panel_keys(pinned)
   return { { M.typed('down', 'up', 'left', 'right'), 'move' }, { M.typed('go'), 'go' }, { M.typed('pin'), pinned and 'unpin' or 'pin' },
-    { M.typed('panel-close'), 'close' }, KEYS }
+    { M.typed('panel-close'), 'close' }, MORE, KEYS }
 end
 
 -- ─── what is here: the selected box ────────────────────────────────────────────────────────────────────────────
@@ -1850,11 +1861,14 @@ end
 
 local GROUPS = { 'DeskCallGraphCentre', 'DeskCallGraphBox', 'DeskCallGraphName', 'DeskCallGraphDim', 'DeskCallGraphHead',
   'DeskCallGraphKey', 'DeskCallGraphSelected' }
--- Its key line in the pop-out (the header shows PINNED; ? lists every key).
-local function footer(pinned)
-  return { { ids = { 'callgraph.down', 'callgraph.up', 'callgraph.left', 'callgraph.right' }, words = 'move' },
+-- Its key line in the pop-out (the header shows PINNED; ? lists every key); m while the drawing leaves boxes out.
+local function footer(pinned, more)
+  local keys = { { ids = { 'callgraph.down', 'callgraph.up', 'callgraph.left', 'callgraph.right' }, words = 'move' },
     { ids = { 'callgraph.go' }, words = 'go' }, { ids = { 'popout.go-focus' }, words = 'go+focus' },
-    { ids = { 'popout.pin' }, words = pinned and 'follow' or 'pin' }, { ids = { 'popout.keys' }, words = 'keys' } }
+    { ids = { 'popout.pin' }, words = pinned and 'follow' or 'pin' } }
+  if more then keys[#keys + 1] = { ids = { 'callgraph.more' }, words = 'show all' } end
+  keys[#keys + 1] = { ids = { 'popout.keys' }, words = 'keys' }
+  return keys
 end
 -- A box's key: its role, its name and where it is, so the same box keeps its selection when the graph is drawn again.
 local function box_key(box)
@@ -1878,7 +1892,8 @@ local function render_view(view, width, style)
   end
   local center = graph.center
   return { title = 'call graph' .. (center and center.name and (' · ' .. center.name) or ''), state = '',
-    lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer(view.pinned), news = view.news == true }
+    lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer(view.pinned, drawn.left_out > 0),
+    news = view.news == true }
 end
 
 M.view_kind = {

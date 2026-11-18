@@ -402,10 +402,25 @@ local crowded = { center = G.panel.graph.center, callers = { { name = "caller_a"
   hidden = { callers = { { name = "caller_b", detail = "x:2" } } }, more = { callers = 1 }, callees = {} }
 G.panel_open_with(crowded, G.panel.target, true)
 ok(text(G.panel.drawn.lines):find("+1 more", 1, true) and not text(G.panel.drawn.lines):find("caller_b", 1, true), "a panel that leaves one out")
+ok(text(G.panel.drawn.lines):find("+1 more · m shows them", 1, true) and text(G.panel.drawn.lines):find("m show all", 1, true),
+  "… its +1 more names m, and so does the panel's key line")
 api.nvim_set_current_win(G.panel.win)
 ok(vim.fn.maparg("m", "n", false, true).callback ~= nil, "m is the panel's own key")
 key("m")
 ok(text(G.panel.drawn.lines):find("caller_b", 1, true) and not text(G.panel.drawn.lines):find("+1 more", 1, true), "… m draws it too")
+ok(not text(G.panel.drawn.lines):find("m show all", 1, true), "… and the key line leaves m out once nothing is left out")
+-- A level that + read past M.MAX (level 2 here) is drawn whole by m too.
+do
+  local deep, near = {}, { name = "near", detail = "x:0" }
+  for i = 1, G.MAX + 3 do deep[i] = { name = string.format("deep%02d", i), detail = "x:" .. i } end
+  G.panel_open_with({ center = G.panel.graph.center, callers = {}, callees = { near }, layers = { callees = { { near }, deep } } }, G.panel.target, true)
+  local drawn_text = text(G.panel.drawn.lines)
+  ok(drawn_text:find("callees 2 · " .. (G.MAX + 3), 1, true) and drawn_text:find("+3 more · m shows them", 1, true)
+    and not drawn_text:find(deep[G.MAX + 1].name, 1, true), "level 2 of " .. (G.MAX + 3) .. " functions: +3 more, with its key")
+  key("m")
+  drawn_text = text(G.panel.drawn.lines)
+  ok(drawn_text:find(deep[G.MAX + 3].name, 1, true) and not drawn_text:find("+3 more", 1, true), "… m draws the rest of that level")
+end
 local said_gs = {}
 local real_notify = vim.notify
 vim.notify = function(msg) said_gs[#said_gs + 1] = msg end
@@ -544,11 +559,32 @@ do
   local capped = { center = item("centre"), callers = shown, more = { callers = 3 }, hidden = { callers = rest } }
   local before = table.concat(G.layout(vim.deepcopy(capped), 120, false).lines, "\n")
   ok(before:find("+3 more", 1, true) and not before:find(rest[1].name, 1, true), "capped: +3 more, the rest not drawn")
+  -- The line names its key; the key lines list it while something is left out (her ask, 2026-11-17: "there also isnt
+  -- a way to see the +53 more on the call grap").
+  local keyed = G.layout(vim.tbl_extend("force", vim.deepcopy(capped), { keys = G.VIEW_KEYS }), 120, false)
+  local row, said = line_with(keyed.lines, "+3 more")
+  eq(vim.trim(said or ""), "+3 more · m shows them", "the +N more line names its key")
+  local key_at = row and said:find(" · m ", 1, true)
+  key_at = key_at and key_at + #" · " - 1
+  ok(key_at and vim.tbl_contains(marked(keyed), table.concat({ row, key_at, key_at + 1, "DeskCallGraphKey" }, ":")), "… marked as a key")
+  eq(vim.trim(G.layout(vim.deepcopy(capped), 120, true).lines[row] or ""), "+3 MORE · m SHOWS THEM", "… in retro the key keeps its case")
+  eq(keyed.left_out, 3, "the drawing says how many boxes it left out")
+  eq(keyed.lines[#keyed.lines], "j/k/h/l move · Enter go · BS back · c centre · r reload · q close · m show all · ? keys",
+    "the tab's key line lists m while something is left out")
+  local K = G.view_kind
+  local function footer_m(g)
+    return vim.iter(K.render({ graph = g }, 120, "paper").footer):any(function(p) return vim.tbl_contains(p.ids, "callgraph.more") end)
+  end
+  eq(footer_m(vim.deepcopy(capped)), true, "… and so does the pop-out's")
   local all = vim.deepcopy(capped)
   G.show_all(all)
   local after = table.concat(G.layout(all, 120, false).lines, "\n")
   ok(not after:find("+3 more", 1, true) and after:find(rest[3].name, 1, true), "m: every caller drawn, no +N more")
   eq({ #all.callers, all.callers[G.MAX + 1].name, all.more, all.hidden }, { G.MAX + 3, rest[1].name, nil, nil }, "… in name order")
+  local unkeyed = G.layout(vim.tbl_extend("force", vim.deepcopy(all), { keys = G.VIEW_KEYS }), 120, false)
+  eq({ unkeyed.left_out, unkeyed.lines[#unkeyed.lines], footer_m(all) },
+    { 0, "j/k/h/l move · Enter go · BS back · c centre · r reload · q close · ? keys", false },
+    "nothing left out: no m in the tab's key line or the pop-out's")
   local A = require("desk.actions")
   eq(A.get("callgraph.more").available({ graph = { graph = all } }), "nothing is left out", "m says when nothing is left out")
 end
