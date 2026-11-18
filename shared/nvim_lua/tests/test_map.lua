@@ -140,8 +140,12 @@ ok(line_with(Map.layout(Map.level_modules(many), 100, true).lines, "+10 MORE · 
 local retro = Map.layout(page, 70, true)
 ok(line_with(retro.lines, "┌") and not line_with(retro.lines, "╭") and line_with(retro.lines, "CALLS BETWEEN PARTS"), "retro: code page 437 boxes and capitals")
 local zoom = Map.layout(vim.tbl_extend("force", page, { zoom = 2 }), 70, true)
-eq(zoom.lines[2]:sub(1, #" █ DIR"), " █ DIR", "retro lights the current zoom bar itself")
-ok(vim.iter(zoom.marks):any(function(m) return vim.deep_equal(m, { 2, 1, #" █", "DeskMapFocus", 1 }) end),
+eq({ zoom.lines[3]:sub(1, #" ████ DIR"), zoom.lines[4]:sub(1, #"████ ") }, { " ████ DIR", "████ " },
+  "retro lights the current zoom level's plane, a cell wider")
+ok(zoom.lines[1]:find(" ▓▓▓  ALL", 1, true) and zoom.lines[5]:find(" ▓▓▓  SRC", 1, true) and zoom.lines[7]:find(" ▒▒▒  CLS", 1, true),
+  "the other levels fade with their distance from it:\n" .. table.concat(zoom.lines, "\n"))
+ok(vim.iter(zoom.marks):any(function(m) return vim.deep_equal(m, { 3, 0, #" ████", "DeskMapFocus", 1 }) end)
+  and vim.iter(zoom.marks):any(function(m) return vim.deep_equal(m, { 4, 0, #"████ ", "DeskMapFocus", 1 }) end),
   "the active zoom bar has the focus colour")
 
 local contents = { ok = true, q = "module", module = "lua",
