@@ -1756,7 +1756,17 @@ local function save_view(view)
       levels[#levels + 1] = { kind = level.kind, module = level.module, file = level.file, id = level.id, name = level.name, node = level.node }
     end
   end
-  return { step = true, stack = vim.list_slice(view.stack or {}), pinned = view.pinned == true, target = { root = view.root, levels = levels } }
+  local target = { root = view.root, levels = levels }
+  -- A trace on top: its question (focus, end, start) and how she left it (open folds, the step selected), asked again of
+  -- the map as it is when restored.
+  local top = view.stack and view.stack[#view.stack]
+  if top and top.kind == 'query' and top.answer and top.answer.q == 'trace' and type(top.answer.focus) == 'string' then
+    local folds = {}
+    for k, v in pairs(top.folds or {}) do if type(k) == 'string' and type(v) == 'boolean' then folds[k] = v end end
+    target.trace = { focus = top.answer.focus, to = top.answer.to, start = top.answer.start, folds = folds,
+      selected = type(top.selected) == 'string' and top.selected or nil }
+  end
+  return { step = true, stack = vim.list_slice(view.stack or {}), pinned = view.pinned == true, target = target }
 end
 
 -- A level on top: zoomed in, or a query's answer. from: in the pop-out, the key of the box it was asked from (selected
@@ -1977,7 +1987,13 @@ query = function(view, args, from, again, quiet)
       view.stack[#view.stack] = { kind = 'query', answer = answer, args = args, keep = top.keep, selected = top.selected, all = top.all }
       return load(view)
     end
-    push(view, { kind = 'query', answer = answer, args = args }, from)
+    local level = { kind = 'query', answer = answer, args = args }
+    -- a trace restored after a restart: its folds and selected step as she left them
+    if view.restoring and answer.q == 'trace' then
+      level.folds, level.selected, view.select = view.restoring.folds, view.restoring.selected, view.restoring.selected
+      view.restoring = nil
+    end
+    push(view, level, from)
   end)
 end
 
@@ -2069,6 +2085,8 @@ local function trace_end(view, ctx, flag, prompt)
     if flag ~= '--start' and answer.start then vim.list_extend(args, { '--start', answer.start }) end
     vim.list_extend(args, { flag, chosen })
     query(view, args)
+    -- A route she chose holds: in the pop-out it is pinned, so following the cursor leaves it (p follows again).
+    if view.out and not view.pinned then pop().pin(view) end
   end
   if name then return go(name) end
   if view.out then return end
@@ -2613,7 +2631,22 @@ local function restore_view(view, saved)
     end
   end
   if levels[1] and levels[1].kind == 'modules' then view.stack = levels end
-  refresh(view)
+  local trace = type(target.trace) == 'table' and target.trace or nil
+  if not (trace and text_or_nil(trace.focus)) then return refresh(view) end
+  do
+    local args = { '--q', 'trace', '--from', trace.focus }
+    if text_or_nil(trace.to) then vim.list_extend(args, { '--to', trace.to }) end
+    if text_or_nil(trace.start) then vim.list_extend(args, { '--start', trace.start }) end
+    local folds = {}
+    for k, v in pairs(type(trace.folds) == 'table' and trace.folds or {}) do if type(k) == 'string' and type(v) == 'boolean' then folds[k] = v end end
+    view.restoring = { folds = folds, selected = text_or_nil(trace.selected) }
+    -- asked once the map is known to be built; the page under it is read when she goes back to it (reading it now
+    -- would make the trace's answer one asked before the last, and dropped)
+    status(view, function(st)
+      if st and st.building then poll(view) end
+      if st and st.built then query(view, args) end
+    end)
+  end
 end
 
 -- Following, a trace in the pop-out (her ask, 2026-11-18: the trace "should be able to be used in the pop out"): once
@@ -2636,8 +2669,31 @@ local function follow_trace(view, win)
   end
   query(view, { '--q', 'trace', '--file', rel, '--line', tostring(line), '--from', '' }, nil, top, true)
 end
+-- Pinned on a route: moving through its code selects the step the cursor is in (the route stays as it is).
+local function show_step(view, win)
+  local top = tracing(view)
+  if not top or not view.pinned or view.gone or not (win and api.nvim_win_is_valid(win)) then return end
+  local name = api.nvim_buf_get_name(api.nvim_win_get_buf(win))
+  name = uv.fs_realpath(name) or name
+  local root = view.root or ''
+  if root == '' or name:sub(1, #root + 1) ~= root .. '/' then return end
+  local rel, line = name:sub(#root + 2), api.nvim_win_get_cursor(win)[1]
+  for _, st in ipairs(top.answer.steps or {}) do
+    if st.file == rel and st.line and line >= st.line and line < st.line + math.max(1, st.lines or 1) then
+      local key = box_of(node_item(st))
+      if top.selected ~= key then top.selected, view.select = key, key; pop().redraw(view) end
+      return
+    end
+  end
+end
 local function follow_soon(view, win)
   view.follow_win = win
+  if view.pinned and tracing(view) then
+    view.follow_timer = view.follow_timer or uv.new_timer()
+    view.follow_timer:stop()
+    view.follow_timer:start(M.FOLLOW_MS, 0, vim.schedule_wrap(function() show_step(view, win) end))
+    return
+  end
   if view.pinned or not tracing(view) then return end
   view.follow_timer = view.follow_timer or uv.new_timer()
   view.follow_timer:stop()

@@ -1233,6 +1233,55 @@ do
   ok(asked[#asked]:find("--from e.cpp::tick --to other", 1, true) == nil and asked[#asked]:find("--to b.cpp::dup", 1, true) ~= nil,
     "… asked with the one chosen as the end: " .. tostring(asked[#asked]))
   pv.stack, Map.desk_work, P.host.history = stack, inner, history
+  pv.pinned = false
+end
+-- A route she chose holds: e in the pop-out pins it; pinned, moving through its code selects the step there and asks
+-- nothing; saved, it comes back after a restart with its question, open folds and selected step.
+do
+  local stack, inner, history, asked = pv.stack, Map.desk_work, vim.deepcopy(P.host.history), {}
+  local routed = vim.deepcopy(trace_answer)
+  routed.to = "e.cpp::submit"
+  pv.stack = { { kind = "modules" }, { kind = "query", answer = trace_answer, args = { "--q", "trace", "--from", "e.cpp::tick" } } }
+  Map.desk_work = function(args, done)
+    asked[#asked + 1] = table.concat(args, " ")
+    if args[2] == "query" then return vim.defer_fn(function() done(routed, { code = 0 }) end, 5) end
+    return inner(args, done)
+  end
+  pv.pinned = false
+  act("map.trace-to", nil, { text = "submit" })
+  ok(vim.wait(1000, function() return #pv.stack == 3 end) and pv.pinned == true, "e in the pop-out: the route asked, and pinned (following leaves it)")
+  local code = pv.root .. "/e.cpp"
+  local text = {}
+  for i = 1, 60 do text[i] = "// " .. i end
+  vim.fn.writefile(text, code)
+  vim.cmd("split " .. vim.fn.fnameescape(code))
+  local cw = api.nvim_get_current_win()
+  vim.cmd("wincmd p")
+  local before = #asked
+  api.nvim_win_set_cursor(cw, { 20, 0 })
+  pv.select = nil
+  K.follow(pv, { type = "moved", win = cw })
+  ok(vim.wait(Map.FOLLOW_MS + 1000, function() return pv.select == "node:e.cpp::tick" end), "pinned: the cursor in tick's code selects tick's step: " .. tostring(pv.select))
+  eq(#asked, before, "… and nothing is asked: the route stays")
+  api.nvim_win_close(cw, true)
+  local top = pv.stack[#pv.stack]
+  top.folds = { ["e.cpp::tick|uses"] = true }
+  local saved = K.save(pv)
+  eq(saved.target.trace, { focus = "e.cpp::tick", to = "e.cpp::submit", folds = { ["e.cpp::tick|uses"] = true }, selected = "node:e.cpp::tick" },
+    "saved: the trace's question and how she left it")
+  local fresh_view = { id = "map-restored", kind = "map", pop = pv.pop, gen = 0 }
+  local host_pop = P.pops and P.pops[1] or P.host
+  host_pop.views[fresh_view.id] = fresh_view
+  asked = {}
+  local fine = pcall(K.restore, fresh_view, { pinned = true, target = vim.json.decode(vim.json.encode(saved.target)) })
+  ok(fine and vim.wait(2000, function() local t = fresh_view.stack and fresh_view.stack[#fresh_view.stack]; return t and t.kind == "query" end),
+    "restored: the trace asked again of the map as it is now")
+  ok(vim.iter(asked):any(function(a) return a:find("--q trace --from e.cpp::tick --to e.cpp::submit", 1, true) ~= nil end), "… with its focus and end: " .. vim.inspect(asked))
+  local rt = fresh_view.stack and fresh_view.stack[#fresh_view.stack] or {}
+  eq({ rt.folds, rt.selected }, { { ["e.cpp::tick|uses"] = true }, "node:e.cpp::tick" }, "… its folds open and its step selected as she left them")
+  K.close(fresh_view)
+  host_pop.views[fresh_view.id] = nil
+  pv.stack, Map.desk_work, P.host.history, pv.pinned = stack, inner, history, false
 end
 do
   local stack, cache = pv.stack, pv.cache
