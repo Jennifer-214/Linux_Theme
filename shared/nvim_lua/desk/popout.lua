@@ -1228,7 +1228,8 @@ end
 -- A view of kind `name` in its pop-out (pop_for; opts.pop: that one), opening the window when it is not open. A new
 -- view is filled by its kind from ctx; asked for again from the editor (o in another graph, its Views row) it is
 -- filled again from there; asked for from the pop-out (ctx.remote) it only comes to the front. Either way, from
--- another view, it is a step Ctrl+o undoes. opts.asked: the screen was asked already.
+-- another view, it is a step Ctrl+o undoes. opts.asked: the screen was asked already. opts.behind: added and drawn,
+-- leaving the front where it is (no step).
 function M.show(name, ctx, opts)
   local kind = kinds[name]
   if not kind then return tell('No view is called ' .. tostring(name) .. '.', WARN) end
@@ -1270,6 +1271,7 @@ function M.show(name, ctx, opts)
     end
     if was then M.stepped(view, was) end
   end
+  if opts.behind and before and before ~= view.id then M.redraw(view); M.save_layout(); return end
   if before and before ~= view.id and p.views[before] then push_step(p, { type = 'switch', from = before, to = view.id }) end
   to_front(view)
   M.save_layout()
@@ -1505,6 +1507,19 @@ local function timed(handler)
   end
 end
 
+-- symdeps' board open in the editor when a pop-out opens: it goes there too, behind the view she opened it for (her ask,
+-- 2026-11-17: "move the symdeps menu to the out if it's open and a out opens later"); symdeps' kind takes the board out of
+-- the editor's panel as it opens (its popout.lua M.open). Only a board shown here, with symdeps loaded already (this never
+-- loads it) and in no pop-out yet: one already in a pop-out stays where it is.
+local function bring_board(p)
+  if not kinds.symdeps or not is_open(p) then return end
+  local panel = package.loaded['fox-symdeps.panel']
+  if type(panel) ~= 'table' or type(panel.is_open) ~= 'function' or not panel.is_open() then return end
+  if type(panel.out) == 'function' and panel.out() ~= nil then return end
+  for _, other in ipairs(pops) do if kind_view(other, 'symdeps') then return end end
+  M.show('symdeps', actions.context(), { pop = p.id, asked = true, behind = true })
+end
+
 -- subscribe { pop, chan, pid, width, protocol }: chan is the pop-out's channel here (nvim_get_api_info gave it the
 -- number), labelled with its pid through nvim_set_client_info, since code run by nvim_exec_lua cannot tell which
 -- channel called; pop says which pop-out it is (opening → attached). Again from the same channel (a resize): the new
@@ -1538,6 +1553,7 @@ local function subscribe(msg)
     watch_screens()
   end
   vim.schedule(function() redraw_all(p, again) end)
+  if not again then vim.schedule(function() bring_board(p) end) end
   return { subscribed = true, pid = vim.fn.getpid(), pane = host_pane() }
 end
 

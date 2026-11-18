@@ -1318,6 +1318,9 @@ end
 do
   os.remove(dir .. '/kitty.listen')
   host("vim.api.nvim_set_current_win(_G.popout_test.code_win); vim.api.nvim_win_set_cursor(0, { 3, 2 })")
+  -- symdeps' board open in the editor (a stand-in panel; the board's kind is tests/popout_board.lua's): the pop-out that
+  -- opens now takes it too, behind the rows it opens for (her ask, 2026-11-17).
+  host("require('tests.popout_board'); package.loaded['fox-symdeps.panel'] = { is_open = function() return true end, out = function() return nil end }")
   eq(host("local P = require('desk.popout'); local id = P.new_pop(); P.show('rows', require('desk.actions').context(), { pop = id }); return id"), 2,
     'a new pop-out for the rows: the second')
   ok(wait(10000, function() return exists(dir .. '/kitty.listen') end), '… started in a kitty of its own')
@@ -1325,6 +1328,12 @@ do
   local second = connect(vim.trim(read('kitty.listen')))
   ok(second ~= nil, '… and its Neovim listens')
   ok(wait(10000, function() return state_of(second).kind == 'rows' end), '… the rows arrive there')
+  ok(wait(5000, function() return vim.tbl_contains(state_of(second).views or {}, 'symdeps') end),
+    "… and symdeps' board, open in the editor, comes with it: " .. vim.inspect(state_of(second).views))
+  eq({ state_of(second).kind, host("return require('desk.popout').pops[1].views.symdeps == nil") }, { 'rows', true },
+    '… behind the rows it opened for, and only there')
+  host("require('desk.popout').clear('symdeps'); package.loaded['fox-symdeps.panel'] = nil")
+  ok(wait(5000, function() return not vim.tbl_contains(state_of(second).views or {}, 'symdeps') end), '(the board taken off again)')
   eq(host("local P = require('desk.popout'); return { #P.pops, P.pops[1].chan ~= nil, P.pops[2].chan ~= nil, P.pops[1].chan ~= P.pops[2].chan, P.host == P.pops[1] }"),
     { 2, true, true, true, true }, 'both attached, each on a channel of its own; the first is still the host the callers read')
   eq({ state_of(first).views, state_of(second).views }, { { 'graph' }, { 'rows' } }, '… each shows only its own views')
