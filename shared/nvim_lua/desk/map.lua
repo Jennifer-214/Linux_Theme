@@ -1522,6 +1522,21 @@ function M.level_query(answer, all, level)
     sections[#sections + 1] = { head = 'ways from ' .. code(from.label) .. ' to ' .. code(to.label) .. ' · ' .. #(answer.paths or {}) }
     if #(answer.paths or {}) == 0 then
       sections[#sections + 1] = { parts = { { (from.label or '?') .. ' does not reach ' .. (to.label or '?') .. ' in the map within ' .. (answer.depth or '?') .. ' calls' } }, group = 'DeskMapDim' }
+      -- Why, and where to look next: the two sides, each a function to open (a queue's publish on one side and its
+      -- consumer on the other is a handoff the map missed: `a` on a trace step adds it).
+      local why = ({ depth = 'The search stopped at ' .. tostring(answer.depth) .. ' calls; more may join them (a count before P asks deeper).',
+        partial = 'The map is partial (some calls could not be read); the way may be among them.',
+        ran_out = 'Both sides ran out of known calls: if one ends at a queue or a callback the other takes, that is a handoff the map missed.' })[answer.why]
+      if why then sections[#sections + 1] = { block = { { { why, nil, true } } }, group = 'DeskMapDim' } end
+      local function side(title, list)
+        if #(list or {}) == 0 then return end
+        sections[#sections + 1] = { head = title }
+        local rows = {}
+        for _, n in ipairs(list) do rows[#rows + 1] = { { n.label, node_item(n) }, { '  ' .. where(n) .. '  ' .. tostring(n.depth or '?') .. (n.depth == 1 and ' call' or ' calls'), nil, nil, 'DeskMapDim' } } end
+        sections[#sections + 1] = { block = rows }
+      end
+      side('where ' .. tostring(from.label or '?') .. "'s calls end", answer.ends)
+      side('what calls ' .. tostring(to.label or '?') .. ', nearest first', answer.callers)
     end
     for i, p in ipairs(answer.paths or {}) do
       local parts, by_name = { { string.format('%2d  ', i) } }, false

@@ -940,8 +940,35 @@ inline J paths(const Graph& g, size_t from, size_t to, int depth, size_t max) {
     for (const auto& p : found) for (const auto& id : p["nodes"]) ids.insert(id.get<std::string>());
     J nodes = J::array();
     for (const auto& id : ids) nodes.push_back(g.node(g.at.at(id)));
-    return J{{"ok", true}, {"q", "paths"}, {"from", g.node(from)}, {"to", g.node(to)}, {"depth", depth}, {"max", max},
-             {"paths", found}, {"nodes", nodes}, {"capped", stopped || found.size() >= max}};
+    J out{{"ok", true}, {"q", "paths"}, {"from", g.node(from)}, {"to", g.node(to)}, {"depth", depth}, {"max", max},
+          {"paths", found}, {"nodes", nodes}, {"capped", stopped || found.size() >= max}};
+    if (found.empty()) {
+        // No way: where to look next — where the start's calls end (the farthest it reaches, and what calls nothing
+        // further), what calls the end nearest, and why the search stopped (her ask: "a useful result").
+        std::vector<int> far(g.nodes.size(), -1);
+        std::deque<size_t> q{from};
+        far[from] = 0;
+        bool cut = false;
+        while (!q.empty()) {
+            const auto v = q.front(); q.pop_front();
+            if (far[v] >= depth) { if (!g.out[v].empty()) cut = true; continue; }
+            for (const auto& [w, mask] : g.out[v]) if (far[w] < 0) { far[w] = far[v] + 1; q.push_back(w); }
+        }
+        int deepest = 0;
+        for (size_t i = 0; i < g.nodes.size(); ++i) deepest = std::max(deepest, far[i]);
+        J ends = J::array(), callers = J::array();
+        for (size_t i = 0; i < g.nodes.size() && ends.size() < 8; ++i)
+            if (far[i] > 0 && (far[i] == deepest || g.out[i].empty())) { J n = g.node(i); n["depth"] = far[i]; ends.push_back(n); }
+        for (int d = 1; d <= depth && callers.size() < 8; ++d)
+            for (size_t i = 0; i < g.nodes.size() && callers.size() < 8; ++i)
+                if (left[i] == d) { J n = g.node(i); n["depth"] = d; callers.push_back(n); }
+        for (size_t i = 0; i < g.nodes.size() && !cut; ++i) if (left[i] == depth && !g.in[i].empty()) cut = true;
+        const bool partial = g.doc.is_object() && g.doc.value("complete", true) == false;
+        out["ends"] = ends;
+        out["callers"] = callers;
+        out["why"] = cut ? "depth" : partial ? "partial" : "ran_out";
+    }
+    return out;
 }
 
 // The checkout's parts with their sizes, and how many distinct calls go from each part to each other one.

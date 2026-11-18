@@ -476,6 +476,18 @@ do
   ok(text:find("from hot (your choice) · to submit (your choice)", 1, true), "… or chosen by her (S and e)")
   eq(require("desk.actions").get("map.trace").name, "Trace a possible path through this function", "t says what it answers: a possible path")
 end
+do
+  -- No way found: why, and the two sides to open.
+  local none = { ok = true, q = "paths", from = { id = "a.cpp::feed", label = "feed" }, to = { id = "b.cpp::submit", label = "submit" }, depth = 16, paths = {},
+    why = "ran_out", ends = { { id = "a.cpp::publish", label = "publish", file = "a.cpp", line = 9, depth = 3 } },
+    callers = { { id = "b.cpp::drain", label = "drain", file = "b.cpp", line = 4, depth = 1 } } }
+  local page = Map.layout(Map.level_query(none), 100, false)
+  local text = table.concat(page.lines, "\n")
+  ok(text:find("Both sides ran out of known calls", 1, true) and text:find("where feed's calls end", 1, true) and text:find("what calls submit, nearest first", 1, true),
+    "no way: why, and the two sides")
+  local row, l = line_with(page.lines, "publish  a.cpp:9  3 calls")
+  eq(row and Map.item_at(page, row, l:find("publish", 1, true)).target.node.id, "a.cpp::publish", "… each a function to open")
+end
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11, to_line = 20 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)

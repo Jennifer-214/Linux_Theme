@@ -307,6 +307,14 @@ int main(int, char** argv) {
         const auto sites = st["calls"][2].value("sites", J::array());
         CHECK(sites.size() == 2 && sites[1].value("line", 0) == 15, "a call's sites reach the trace, each its line");
         CHECK(st["calls"].back().value("to_line", 0) == 41, "… and a handoff's pop line");
+        // No way: where to look next, and why.
+        const auto shallow = desk_map::paths(g, g.at.at("entry2"), g.at.at("x"), 1, 5);
+        CHECK(shallow["paths"].empty() && shallow["why"] == "depth" && shallow["ends"].size() == 1 && shallow["ends"][0]["id"] == "mid"
+              && shallow["callers"].size() == 1 && shallow["callers"][0]["id"] == "F", "no way within 1 call: the search stopped there; mid reached, F calls x");
+        const auto dead = desk_map::paths(g, g.at.at("end"), g.at.at("F"), 16, 5);
+        CHECK(dead["paths"].empty() && dead["why"] == "ran_out" && dead["ends"].empty() && dead["callers"].size() >= 2,
+              "no way at all: both sides ran out of known calls; what calls F listed");
+        CHECK(!desk_map::paths(g, g.at.at("entry"), g.at.at("x"), 16, 5).contains("why"), "a way found: no why");
         // Her corrections: the handoff dropped is gone; one she adds carries the lane on, marked by_hand.
         const desk_map::Graph dropped(desk_map::corrected(desk_map::clean_graph(handed), J{{"drop", J::array({J{{"from", "end"}, {"to", "consumer"}}})}}));
         CHECK(lane(desk_map::trace(dropped, dropped.at.at("F"), 16)).back() == "end", "a dropped handoff is gone: the lane ends at the calls' end");
