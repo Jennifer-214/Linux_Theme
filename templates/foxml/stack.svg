@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
+  <!-- The stack: thin planes seen from above at the isometric 2:1, each over the one below, in the palette's STACK_*
+       colours. The plane you are on is enlarged, brighter and glows (here the middle one, plane-3); the rest sit back.
+       Each plane is its own <g class="plane">, so a view showing where you are can light another. -->
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#{{STACK_FACE}}" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#{{STACK_FACE}}" stop-opacity="0.22"/>
+    </linearGradient>
+    <linearGradient id="lit" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#{{STACK_LIT}}" stop-opacity="1"/>
+      <stop offset="1" stop-color="#{{STACK_FACE}}" stop-opacity="0.92"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-60%" width="180%" height="220%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="soft"/>
+      <feMerge><feMergeNode in="soft"/><feMergeNode in="soft"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g fill="url(#face)" stroke="#{{STACK_EDGE}}" stroke-width="1.4" stroke-linejoin="round">
+    <g class="plane" id="plane-5"><path d="M120 130 L220 180 L120 230 L20 180 Z"/></g>
+    <g class="plane" id="plane-4"><path d="M120 100 L220 150 L120 200 L20 150 Z"/></g>
+  </g>
+  <g class="plane here" id="plane-3" transform="translate(120 120) scale(1.18) translate(-120 -120)"
+     fill="url(#lit)" stroke="#{{STACK_GLOW}}" stroke-width="2" stroke-linejoin="round" filter="url(#glow)">
+    <path d="M120 70 L220 120 L120 170 L20 120 Z"/>
+  </g>
+  <g fill="url(#face)" stroke="#{{STACK_EDGE}}" stroke-width="1.4" stroke-linejoin="round">
+    <g class="plane" id="plane-2"><path d="M120 40 L220 90 L120 140 L20 90 Z"/></g>
+    <g class="plane" id="plane-1"><path d="M120 10 L220 60 L120 110 L20 60 Z"/></g>
+  </g>
+</svg>

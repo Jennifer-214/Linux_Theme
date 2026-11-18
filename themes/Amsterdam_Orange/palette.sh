@@ -616,3 +616,10 @@ MAKO_ICONS=1
 HYPRLOCK_FP_READY='a fingertip, or your password'
 HYPRLOCK_FP_PRESENT='reading…'
 HYPR_SHADOW_SHARP=false
+
+# The stack (templates/foxml/stack.svg, ~/.config/foxml/stack.svg): each plane's face and its quieter edge; the plane
+# you are on, enlarged: its brighter face and the glow along its edge.
+STACK_FACE=ff3300
+STACK_EDGE=c42700
+STACK_LIT=ff8a66
+STACK_GLOW=ffe0d6
