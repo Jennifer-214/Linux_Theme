@@ -708,6 +708,104 @@ local function server_layers(graph, side, depth, active, done)
   return stop
 end
 
+-- The levels a side shows now, level 1 with what M.MAX left out of it.
+local function shown_layers(graph, side)
+  if graph.layers and graph.layers[side] then return vim.list_slice(graph.layers[side]) end
+  if not graph[side] then return {} end
+  return { vim.list_extend(vim.list_slice(graph[side]), graph.hidden and graph.hidden[side] or {}) }
+end
+
+-- Where a function is, as file:line keys: the lines from where its definition starts to its name. The language server
+-- gives both (range, selectionRange), the project map the line its definition starts on, so one function read by
+-- both has a key in common. real: a cache of the files' real paths.
+local function places(item, real)
+  local file = item and item.uri and item.uri:match('^file:') and vim.uri_to_fname(item.uri)
+  if not file then return {} end
+  real[file] = real[file] or uv.fs_realpath(file) or file
+  local raw = item.raw or {}
+  local first, name = (raw.range or item.range or {}).start, (raw.selectionRange or item.range or {}).start
+  if not (first and name) then return {} end
+  local out = {}
+  for line = math.min(first.line, name.line), math.min(math.max(first.line, name.line), first.line + 20) do
+    out[#out + 1] = real[file] .. ':' .. line
+  end
+  return out
+end
+
+local function map_item(n, root)
+  local item = { name = n.label, map_id = n.id, detail = n.detail or 'project map' }
+  if type(n.file) == 'string' and type(n.line) == 'number' and n.line >= 1 then
+    local start = { line = n.line - 1, character = 0 }
+    item.uri, item.range, item.enc = vim.uri_from_fname(root .. '/' .. n.file), { start = start, ['end'] = start }, 'utf-8'
+    item.detail = vim.fs.basename(n.file) .. ':' .. n.line
+  end
+  return item
+end
+
+-- The levels shown now with the next one under them, from the project map's answer (its walk from the centre: the
+-- functions and the steps between them), or nil when the map cannot give that level. The levels shown stay, the
+-- language server's level 1 above all: the map reads calls by name and misses the ones the server resolves (through
+-- pointers, virtual calls, macros). The map adds the level below the last one, walking its steps out from the
+-- functions on it (the centre, when nothing is shown), each function once, at its nearest depth; only when it read
+-- every one of them that is in the checkout: one it does not have, or did not read that far, would lose its calls.
+local function map_level(graph, side, answer)
+  local real = {}
+  local root = uv.fs_realpath(answer.root) or answer.root
+  local items, at, read, outward = {}, {}, {}, {}
+  for _, n in ipairs(answer.nodes) do
+    if type(n) == 'table' and type(n.id) == 'string' and type(n.label) == 'string' then
+      items[n.id] = map_item(n, answer.root)
+      for _, p in ipairs(places(items[n.id], real)) do at[p] = at[p] or n.id end
+      if n.depth == 0 then read[n.id] = true end
+    end
+  end
+  -- Each step says what its far end is: read further (follow), or calling nothing (leaf); capped: not read.
+  for _, s in ipairs(type(answer.steps) == 'table' and answer.steps or {}) do
+    local near, far = s.from, s.to
+    if side == 'callers' then near, far = s.to, s.from end
+    if items[near] and items[far] then
+      outward[near] = outward[near] or {}
+      table.insert(outward[near], far)
+      if s.mark == 'follow' or s.mark == 'leaf' then read[far] = true end
+    end
+  end
+  local function id_of(item)
+    if item.map_id then return items[item.map_id] and item.map_id end
+    for _, p in ipairs(places(item, real)) do if at[p] then return at[p] end end
+  end
+  local tiers, shown, seen = shown_layers(graph, side), {}, {}
+  for _, tier in ipairs({ { graph.center }, unpack(tiers) }) do
+    for _, item in ipairs(tier) do
+      for _, p in ipairs(places(item, real)) do shown[p] = true end
+      local id = id_of(item)
+      if id then seen[id] = true end
+    end
+  end
+  local level = {}
+  for _, item in ipairs(tiers[#tiers] or { graph.center }) do
+    local id, file = id_of(item), (places(item, real)[1] or ''):match('^(.*):%d+$')
+    if not id then
+      if file and file:sub(1, #root + 1) == root .. '/' then return nil end
+    elseif not read[id] then return nil
+    else
+      for _, far in ipairs(outward[id] or {}) do
+        local here = places(items[far], real)
+        if not seen[far] and not vim.iter(here):any(function(p) return shown[p] end) then
+          level[#level + 1] = items[far]
+          for _, p in ipairs(here) do shown[p] = true end
+        end
+        seen[far] = true
+      end
+    end
+  end
+  if #level == 0 then return nil end
+  table.sort(level, function(a, b) return a.name < b.name end)
+  tiers[#tiers + 1] = level
+  return tiers
+end
+
+-- done(levels, note): the levels shown with the next under them, from the project map; done() when the map has no
+-- answer or cannot give that level (map_level), and the language server reads it.
 local function map_layers(graph, side, depth, active, done)
   local file, line = location(graph.center)
   if not file or file == '' or M.edited_since(graph) then done(); return end
@@ -717,20 +815,8 @@ local function map_layers(graph, side, depth, active, done)
     '--file', file, '--line', tostring(line), '--from', graph.center.name or '', '--depth', tostring(depth), '--cap', '3000' }, function(answer)
     if not active() then return end
     if not (answer and answer.ok and type(answer.root) == 'string' and type(answer.nodes) == 'table') then return done() end
-    local tiers = {}
-    for _, n in ipairs(answer.nodes) do
-      if type(n.depth) == 'number' and n.depth >= 1 and n.depth <= depth then
-        local item = { name = n.label, map_id = n.id, detail = n.detail or 'project map' }
-        if type(n.file) == 'string' and type(n.line) == 'number' and n.line >= 1 then
-          local start = { line = n.line - 1, character = 0 }
-          item.uri, item.range, item.enc = vim.uri_from_fname(answer.root .. '/' .. n.file), { start = start, ['end'] = start }, 'utf-8'
-          item.detail = vim.fs.basename(n.file) .. ':' .. n.line
-        end
-        tiers[n.depth] = tiers[n.depth] or {}
-        table.insert(tiers[n.depth], item)
-      end
-    end
-    for _, tier in ipairs(tiers) do table.sort(tier, function(a, b) return a.name < b.name end) end
+    local tiers = map_level(graph, side, answer)
+    if not tiers or #tiers < depth then return done() end
     done(tiers, answer.capped and 'more calls were left out of the project map answer' or nil)
   end, 2500)
 end

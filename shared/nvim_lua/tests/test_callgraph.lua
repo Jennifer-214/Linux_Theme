@@ -559,10 +559,12 @@ do
   Map.desk_work = function(args, done)
     reads = reads + 1
     eq({ args[6], args[8], args[10], args[14] }, { 'reach', file, '2', '2' }, 'the next tier uses the exact map source location')
+    -- desk-work's walk from M.alpha: M.beta is where the server's callee_of_M.alpha is (line 5), gamma below it.
     vim.schedule(function() done({ ok = true, root = dir, nodes = {
+      { id = 'alpha', label = 'M.alpha', file = 'sample.lua', line = 2, depth = 0 },
       { id = 'beta', label = 'M.beta', file = 'sample.lua', line = 5, depth = 1 },
-      { id = 'gamma', label = 'gamma', file = 'sample.lua', line = 7, depth = 2 },
-    } }) end)
+      { id = 'gamma', label = 'gamma', file = 'sample.lua', line = 8, depth = 2 },
+    }, steps = { { from = 'alpha', to = 'beta', depth = 1, mark = 'follow' }, { from = 'beta', to = 'gamma', depth = 2, mark = 'leaf' } } }) end)
   end
   served = { fake }
   vim.bo[buf].modified = false
@@ -573,6 +575,7 @@ do
   key('+')
   ok(vim.wait(2000, function() return named(layered, 'gamma') end), 'the deeper project-map level is drawn')
   eq({ reads, #requests }, { 1, before }, 'only one map traversal, with no server request for expansion')
+  eq(vim.tbl_map(function(i) return i.name end, layered.graph.layers.callees[1]), { 'callee_of_M.alpha' }, "level 1 stays the language server's")
   G.select(layered, named(layered, 'gamma'), true)
   local gauge = api.nvim_buf_get_extmarks(layered.buf, G.gauge_ns, 0, -1, {})
   eq(gauge[1] and gauge[1][2] + 1, layered.drawn.boxes[layered.index].line, 'the gauge marker follows the selected box')
@@ -628,6 +631,64 @@ do
   local moved = {}
   G.view_kind.open(moved, { graph = layered })
   ok(moved.graph == map_only and not moved.stop, 'transferring a map-only graph keeps its expanded levels without asking the server')
+end
+
+-- + under the language server's level 1, which stays (review of 2026-11-17, B1: the map's answer replaced the server's
+-- levels, so a map that knew the function and none of its calls erased level 1 and said "no more callees").
+do
+  local Map = require('desk.map')
+  local transport, outgoing = G.transport, 0
+  local function raw(name, line, at_uri)
+    local range = { start = { line = line, character = 0 }, ['end'] = { line = line, character = 1 } }
+    return { name = name, kind = 12, uri = at_uri or uri, range = range, selectionRange = range }
+  end
+  local level1 = { raw('callee_of_M.alpha', 4) }
+  G.transport = function(client, source_buf, method, params, done)
+    if method ~= 'callHierarchy/outgoingCalls' then return transport(client, source_buf, method, params, done) end
+    outgoing = outgoing + 1
+    local name = params.item and params.item.name
+    local found = name == 'M.alpha' and level1 or name == 'callee_of_M.alpha' and { raw('server_level_2', 7) } or {}
+    vim.defer_fn(function() done(nil, vim.tbl_map(function(r) return { to = r, fromRanges = {} } end, found)) end, 5)
+    return function() end
+  end
+  local function names(tier) return vim.tbl_map(function(i) return i.name end, tier or {}) end
+  local function node(id, label, line, depth) return { id = id, label = label, file = 'sample.lua', line = line, depth = depth } end
+  local function expand(answer, label)
+    Map.desk_work = function(_, done) vim.schedule(function() done(answer) end) end
+    local v = G.open({ buf = buf, row = 1, col = 11, name = 'M.alpha', key = 'B1 ' .. label })
+    ok(vim.wait(2000, function() return v.graph and v.graph.callees end), label .. ': the graph is read')
+    api.nvim_set_current_win(v.win)
+    outgoing = 0
+    key('+')
+    ok(vim.wait(2000, function() return not (v.depth_requests or {}).callees end), label .. ': the next level is read')
+    return v, outgoing
+  end
+  served = { fake }
+  vim.bo[buf].modified = false
+  local v, asked = expand({ ok = true, root = dir, q = 'reach', nodes = { node('alpha', 'M.alpha', 2, 0) }, steps = {} }, 'none in the map')
+  eq({ names(v.graph.layers.callees[1]), names(v.graph.layers.callees[2]), asked > 0 }, { { 'callee_of_M.alpha' }, { 'server_level_2' }, true },
+    "the map knows the function and none of its calls: the server's level 1 stays, and the server reads level 2")
+  ok(text(v.drawn.lines):find('callee_of_M.alpha', 1, true) and not text(v.drawn.lines):find('no more callees', 1, true),
+    '… level 1 still drawn, and no "no more callees"')
+  G.close_view(v.buf)
+  -- The map has the server's callee (M.beta's place) and reads it; a call outside the checkout is not the map's.
+  level1 = { raw('callee_of_M.alpha', 4), raw('lib_call', 0, vim.uri_from_fname(vim.fn.tempname() .. '/lib.lua')) }
+  local walk = { ok = true, root = dir, q = 'reach',
+    nodes = { node('alpha', 'M.alpha', 2, 0), node('beta', 'M.beta', 5, 1), node('gamma', 'gamma', 8, 2) },
+    steps = { { from = 'alpha', to = 'beta', depth = 1, mark = 'follow' }, { from = 'beta', to = 'gamma', depth = 2, mark = 'leaf' },
+              { from = 'beta', to = 'alpha', depth = 2, mark = 'seen', cycle = true } } }
+  v, asked = expand(walk, 'under level 1')
+  eq({ names(v.graph.layers.callees[1]), names(v.graph.layers.callees[2]), asked }, { { 'callee_of_M.alpha', 'lib_call' }, { 'gamma' }, 0 },
+    "the map adds level 2 under the server's level 1, with no server request")
+  ok(named(v, 'gamma') and not text(v.drawn.lines):find('M.beta', 1, true),
+    '… each function once, at its nearest depth: M.beta is callee_of_M.alpha, and M.alpha the centre')
+  G.close_view(v.buf)
+  walk.steps[1].mark = 'capped'
+  v, asked = expand(walk, 'not read that far')
+  eq({ names(v.graph.layers.callees[1]), names(v.graph.layers.callees[2]), asked > 0 }, { { 'callee_of_M.alpha', 'lib_call' }, { 'server_level_2' }, true },
+    'a function the map did not read that far: the server reads the level')
+  G.close_view(v.buf)
+  G.transport = transport
 end
 
 vim.fn.delete(dir, "rf")
