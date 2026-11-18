@@ -169,7 +169,9 @@ class Map(unittest.TestCase):
         # A C or C++ function also has its signature (params, returns) and a call its line and arguments: the trace's.
         for node in graph["nodes"]:
             self.assertEqual(set(node) - {"detail", "params", "returns"}, {"id", "label", "file", "line", "kind"})
-        self.assertTrue(all(set(e) - {"line", "args"} == {"from", "to", "kind"} for e in graph["edges"]))
+        self.assertTrue(all(set(e) - {"line", "args", "sites", "to_line"} == {"from", "to", "kind"} for e in graph["edges"]))
+        # every call between two kept as a site of the one edge (the trace offers each)
+        self.assertTrue(all(len(e["sites"]) >= 1 and all(site["line"] > 0 for site in e["sites"]) for e in graph["edges"] if "sites" in e))
         self.assertTrue(any("params" in n for n in graph["nodes"] if n["file"].endswith(".c")), "a C function has its parameters")
 
         reach = self.query("--q", "reach", "--from", "M.alpha", "--depth", "2")

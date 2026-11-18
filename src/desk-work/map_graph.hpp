@@ -437,11 +437,25 @@ inline J clean_graph(const J& raw) {
             if (!text(e, "label").empty()) edge["label"] = text(e, "label").substr(0, 80);
             // A call's line and its arguments as written (at most 12, each at most 80 characters): what flows in.
             if (number(e, "line") > 0) edge["line"] = number(e, "line");
-            if (e.contains("args") && e["args"].is_array()) {
-                J args = J::array();
-                for (const auto& a : e["args"]) if (a.is_string() && args.size() < 12) args.push_back(a.get<std::string>().substr(0, 80));
-                edge["args"] = args;
+            const auto strings = [](const J& list) {
+                J out = J::array();
+                for (const auto& a : list) if (a.is_string() && out.size() < 12) out.push_back(a.get<std::string>().substr(0, 80));
+                return out;
+            };
+            if (e.contains("args") && e["args"].is_array()) edge["args"] = strings(e["args"]);
+            // Every call between the two (at most 8), each its line and arguments: the trace offers each site.
+            if (e.contains("sites") && e["sites"].is_array()) {
+                J sites = J::array();
+                for (const auto& site : e["sites"])
+                    if (site.is_object() && number(site, "line") > 0 && sites.size() < 8) {
+                        J one{{"line", number(site, "line")}};
+                        if (site.contains("args") && site["args"].is_array()) one["args"] = strings(site["args"]);
+                        sites.push_back(one);
+                    }
+                if (!sites.empty()) edge["sites"] = sites;
             }
+            // A handoff: where the other side takes it (the pop's line)
+            if (number(e, "to_line") > 0) edge["to_line"] = number(e, "to_line");
             edges.push_back(edge);
         }
     if (raw.is_object() && raw.contains("spans") && raw["spans"].is_object())
@@ -606,6 +620,8 @@ struct Graph {
                     if (e.contains("args")) facts["args"] = e["args"];
                     if (e.contains("label")) facts["label"] = e["label"];
                     if (e.contains("by_hand")) facts["by_hand"] = e["by_hand"];
+                    if (e.contains("sites")) facts["sites"] = e["sites"];
+                    if (e.contains("to_line")) facts["to_line"] = e["to_line"];
                     calls[{a->second, b->second}] = facts;
                 }
             }

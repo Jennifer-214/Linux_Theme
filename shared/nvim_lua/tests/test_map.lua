@@ -71,6 +71,16 @@ local files = vim.tbl_keys(sources)
 table.sort(files)
 vim.list_extend(files, { "../outside.lua", "/etc/passwd" })
 local graph = Map.syntax_graph({ root = root, files = files })
+do
+  -- Every call between two functions kept as a site of the one edge (the trace offers each).
+  local two_root = vim.fn.tempname()
+  vim.fn.mkdir(two_root .. "/lua", "p")
+  vim.fn.writefile({ "local M = {}", "function M.leaf(x) return x end", "function M.twice()", "  M.leaf(1)", "  return M.leaf(2)", "end", "return M" }, two_root .. "/lua/two.lua")
+  local g2 = Map.syntax_graph({ root = two_root, files = { "lua/two.lua" } })
+  local e = vim.iter(g2.edges or {}):find(function(x) return x.from:find("twice", 1, true) and x.to:find("leaf", 1, true) end)
+  eq(e and vim.tbl_map(function(site) return site.line end, e.sites or {}), { 4, 5 }, "two calls from twice to leaf: one edge, both its sites")
+  vim.fn.delete(two_root, "rf")
+end
 local by_label, ids = {}, {}
 for _, n in ipairs(graph.nodes) do by_label[n.label] = by_label[n.label] or n; ids[n.id] = n end
 local function edge(a, b, kind)
@@ -442,15 +452,32 @@ do
   local page = Map.layout(Map.trace_page({ q = "trace", focus = "q.cpp::feed", steps = steps, calls = calls }, { ["q.cpp::feed|layout"] = true }, tick(8)), 120, false)
   ok(line_with(page.lines, "may share a cache line with drain on the drain thread: writes px here, reads ts there (line 1)"), "… said in the step's layout")
 end
+do
+  -- The line under an arrow is a hit: Enter opens the call; with several, it says how many. A cycle folded on the route
+  -- is said, never drawn as a call.
+  local many = vim.deepcopy(trace_answer)
+  many.calls[2].sites = { { line = 11, args = { "Order{t.px}", "3" } }, { line = 14, args = { "retry" } } }
+  local page = Map.layout(Map.trace_page(many), 90, false)
+  local row, text = line_with(page.lines, ":11 (2 calls)")
+  local hit = row and Map.item_at(page, row, text:find(":11", 1, true))
+  eq(hit and { hit.target.kind, hit.target.caller, hit.target.callee, #hit.target.sites }, { "call", "tick", "submit", 2 }, "a call's line is a hit, with its sites")
+  local cyc = vim.deepcopy(trace_answer)
+  cyc.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "none" }
+  local cpage = Map.layout(Map.trace_page(cyc), 120, false)
+  ok(line_with(cpage.lines, "┄ no call from tick to submit: the route came back through a cycle here") and not line_with(cpage.lines, ":11   Order"),
+    "two steps with no call between them: said, not drawn as a call")
+end
 local handed = vim.deepcopy(trace_answer)
-handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11 }
+handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11, to_line = 20 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)
 ok(line_with(handed_page.lines, "══[ tick_ring: push :11 → pop :20 ]══  inferred"), "a handoff between steps: what it went through, said as inferred")
 ok(not line_with(handed_page.lines, ":11   Order{t.px}"), "… with no call's arguments, as there is no call")
 do
   local row, text = line_with(handed_page.lines, "══[ tick_ring")
   local hit = row and Map.item_at(handed_page, row, text:find("tick_ring", 1, true))
-  eq(hit and hit.target, { kind = "handoff", from = "e.cpp::tick", to = "e.cpp::submit", by_hand = false }, "… the handoff a hit (x drops it), naming its two ends")
+  eq(hit and { hit.target.kind, hit.target.from, hit.target.to, hit.target.by_hand, hit.target.producer, hit.target.consumer },
+    { "handoff", "e.cpp::tick", "e.cpp::submit", false, { label = "tick", file = "e.cpp", line = 11 }, { label = "submit", file = "e.cpp", line = 20 } },
+    "… the handoff a hit (x drops it, Enter opens either side), naming its two ends and where each is")
   handed.calls[2].by_hand = true
   ok(line_with(Map.layout(Map.trace_page(handed), 90, false).lines, "══[ tick_ring: push :11 → pop :20 ]══  added by you"), "one she added says so")
 end
@@ -855,6 +882,33 @@ do
     ok(vim.wait(1000, function() return #corrections == 2 end), "a on a step: desk-work adds a handoff")
     eq(corrections[2], "map handoff add --root " .. view.root .. " --from e.cpp::tick --to consumer", "… from that step to the one named")
     vim.wait(200, function() return false end)
+    -- Enter on a call with two sites: both offered, each with its source line; the one chosen opened.
+    local real_select, offered = vim.ui.select, nil
+    vim.ui.select = function(items, opts, done) offered = vim.tbl_map(opts.format_item, items); done(items[2]) end
+    trace_answer.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "call-by-name", line = 11, args = { "t" },
+      sites = { { line = 11, args = { "t" } }, { line = 14, args = { "u" } } } }
+    press("r")
+    ok(vim.wait(1000, function() return line_with(view.drawn.lines, ":11 (2 calls)") end), "a call with two sites, drawn")
+    vim.wait(300, function() return false end)
+    local crow, ctext = line_with(view.drawn.lines, ":11 (2 calls)")
+    api.nvim_win_set_cursor(view.win, { crow, (ctext:find(":11", 1, true)) - 1 })
+    press("<CR>")
+    eq(offered, { "// line 11  e.cpp:11", "// line 14  e.cpp:14" }, "Enter on it: each call offered with its source line and place")
+    ok(vim.wait(1000, function() return vim.endswith(api.nvim_buf_get_name(0), "/e.cpp") and api.nvim_win_get_cursor(0)[1] == 14 end),
+      "… the one chosen opened at its line: " .. api.nvim_buf_get_name(0) .. ":" .. api.nvim_win_get_cursor(0)[1])
+    api.nvim_set_current_win(view.win)
+    -- Enter on a handoff: its producer (the push) or its consumer (the pop).
+    trace_answer.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "ring", line = 11, to_line = 20 }
+    press("r")
+    ok(vim.wait(1000, function() return line_with(view.drawn.lines, "══[ ring ]══") end), "the handoff drawn")
+    vim.wait(300, function() return false end)
+    local hr, ht = line_with(view.drawn.lines, "══[ ring ]══")
+    api.nvim_win_set_cursor(view.win, { hr, (ht:find("ring", 1, true)) })
+    press("<CR>")
+    eq(offered, { "where it is handed over: tick  e.cpp:11", "where it is taken: submit  e.cpp:20" }, "Enter on a handoff: its producer and its consumer")
+    ok(vim.wait(1000, function() return vim.endswith(api.nvim_buf_get_name(0), "/e.cpp") and api.nvim_win_get_cursor(0)[1] == 20 end), "… the consumer opened at the pop")
+    api.nvim_set_current_win(view.win)
+    vim.ui.select = real_select
     vim.notify, vim.ui.input, Map.desk_work = real_notify, real_input, inner
     trace_answer.calls[2] = saved_call
     for i = #traced_args, n + 1, -1 do table.remove(traced_args, i) end
@@ -1177,7 +1231,9 @@ do
   eq(Map.strip_text(fn, G), { "tt::tick · e.cpp:11 → bool", "Enter source · t trace · c calls · D reach · U callers · gs inspect" },
     "a function: what it is, then Enter source · t trace · c calls …, gs where symdeps can look (C and C++)")
   eq(Map.strip_text({ name = "layout (2)", open = false, target = { kind = "fold", fold = "x|layout" } }, G), { "layout (2)", "Enter opens it" }, "a fold: Enter opens it")
-  eq(Map.strip_text({ name = "tick ring", target = { kind = "handoff", by_hand = false } }, G)[2], "x drops it (it is wrong) · a on a step adds one", "a handoff: x drops it")
+  eq(Map.strip_text({ name = "tick ring", target = { kind = "handoff", by_hand = false } }, G)[2], "Enter opens its producer or consumer · x drops it (it is wrong)", "a handoff: Enter either side, x drops it")
+  eq(Map.strip_text({ name = "a → b", target = { kind = "call", caller = "a", callee = "b", sites = { { line = 3 }, { line = 9 } } } }, G),
+    { "a → b — 2 calls", "Enter lists them, each with its line" }, "a call with two sites: Enter lists them")
   local payload = P._payload(pv)
   ok(vim.iter(payload.items):any(function(i) return type(i.keys) == "string" and i.keys:find(" — Enter ", 1, true) ~= nil end), "the pop-out's items carry their line")
   local line = P._keyline({ id = "v", copy = { index = 1 }, items = { { keys = "tt::tick · e.cpp:11 — Enter source · t trace" } }, footer = {} })

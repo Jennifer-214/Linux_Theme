@@ -226,14 +226,16 @@ function M.handoff_edges(units, by_short, ops, passed, pointers, calls, seen, ca
     pick = vim.tbl_filter(function(k) return units[k].family == family and units[k].kind == 'function' end, pick)
     return #pick == 1 and pick[1] or nil
   end
-  local function add(from, to, label, line)
+  -- line: where it is handed over (the push, the passing, the call through the pointer); to_line: where the other side
+  -- takes it (the pop), when there is one.
+  local function add(from, to, label, line, to_line)
     if from == to or #edges >= cap then return end
     -- A direct call between the two says it already.
     if seen[units[from].id .. '\0' .. units[to].id] then return end
     local key = units[from].id .. '\0' .. units[to].id .. '\0handoff'
     if seen[key] then return end
     seen[key] = true
-    edges[#edges + 1] = { from = units[from].id, to = units[to].id, kind = 'handoff', label = label:sub(1, 80), line = line }
+    edges[#edges + 1] = { from = units[from].id, to = units[to].id, kind = 'handoff', label = label:sub(1, 80), line = line, to_line = to_line }
   end
   -- One object under a plural and its singular (tick_rings[c] pushed, the core's tick_ring popped).
   local by_object = {}
@@ -251,7 +253,7 @@ function M.handoff_edges(units, by_short, ops, passed, pointers, calls, seen, ca
     if #pushers >= 1 and #pushers <= 4 and #poppers >= 1 and #poppers <= 4 then
       for _, a in ipairs(pushers) do
         for _, b in ipairs(poppers) do
-          add(a, b, object .. ': push :' .. slot.push[a] .. ' → pop :' .. slot.pop[b], slot.push[a])
+          add(a, b, object .. ': push :' .. slot.push[a] .. ' → pop :' .. slot.pop[b], slot.push[a], slot.pop[b])
         end
       end
     end
@@ -416,7 +418,7 @@ function M.syntax_graph(request)
   -- Calls to edges, by name, within the caller's language: a qualified call (M.beta, Queue::push) prefers the
   -- function of that name; self.x and this->x the caller's own class; then the caller's file, then its folder (a
   -- checkout of many programs has many a trim); what is still ambiguous is left out and counted.
-  local by_short, nodes, edges, seen = {}, {}, {}, {}
+  local by_short, nodes, edges, seen, edge_at = {}, {}, {}, {}, {}
   for i, u in ipairs(units) do
     by_short[u.short] = by_short[u.short] or {}
     table.insert(by_short[u.short], i)
@@ -454,13 +456,19 @@ function M.syntax_graph(request)
       if #pick ~= 1 or elsewhere then stats.ambiguous = stats.ambiguous + 1
       else
         local key = from.id .. '\0' .. units[pick[1]].id
-        if not seen[key] then
+        if seen[key] then
+          -- Another call between the same two: kept as one of its sites (the trace offers each), at most 8.
+          local e = edges[edge_at[key]]
+          if e and #e.sites < 8 then e.sites[#e.sites + 1] = { line = c.line, args = c.args } end
+        else
           if #edges >= max_edges then
             if complete then complete, why = false, 'stopped at ' .. max_edges .. ' calls' end
           else
             seen[key] = true
-            -- The first call between the two: its line and arguments, what the trace shows flowing in.
-            edges[#edges + 1] = { from = from.id, to = units[pick[1]].id, kind = 'call-by-name', line = c.line, args = c.args }
+            -- The first call between the two: its line and arguments, what the trace shows flowing in; every site of it.
+            edges[#edges + 1] = { from = from.id, to = units[pick[1]].id, kind = 'call-by-name', line = c.line, args = c.args,
+              sites = { { line = c.line, args = c.args } } }
+            edge_at[key] = #edges
             stats.edges = stats.edges + 1
           end
         end
@@ -1423,10 +1431,18 @@ function M.trace_page(answer, folds, layouts)
       -- No call between the two: what one gives, the other takes (a ring's push and pop, a thread started with it, a
       -- function pointer). Inferred from the code, and said so.
       -- `x` on it drops a wrong one; one she added says so.
-      local item = { name = call.label or 'handoff', target = { kind = 'handoff', from = call.from, to = call.to, by_hand = call.by_hand == true },
+      -- Enter offers its two sides: where it is handed over (the push), where it is taken (the pop).
+      local item = { name = call.label or 'handoff', target = { kind = 'handoff', from = call.from, to = call.to, by_hand = call.by_hand == true,
+        producer = { label = st.label, file = st.file, line = call.line or st.line },
+        consumer = { label = after.label, file = after.file, line = call.to_line or after.line } },
         key = 'handoff:' .. tostring(call.from) .. '>' .. tostring(call.to) }
       sections[#sections + 1] = { block = { { { '══[ ' .. (call.label or 'handoff') .. ' ]══', item },
         { call.by_hand and '  added by you' or '  inferred', nil, true } } }, group = 'DeskMapFocus' }
+    elseif call and after and call.kind == 'none' then
+      -- Two steps with no call between them: a cycle on the route (A → F → A → Z) was walked once, so F and Z meet here
+      -- without F calling Z. Said, never drawn as a call.
+      sections[#sections + 1] = { block = { { { '┄ no call from ' .. st.label .. ' to ' .. after.label .. ': the route came back through a cycle here', nil, true } } },
+        group = 'DeskMapDim' }
     elseif call and after then
       sections[#sections + 1] = { arrow = true }
       local flow, into = {}, after.params or {}
@@ -1434,10 +1450,14 @@ function M.trace_page(answer, folds, layouts)
         local prm = into[i]
         flow[#flow + 1] = (prm and prm.name ~= '' and prm.name ~= arg) and (arg .. ' → ' .. prm.name) or arg
       end
-      local at = call.line and (':' .. call.line) or ''
+      local sites = call.sites or (call.line and { { line = call.line, args = call.args } }) or {}
+      local at = call.line and (':' .. call.line .. (#sites > 1 and (' (' .. #sites .. ' calls)') or '')) or ''
       if at ~= '' or #flow > 0 then
-        -- A part per argument, so a long call wraps between them.
-        local parts = { { at .. (at ~= '' and #flow > 0 and '   ' or '') } }
+        -- A part per argument, so a long call wraps between them; the line its own hit: Enter opens the call (each of
+        -- them when there are several).
+        local call_item = { name = st.label .. ' → ' .. after.label, key = 'call:' .. tostring(call.from) .. '>' .. tostring(call.to),
+          target = { kind = 'call', file = st.file, caller = st.label, callee = after.label, sites = sites } }
+        local parts = { { at .. (at ~= '' and #flow > 0 and '   ' or ''), at ~= '' and call_item or nil } }
         for i, f in ipairs(flow) do parts[#parts + 1] = { f .. (i < #flow and ' · ' or '') } end
         sections[#sections + 1] = { block = { parts }, group = 'DeskMapDim' }
       end
@@ -1945,6 +1965,31 @@ local function enter(view, ctx)
   elseif t.kind == 'file' then push(view, { kind = 'functions', module = t.module, file = t.file }, item.key)
   elseif t.kind == 'class' then push(view, { kind = 'class', module = t.module, file = t.file, id = t.id, name = item.name, node = t.node }, item.key)
   elseif t.kind == 'node' then jump(view, t.node, ctx and ctx.origin)
+  elseif t.kind == 'call' or t.kind == 'handoff' then
+    -- A call: its line in the caller (one of its sites, asked, when there are several, each with its source line); a
+    -- handoff: its producer or its consumer.
+    local origin = ctx and ctx.origin
+    local places = {}
+    if t.kind == 'call' then
+      local lines = t.file and vim.fn.readfile(view.root .. '/' .. t.file) or {}
+      for i, site in ipairs(t.sites or {}) do
+        local source = vim.trim((lines[site.line] or ''):gsub('%s+', ' '))
+        places[#places + 1] = { id = tostring(i), label = (source ~= '' and source or (t.caller .. ' → ' .. t.callee)), file = t.file, line = site.line }
+      end
+    else
+      for _, side in ipairs({ { 'producer', 'where it is handed over: ' }, { 'consumer', 'where it is taken: ' } }) do
+        local at = t[side[1]]
+        if at and at.file then places[#places + 1] = { id = side[1], label = side[2] .. at.label, file = at.file, line = at.line } end
+      end
+    end
+    if #places == 1 and t.kind == 'call' then return jump(view, places[1], origin) end
+    if #places == 0 then return tell('No place in the code for this one.') end
+    ctx.stayed = true
+    local message = t.kind == 'call' and (#places .. ' calls from ' .. t.caller .. ' to ' .. t.callee .. ': which one?') or ('The handoff ' .. tostring(item.name) .. ': which side?')
+    choose(view, { message = message, candidates = places }, function(id, picked)
+      if picked and view.stack[#view.stack] == picked then table.remove(view.stack); load(view) end
+      for _, place in ipairs(places) do if place.id == id then jump(view, place, origin) end end
+    end)
   elseif t.kind == 'pick' then
     -- A name chosen on the pick page: the question asked again with its id, in the page's place.
     local top = view.stack[#view.stack]
@@ -2733,7 +2778,11 @@ function M.strip_text(item, G)
     return { tostring(item.name), typed('in') .. ' ' .. G.said(item.open and 'closes it' or 'opens it') }
   elseif t.kind == 'handoff' then
     return { G.said('handoff ') .. tostring(item.name) .. G.said(t.by_hand and ' — added by you' or ' — inferred from the code'),
-      typed('handoff-drop') .. ' ' .. G.said(t.by_hand and 'forgets it' or 'drops it (it is wrong)') .. ' · ' .. typed('handoff-add') .. ' ' .. G.said('on a step adds one') }
+      typed('in') .. ' ' .. G.said('opens its producer or consumer') .. ' · ' .. typed('handoff-drop') .. ' ' .. G.said(t.by_hand and 'forgets it' or 'drops it (it is wrong)') }
+  elseif t.kind == 'call' then
+    local n = #(t.sites or {})
+    return { tostring(t.caller) .. ' → ' .. tostring(t.callee) .. G.said(n > 1 and (' — ' .. n .. ' calls') or ''),
+      typed('in') .. ' ' .. G.said(n > 1 and 'lists them, each with its line' or 'opens the call') }
   elseif t.kind == 'pick' then
     return { tostring(item.name), typed('in') .. ' ' .. G.said('uses this one') }
   end

@@ -297,6 +297,16 @@ int main(int, char** argv) {
         CHECK(ht["calls"].back()["kind"] == "handoff" && ht["calls"].back()["label"] == "ring: push :3 → pop :41",
               "… said as a handoff, with what it went through");
         CHECK(desk_map::paths(hg, hg.at.at("entry"), hg.at.at("consumer"), 16, 5)["paths"].size() == 1, "… and the map's ways go through it");
+        // Every call between two kept as its sites, and a handoff's pop line: through the stored graph into the trace.
+        J sited = doc;
+        for (auto& e : sited["edges"]) if (e["from"] == "a" && e["to"] == "F") e["sites"] = J::array({J{{"line", 12}, {"args", J::array({"tick"})}}, J{{"line", 15}}});
+        sited["nodes"].push_back(J{{"id", "consumer"}, {"label", "consumer"}, {"kind", "function"}, {"file", "f.cpp"}, {"line", 40}});
+        sited["edges"].push_back(J{{"from", "end"}, {"to", "consumer"}, {"kind", "handoff"}, {"label", "ring"}, {"line", 3}, {"to_line", 41}});
+        const desk_map::Graph sg(desk_map::clean_graph(sited));
+        const auto st = desk_map::trace(sg, sg.at.at("F"), 16);
+        const auto sites = st["calls"][2].value("sites", J::array());
+        CHECK(sites.size() == 2 && sites[1].value("line", 0) == 15, "a call's sites reach the trace, each its line");
+        CHECK(st["calls"].back().value("to_line", 0) == 41, "… and a handoff's pop line");
         // Her corrections: the handoff dropped is gone; one she adds carries the lane on, marked by_hand.
         const desk_map::Graph dropped(desk_map::corrected(desk_map::clean_graph(handed), J{{"drop", J::array({J{{"from", "end"}, {"to", "consumer"}}})}}));
         CHECK(lane(desk_map::trace(dropped, dropped.at.at("F"), 16)).back() == "end", "a dropped handoff is gone: the lane ends at the calls' end");
