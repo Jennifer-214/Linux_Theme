@@ -1456,14 +1456,17 @@ local ROWS = actions.add({
     needs_selection, THERE),
   row('back', '<BS>', 'Zoom out, or back to the code',
     "Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open", back,
-    nil, HERE),
-  row('out', '-', 'Zoom out', 'Zoom out a level',
+    nil, { remote = false, doc = "Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the "
+      .. 'code, the map left open. On a callers or reach page of more than one level, `-` takes a level off instead' }),
+  -- At one level a callers or reach page zooms out, as every page does (2026-11-17: it only said it showed one level).
+  row('out', '-', 'Zoom out, or take a level off',
+    'Zoom out a level; on a callers or reach page of more than one level, take a level off (`+` adds one)',
     function(view, ctx)
-      if walk_level(view) then return change_walk(view, ctx, -1) end
+      local top = walk_level(view)
+      if top and (top.answer.depth or 3) > 1 then return change_walk(view, ctx, -1) end
       if view.out then return zoom_out(view) end
       back(view)
-    end, nil, { line = 'map.back', menu = false, remote = true,
-      doc = 'Zoom out, or reduce the number of levels on a callers or reach page' }),
+    end, nil, { line = 'map.back', menu = false, remote = true }),
   row('expand', '+', 'Expand call depth', 'Read another level on the callers or reach page',
     function(view, ctx) change_walk(view, ctx, 1) end, function(ctx)
       local top = walk_level(ctx.map)

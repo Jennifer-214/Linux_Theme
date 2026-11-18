@@ -350,7 +350,7 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 |---|---|
 | `Space cm`, `:ProjectMap` | The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was, or the map out in the pop-out back as the tab |
 | `Enter` in the map | Zoom into the part, file or class under the cursor; on a function, go to its code (the map stays open) |
-| `<BS>` / `-` in the map | Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open |
+| `<BS>` / `-` in the map | Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open. On a callers or reach page of more than one level, `-` takes a level off instead |
 | `+` in the map | Read another level on the callers or reach page |
 | `D` in the map | Everything a function reaches, down the calls (a count before `D` is the depth; 3 without one) |
 | `U` in the map | Who calls a function, up the calls, transitively (a count before `U` is the depth) |

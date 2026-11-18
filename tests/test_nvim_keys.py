@@ -286,6 +286,8 @@ class NvimKeys(unittest.TestCase):
             self.assertIn(line, table)
         self.assertNotIn('`p` in the map', table, "p is the grammar's pin; the ways moved to P")
         self.assertTrue(table.rstrip().splitlines()[-2].startswith('| `?` in the map'), "the shared ? comes after the map's own keys")
+        back = next(line for line in table.splitlines() if line.startswith('| `<BS>` / `-` in the map |'))
+        self.assertIn('`-` takes a level off instead', back, '- on a callers or reach page of more than one level: its line says so')
 
     def test_the_registry_takes_every_row_the_modules_add(self):
         found = nvim_keys.registry()

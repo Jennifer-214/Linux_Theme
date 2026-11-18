@@ -247,7 +247,7 @@ for i, line in ipairs(view.drawn.lines) do ok(api.nvim_strwidth(line) <= api.nvi
 eq(vim.bo[view.buf].modifiable, false, "the page is read-only")
 local mapped = {}
 for _, m in ipairs(api.nvim_buf_get_keymap(view.buf, "n")) do mapped[m.lhs] = m.desc end
-eq({ mapped["?"], mapped["<BS>"], mapped["-"], mapped["P"] }, { "The keys here", "Zoom out, or back to the code", "Zoom out", "The ways between two functions" },
+eq({ mapped["?"], mapped["<BS>"], mapped["-"], mapped["P"] }, { "The keys here", "Zoom out, or back to the code", "Zoom out, or take a level off", "The ways between two functions" },
   "the map's buffer has the registry's keys: ? lists them, Backspace and - zoom out, P the ways")
 eq({ mapped["p"], mapped["s"], mapped["o"] }, { nil, nil, "Send the map to the pop-out" },
   "p (the grammar's pin) and s (no jump labels in the map) stay free; o sends the map to the pop-out, as it does a graph")
@@ -401,6 +401,18 @@ ok(vim.wait(1000, function() return view.stack[depth].answer.depth == 2 end), "-
 ok(line_with(view.drawn.lines, "+2"), "reach tiers have a signed gauge")
 press("<BS>")
 ok(vim.wait(1000, function() return #view.stack == depth - 1 and line_with(view.drawn.lines, "│ M.alpha") end), "Backspace leaves the depth query")
+-- - on a page of one level zooms out, as on every page (review of 2026-11-17, C1: it said "Already showing the first
+-- level." and stayed).
+cursor_on("use")
+api.nvim_feedkeys("1D", "x", false)
+ok(vim.wait(1000, function() return #view.stack == depth and view.stack[depth].answer.depth == 1 end), "1D: a reach page of one level")
+local said_here, real_notify = {}, vim.notify
+vim.notify = function(msg, ...) said_here[#said_here + 1] = msg; return real_notify(msg, ...) end
+press("-")
+ok(vim.wait(1000, function() return #view.stack == depth - 1 and line_with(view.drawn.lines, "│ M.alpha") end),
+  "- there zooms out, to the page it was asked on")
+vim.notify = real_notify
+eq(said_here, {}, "… saying nothing")
 -- c on a function: the call graph centred on it, where the map is (here a graph tab), as c centres a graph.
 cursor_on("M.alpha")
 press("c")
@@ -708,6 +720,15 @@ ok(vim.wait(1000, function() return table.concat(shown().lines, "\n"):find("ways
 eq(act("map.paths", alpha), { false, "The ways between two functions: needs its words" }, "… and without them it does not run")
 act("map.out")
 ok(vim.wait(1000, function() return item_named(shown(), "M.alpha") ~= nil end), "- leaves the ways")
+-- In the pop-out too: - takes a level off down to one, then zooms out (C1).
+eq(act("map.reach", alpha), { true }, "D again from the pop-out")
+ok(vim.wait(1000, function() return #pv.stack == 4 and pv.stack[4].answer.depth == 3 end), "… its reach page, at depth 3")
+act("map.out")
+ok(vim.wait(1000, function() return pv.stack[4] and pv.stack[4].answer.depth == 2 end), "- there takes a level off")
+act("map.out")
+ok(vim.wait(1000, function() return pv.stack[4] and pv.stack[4].answer.depth == 1 end), "… down to one")
+act("map.out")
+ok(vim.wait(1000, function() return #pv.stack == 3 and item_named(shown(), "M.alpha") ~= nil end), "- at one level goes out, to the file's functions")
 Map.POLL_MS = 20
 pv.news = nil
 local redraws, real_redraw = 0, P.redraw
