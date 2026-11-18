@@ -1469,6 +1469,29 @@ class Work(unittest.TestCase):
         self.assertEqual(answered(), "sample.cpp", "an editor that ended is not asked")
 
     @unittest.skipUnless(subprocess.run(["sh", "-c", "command -v nvim"], capture_output=True).returncode == 0, "needs Neovim")
+    def test_editors_that_do_not_answer_are_waited_for_together_not_one_after_another(self):
+        # Codex's review, 2026-11-18: each main editor got its own 300 ms ping in turn, so eight stuck ones held a
+        # message back 2.4 s. Four sockets that take the connection and never answer, and one real editor.
+        runtime = Path(self.env["XDG_RUNTIME_DIR"])
+        runtime.mkdir(mode=0o700, exist_ok=True)
+        live = self.editor("lua require('desk.bridge').setup()", "edit sample.cpp")
+        self.data("client-report", "--client", "nvim", "--build", "b", "--pid", live[0].pid, "--root", self.repo, "--server", live[1], "--role", "main")
+        for n in range(4):
+            path = runtime / f"silent{n}.sock"
+            silent = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            silent.bind(str(path))
+            silent.listen(8)
+            self.addCleanup(silent.close)
+            holder = subprocess.Popen(["sleep", "60"])
+            self.addCleanup(holder.kill)
+            self.data("client-report", "--client", "nvim", "--build", "b", "--pid", holder.pid, "--root", self.repo, "--server", path, "--role", "main")
+        started = time.monotonic()
+        answer = self.ask({"version": 1, "type": "view"})
+        took = time.monotonic() - started
+        self.assertEqual(Path(answer["file"]).name, "sample.cpp", "the editor that answers takes the message")
+        self.assertLess(took, 0.9, f"four silent editors held the message back {took:.2f} s (one after another: 1.2 s and more)")
+
+    @unittest.skipUnless(subprocess.run(["sh", "-c", "command -v nvim"], capture_output=True).returncode == 0, "needs Neovim")
     def test_open_goes_to_her_running_editor_in_a_new_tab_and_otherwise_to_a_window_of_its_own(self):
         with tempfile.TemporaryDirectory(prefix=".fox-work-editor-", dir=Path(__file__).parent) as temp:
             fake, calls = Path(temp), self.dir / "calls.jsonl"

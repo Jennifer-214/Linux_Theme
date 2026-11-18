@@ -106,7 +106,7 @@ EditorAnswer call_editor(const std::string& server, J message, int budget_ms) {
         return unreached("The editor at " + server + " is not listening (" + std::strerror(errno) + ")");
     }
     message["deadline"] = epoch_ms() + budget_ms;
-    static unsigned serial = 0;
+    static std::atomic<unsigned> serial{0};   // the pings to several editors run at once
     const unsigned id = ++serial;
     const auto request = J::to_msgpack(J::array({0, id, "nvim_exec_lua", J::array({BRIDGE_ENTRY, J::array({message})})}));
     for (size_t sent = 0; sent < request.size();) {
@@ -156,7 +156,7 @@ EditorAnswer call_editor(const std::string& server, J message, int budget_ms) {
     }
 }
 // A message for her editor on a checkout goes to the socket named, else to a live main editor of the checkout; with
-// several, each is pinged briefly and the one she focused last takes it.
+// several, each is pinged at once (one stuck editor costs 300 ms, not 300 ms each) and the one she focused last takes it.
 EditorAnswer ask_editor(const std::string& root, const std::string& server, J message) {
     EditorAnswer out;
     const auto refused = [&](const std::string& why) { out.code = 1; out.message = why; return out; };
@@ -171,10 +171,15 @@ EditorAnswer ask_editor(const std::string& root, const std::string& server, J me
         if (mains.empty()) { out.message = "No Neovim on this checkout is listening"; return out; }
         if (mains.size() == 1) chosen = mains[0];
         else {
+            std::vector<std::future<EditorAnswer>> pings;
+            for (const auto& editor : mains)
+                pings.push_back(std::async(std::launch::async, [&root, server = str(editor, "server")] {
+                    return call_editor(server, J{{"version", 1}, {"type", "ping"}, {"root", root}}, 300);
+                }));
             long long latest = -1;
-            for (const auto& editor : mains) {
-                const auto pong = call_editor(str(editor, "server"), J{{"version", 1}, {"type", "ping"}, {"root", root}}, 300);
-                if (pong.code == 0 && num(pong.result, "last_focus") > latest) { latest = num(pong.result, "last_focus"); chosen = editor; }
+            for (size_t i = 0; i < mains.size(); ++i) {
+                const auto pong = pings[i].get();
+                if (pong.code == 0 && num(pong.result, "last_focus") > latest) { latest = num(pong.result, "last_focus"); chosen = mains[i]; }
             }
             if (chosen.is_null()) { out.message = "No Neovim on this checkout answered"; return out; }
         }
