@@ -2717,6 +2717,14 @@ local function remote(row, host)
   return row
 end
 local function showing(ctx) return ctx.view ~= nil or 'nothing is shown here' end
+-- Space dd in the pop-out: why symdeps' card does not open here (symdeps never loads in a pop-out: init.lua's spec).
+local function no_card_here()
+  local view = shown()
+  if view and view.kind == 'symdeps' then
+    return "symdeps' card is the one drawn here: its keys work on it, and " .. typed('popout.home') .. ' lists them'
+  end
+  return 'symdeps runs in the editor, not in the pop-out: ' .. typed('popout.swap') .. ' goes there'
+end
 local function can_go(ctx)
   if not ctx.view then return 'nothing is shown here' end
   local row = enter_row(ctx.surface)
@@ -2899,6 +2907,15 @@ local ROWS = actions.add({
     end },
   { id = 'popout.home', group = 'Home', name = 'Home menu', key = '<leader><leader>', on = ON, menu = false,
     about = 'The home menu for the selected box or row: the views, what the editor can do with it, and this window', run = function() M.client_home() end },
+  -- symdeps' two keys in the editor, here: each does what it does there, or says why not (her ask, 2026-11-17: "there
+  -- needs to be like some consistency between what works in the popout, and wat works in the actual editor"). symdeps
+  -- never loads in a pop-out (init.lua's spec), so its menu key is this window's menu, which has the board's rows.
+  { id = 'popout.symdeps-menu', group = 'Pop-out', name = "The pop-out's menu", key = '<leader>dm', on = ON, menu = false,
+    about = "symdeps' menu key: here, this window's menu for the view in front, as `Space Space` (on symdeps' board, its rows)",
+    run = function() M.client_home() end },
+  { id = 'popout.symdeps-card', group = 'Pop-out', name = "symdeps' card: not here", key = '<leader>dd', on = ON, menu = false,
+    about = "symdeps' card key: here it says why not (on symdeps' board, the card is the one drawn; elsewhere symdeps runs in the editor, `Space Tab` away)",
+    run = function() say(no_card_here(), WARN) end },
 })
 for _, row in ipairs(ROWS) do if row.id == 'popout.restore' then RESTORE = row end end
 

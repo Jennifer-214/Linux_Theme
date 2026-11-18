@@ -770,9 +770,35 @@ ok(wait(2000, function() return host('return _G.board_test.opened') == 'Fill' en
 ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xa1' })", 1, true) end),
   '… and the keyboard goes to the editor')
 eq(pop('return _G.heard'), {}, '… with nothing said (never "Nothing here goes anywhere.")')
+-- Space dm and Space dd, symdeps' keys in the editor: in the pop-out its own, over any global map of them (lazy.nvim's,
+-- had init.lua's spec mapped them there: pressed, it loaded symdeps in the pop-out, 2026-11-17).
+pop([[_G.lazy_fired = {}
+  for _, lhs in ipairs({ '<leader>dm', '<leader>dd' }) do
+    vim.keymap.set('n', lhs, function() table.insert(_G.lazy_fired, lhs) end, { desc = 'fox-symdeps (lazy.nvim, stood in for)' })
+  end]])
+press('<Space>dm')
+ok(wait(3000, function() return pop("local m = require('desk.menu')._last; return m ~= nil and vim.api.nvim_win_is_valid(m.win)") end),
+  "Space dm in the pop-out: the pop-out's menu")
+menu = pop([[local m = require('desk.menu')._last
+  if not (m and vim.api.nvim_win_is_valid(m.win)) then return '' end
+  return vim.inspect(vim.api.nvim_win_get_config(m.win).title) .. '\n' .. table.concat(vim.api.nvim_buf_get_lines(m.buf, 0, -1, false), '\n')]])
+ok(menu:find('Compare the card', 1, true) and menu:find("The pop-out's keys", 1, true), "… what Space Space shows there, the board's rows:\n" .. menu)
+ok(menu:find('Home · pop-out · Fill', 1, true), '… for the card selected there')
+press('<Esc>')
+ok(wait(2000, function() return state().current_win == state().win end), '… Esc closes it')
+press('<Space>dd')
+ok(wait(2000, function() return vim.tbl_contains(pop('return _G.heard'),
+  "Symdeps' card is the one drawn here: its keys work on it, and Space Space lists them.") end), "Space dd on the board: symdeps' card is the one drawn here")
+eq(pop('return _G.lazy_fired'), {}, '… and neither key ran the global map (symdeps never loads in the pop-out)')
 press('q')
 ok(wait(3000, function() return state().shown == 'graph' and state().tabs == 1 end), 'q: the board closes, the graph stays')
 eq(host('return _G.board_test.closed'), 'symdeps', '… its kind told')
+pop('_G.heard = {}')
+press('<Space>dd')
+ok(wait(2000, function() return vim.tbl_contains(pop('return _G.heard'), 'Symdeps runs in the editor, not in the pop-out: Space Tab goes there.') end),
+  'Space dd on another view: symdeps runs in the editor')
+eq(pop('return _G.lazy_fired'), {}, '… not the global map either')
+pop("vim.keymap.del('n', '<leader>dm'); vim.keymap.del('n', '<leader>dd')")
 host("local A = require('desk.actions'); A.get('popout.view.symdeps').run(A.context())")
 ok(wait(3000, function() return state().shown == 'symdeps' end), 'the board can be opened again')
 press('o')
