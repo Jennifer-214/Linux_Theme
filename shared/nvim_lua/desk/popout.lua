@@ -11,14 +11,16 @@
 -- An editor may have several pop-outs (M.pops, by id 1, 2, …; the first is M.host), each a kitty and a Neovim of its
 -- own, started with g:desk_popout set to its id. Every view goes to the first unless she sends it to another.
 --
--- Protocol 4. The editor sends each pop-out, on its own channel, rpcnotify of M.receive, { version = 4, type, … }:
+-- Protocol 5. The editor sends each pop-out, on its own channel, rpcnotify of M.receive, { version = 5, type, … }:
 --   view.set   { id, gen, kind, surface, title, state, lines, marks, hl, items, footer, strip, select, front, news, views }
 --              (views: every view the editor has in that pop-out; it closes a tab of any other)
+--   view.lines { id, gen, from, tick, first, last, lines, cursor, state, total } (code edits and snapshot chunks)
+--   view.layout { tiled } (tile the code views in this pop-out)
 --   view.clear { id } · ping { serial } (every 10 s; one that stops answering is sent nothing until it does) · bye { why }
 --   answer { id, answer } (to an ask)
 -- The pop-out's messages go through the editor's bridge (desk.bridge), every ask with its deadline (pong and leaving
 -- need none), each naming the pop-out it comes from (pop: its id; the bridge cannot tell which channel called, and a
--- message without one is the first's): subscribe { pop, chan, pid, width, protocol = 4 } (a request: the handshake) ·
+-- message without one is the first's): subscribe { pop, chan, pid, width, protocol = 5 } (a request: the handshake) ·
 -- describe { pop, view, gen, item } → { rows } · act { pop, view, gen, item, action, text, choice } · leaving { pop, pid }
 -- (q on its last view: it goes, whatever the editor is doing, and says so first) · pong { pop, serial } · front { pop,
 -- view, quiet } (the view in front there now; quiet when it was not her own switch). describe, act and leaving are
@@ -34,9 +36,11 @@ local actions = require('desk.actions')
 local bridge = require('desk.bridge')
 
 M.CLASS = 'desk-popout'
-M.PROTOCOL = 4
+M.PROTOCOL = 5
 M.PING_MS, M.WATCH_MS, M.LINGER_MS, M.GAP_MS, M.START_MS = 10000, 2000, 1500, 50, 15000
 M.MAX_LINES, M.MAX_ITEMS = 2000, 500
+M.MIRROR_LINES, M.MIRROR_BYTES, M.LINE_BYTES = 50000, 8 * 1024 * 1024, 4000
+local MAX_TILES = 4
 -- The two doors: the editor's (desk.bridge, as desk-work uses it) and the pop-out's.
 local HOST_DOOR = "return require('desk.bridge').receive(...)"
 local ASK_DOOR = "return require('desk.popout').ask(...)"   -- the editor's, for an ask answered by notification
@@ -416,17 +420,20 @@ end
 --                the two lines that show the selected item's strip; news: something new is in it (an answer, a
 --                failure): its name in the header is marked until she looks (view.news, cleared once sent)
 --   available(ctx) → true | why | false   may it open from ctx (ctx.remote: asked from the pop-out)        (optional)
+--   match(view, ctx) → boolean   kinds with several views reuse one only when it matches the request
+--   mirror = true      render gives a snapshot with tick, lang and cursor. delta(view) gives a line range to
+--                      replace, or nil, true to request a new snapshot.
 --   open(view, ctx)        fills a view from where it was asked: the editor's ctx, a surface's with what it passed,
 --                          or ctx.target (a function she named elsewhere: the notebook)
 --   follow(view, event)    the editor moved: { type = 'moved' or 'unit', win } · { type = 'saved' or 'attached', buf } ·
 --                          { type = 'pin' } (p flipped view.pinned). A kind with news of its own calls M.redraw(view)
 --                          kind.follows = false: it has follow but does not follow the cursor (no ↻ in the header)
---   ctx_for(view, ref, index) → ctx   what a remote row runs with for that item; ctx.view, ctx.item (the ref),
+--   ctx_for(view, ref, index, line) → ctx   what a remote row runs with for that item; ctx.view, ctx.item (the ref),
 --                          ctx.index, ctx.remote and ctx.also are added to it; ctx.origin, when set, is the window
 --                          its Enter moves (Ctrl+o takes the editor back there). An Enter row that only acted in the
 --                          view (a zoom, a fold) sets ctx.stayed = true: f then keeps the keyboard in the pop-out
 --   attach(view)           o in the pop-out, and each pinned view when the pop-out goes on its own: the view back in
---                          the editor as a split (it has left the pop-out)
+--                          the editor as a split. Runs after the view is unlisted but before close releases it.
 --   close(view)            the view left the pop-out: stop what it runs (timers, requests)
 --   save(view) → saved, restore(view, saved)   the view's state and back. The history keeps what save gives (any
 --                          table); the layout record keeps saved.pinned and saved.target as JSON, and restore gets
@@ -437,7 +444,8 @@ end
 -- item, and shows that view.
 local SPEC = { name = 'string', title = 'string', about = 'string', menu = 'string', surface = 'string', render = 'function',
   available = 'function', open = 'function', follow = 'function', ctx_for = 'function', attach = 'function', close = 'function',
-  save = 'function', restore = 'function', follows = 'boolean' }
+  save = 'function', restore = 'function', follows = 'boolean', mirror = 'boolean', match = 'function',
+  delta = 'function' }
 local function kind_problem(spec)
   if type(spec) ~= 'table' then return 'a view kind is a table, not ' .. type(spec) end
   local name = type(spec.name) == 'string' and spec.name or '(no name)'
@@ -515,6 +523,14 @@ local function plain_spans(spans)
   end
   return out
 end
+local function gauge_band(band, line)
+  if type(band) ~= 'table' or type(line) ~= 'number' then return end
+  local first, last = band[1], band[2]
+  if type(first) == 'number' and type(last) == 'number' and first % 1 == 0 and last % 1 == 0
+    and first >= 1 and first <= line and line <= last and line <= M.MAX_LINES then
+    return { first, math.min(last, M.MAX_LINES) }
+  end
+end
 local function plain_footer(footer)
   local out = {}
   for _, part in ipairs(type(footer) == 'table' and footer or {}) do
@@ -526,6 +542,20 @@ local function plain_footer(footer)
   end
   return out
 end
+local function mirror_slice(lines, first, last)
+  local out = {}
+  for i = first, last do
+    local line = lines[i]
+    if #line > M.LINE_BYTES then
+      local edge = M.LINE_BYTES - #'…' + 1
+      while edge > 1 and line:byte(edge) >= 128 and line:byte(edge) < 192 do edge = edge - 1 end
+      line = line:sub(1, edge - 1) .. '…'
+    end
+    out[#out + 1] = line
+  end
+  return out
+end
+
 local function payload(view)
   local kind = kinds[view.kind]
   local ok, drawn = pcall(kind.render, view, pop_of(view).width or 80, vim.g.desk_style or 'paper')
@@ -533,7 +563,8 @@ local function payload(view)
     drawn = { lines = { '', '  This view could not be drawn: ' .. (tostring(ok and 'it gave no lines' or drawn):gsub('\n.*', '')):sub(1, 200) } }
   end
   local lines, marks = {}, plain_marks(drawn.marks)
-  for i, line in ipairs(drawn.lines) do lines[i] = tostring(line) end
+  if kind.mirror then lines = mirror_slice(drawn.lines, 1, math.min(#drawn.lines, M.MAX_LINES))
+  else for i, line in ipairs(drawn.lines) do lines[i] = tostring(line) end end
   if #lines > M.MAX_LINES then
     local more = #lines - (M.MAX_LINES - 1)
     lines = vim.list_slice(lines, 1, M.MAX_LINES - 1)
@@ -545,14 +576,51 @@ local function payload(view)
     if i > M.MAX_ITEMS then break end
     refs[i], keys[i] = item.ref, tostring(item.key or i):sub(1, 120)
     items[i] = { key = keys[i], kind = item.kind == 'row' and 'row' or 'box', line = num(item.line), name_col = num(item.name_col), x = num(item.x),
-      w = num(item.w), spans = plain_spans(item.spans), centre = item.centre == true, name = tostring(item.name or ''):sub(1, 200), mark = cut(item.mark, 16),
+      w = num(item.w), spans = plain_spans(item.spans), centre = item.centre == true, gauge = item.gauge == true,
+      gauge_band = gauge_band(item.gauge_band, item.line),
+      name = tostring(item.name or ''):sub(1, 200), mark = cut(item.mark, 16),
       strip = type(item.strip) == 'table' and { cut(item.strip[1], 400) or '', cut(item.strip[2], 400) or '' } or nil,
       zones = plain_zones(item.zones) }
   end
   return { type = 'view.set', id = view.id, kind = view.kind, surface = kind.surface, title = cut(drawn.title, 200) or kind.title,
     state = cut(drawn.state, 200) or '', lines = lines, marks = marks, hl = definitions(drawn.hl), items = items,
     footer = plain_footer(drawn.footer), strip = num(drawn.strip), news = drawn.news == true,
-    pinned = view.pinned == true, follows = kind.follow ~= nil and kind.follows ~= false }, refs, keys
+    pinned = view.pinned == true, follows = kind.follow ~= nil and kind.follows ~= false,
+    tick = kind.mirror and (drawn.tick or 0) or nil, total = kind.mirror and #drawn.lines or nil,
+    lang = drawn.lang, cursor = drawn.cursor }, refs, keys, drawn.lines
+end
+
+-- One queue per view. Send the rest of a snapshot first, then the edits that arrived while it was in flight.
+function M.mirror_changed(view)
+  if view.mirror_queued or not M.holds(view) then return end
+  view.mirror_queued = true
+  vim.defer_fn(function()
+    view.mirror_queued = false
+    local p = pop_of(view)
+    if not M.holds(view) or not p.chan or p.stalled or exiting() or view.mirror_pop ~= p.id then return end
+    local snapshot = view.snapshot
+    local message
+    if snapshot then
+      local first = snapshot.sent
+      local last = math.min(first + M.MAX_LINES, #snapshot.lines)
+      message = { first = first, last = first, lines = mirror_slice(snapshot.lines, first + 1, last),
+        tick = view.mirror_tick, total = #snapshot.lines, chunk = true }
+      snapshot.sent = last
+      if last == #snapshot.lines then view.snapshot = nil end
+    else
+      local kind = kinds[view.kind]
+      local full
+      message, full = kind.delta(view)
+      if full then return M.redraw(view) end
+      if not message then return end
+      message.lines = mirror_slice(message.lines, 1, #message.lines)
+    end
+    message.type, message.id, message.gen, message.from = 'view.lines', view.id, view.gen, view.mirror_tick
+    if send(p, message) then
+      view.mirror_tick = message.tick
+      if snapshot then M.mirror_changed(view) end
+    end
+  end, M.GAP_MS)
 end
 
 -- Sends a view as it is now, one per view every M.GAP_MS at most (the last state wins). A new generation only when its
@@ -570,9 +638,9 @@ function M.redraw(view)
     return
   end
   view.sent = uv.now()
-  local msg, refs, keys = payload(view)
-  local drawing = table.concat(msg.lines, '\n') .. '\0' .. table.concat(keys, '\1')
-  if drawing ~= view.drawing then
+  local msg, refs, keys, full = payload(view)
+  local drawing = not msg.tick and (table.concat(msg.lines, '\n') .. '\0' .. table.concat(keys, '\1')) or nil
+  if msg.tick or drawing ~= view.drawing then
     L.gen = L.gen + 1
     view.gen, view.drawing = L.gen, drawing
   end
@@ -580,8 +648,15 @@ function M.redraw(view)
   msg.gen, msg.select, msg.front = view.gen, cut(view.select, 120), view.front == true
   -- The views this editor has there: the pop-out closes a tab of any other (a view.clear it never got, made while it
   -- did not answer and so never sent).
-  msg.views = p.order
-  if send(p, msg) then view.select, view.front, view.news = nil, nil, nil end
+  msg.views, msg.tiled = p.order, p.tiled == true
+  if send(p, msg) then
+    view.select, view.front, view.news = nil, nil, nil
+    if msg.tick then
+      view.mirror_tick, view.mirror_pop = msg.tick, p.id
+      view.snapshot = #full > #msg.lines and { lines = full, sent = #msg.lines } or nil
+      if view.snapshot then M.mirror_changed(view) end
+    end
+  end
 end
 -- Every view of pop-out p sent again in the order of its tabs (a pop-out makes a view's tab when it first arrives, so
 -- this order is the tabs' order), then the one in front once more to bring it forward (a moment later: one send per
@@ -622,6 +697,9 @@ local function follow_start()
   api.nvim_create_autocmd('User', { group = group, pattern = 'FoxUnitChanged',
     callback = function() dispatch({ type = 'unit', win = api.nvim_get_current_win() }) end })
   api.nvim_create_autocmd('BufWritePost', { group = group, callback = function(a) dispatch({ type = 'saved', buf = a.buf }) end })
+  api.nvim_create_autocmd('BufModifiedSet', { group = group, callback = function(a) dispatch({ type = 'modified', buf = a.buf }) end })
+  api.nvim_create_autocmd({ 'BufFilePost', 'FileType' }, { group = group,
+    callback = function(a) dispatch({ type = 'file', buf = a.buf }) end })
   api.nvim_create_autocmd('LspAttach', { group = group, callback = function(a) dispatch({ type = 'attached', buf = a.buf }) end })
   api.nvim_create_autocmd('ColorScheme', { group = group, callback = function()
     if not exiting() then for _, p in ipairs(pops) do redraw_all(p) end end
@@ -629,29 +707,39 @@ local function follow_start()
 end
 local function follow_stop() pcall(api.nvim_del_augroup_by_name, 'desk_popout_follow') end
 
-local function leave(view)
+local function leave(view, hand_back, line)
   view.gone = true
   local kind = kinds[view.kind]
+  -- A stateful view may transfer resources to the editor during attach, before close releases any it still owns.
+  local returned = false
+  if hand_back and kind and kind.attach then
+    local ok, err = pcall(kind.attach, view, line)
+    if ok then returned = true
+    else tell(sentence('it could not come back: ' .. tostring(err):sub(1, 200)), WARN) end
+  end
   if kind and kind.close then
     local ok, err = pcall(kind.close, view)
     if not ok then kind_failed(view, err) end
   end
+  return returned
 end
 local function unlist(p, id) for i, other in ipairs(p.order) do if other == id then table.remove(p.order, i); return end end end
 
 -- Takes a view off its pop-out (it goes back to the editor, she closed it there, or its kind took it off: the review
 -- closing), and writes the layout record so a view gone is never restored.
-function M.clear(id)
+local function clear_view(id, hand_back, line)
   local view, p = find_view(id)
   if not view then return end
   p.views[id] = nil
   unlist(p, id)
   if p.front == id then p.front = nil end
-  leave(view)
+  leave(view, hand_back, line)
   if not any_views() then follow_stop() end
   send(p, { type = 'view.clear', id = id })
   M.save_layout()
 end
+
+function M.clear(id) clear_view(id) end
 
 -- Pop-out p is gone, or let go (→ closed): nothing more is sent to it and nothing follows the cursor for it; the other
 -- pop-outs go on. One still running (q on what is its last view here, a fold) is told why and its channel closed, so
@@ -670,24 +758,16 @@ forget = function(p, why, opts)
   if not any_open() then unwatch_screens() end
   if not opts.leaving then let_go(chan, why) end
   local views, order = p.views, p.order
-  p.views, p.order, p.history = {}, {}, { steps = {}, at = 0 }
-  local back = {}
+  p.views, p.order, p.history, p.tiled = {}, {}, { steps = {}, at = 0 }, nil
+  local returned = 0
   for _, id in ipairs(order) do
     local view = views[id]
-    if view then
-      leave(view)
-      local kind = kinds[view.kind]
-      if (opts.all or (opts.back and view.pinned)) and kind and kind.attach then back[#back + 1] = view end
-    end
+    if view and leave(view, opts.all or (opts.back and view.pinned)) then returned = returned + 1 end
   end
   if not any_views() then follow_stop() end
-  for _, view in ipairs(back) do
-    local ok, err = pcall(kinds[view.kind].attach, view)
-    if not ok then tell(sentence('it could not come back: ' .. tostring(err):sub(1, 200)), WARN) end
-  end
   if had and why then
     local its = opts.all and ' Its' or ' Its pinned'
-    tell(why .. (#back == 0 and '' or #back == 1 and (its .. ' view is back here.') or (its .. ' views are back here.')),
+    tell(why .. (returned == 0 and '' or returned == 1 and (its .. ' view is back here.') or (its .. ' views are back here.')),
       opts.all and WARN or nil)
   end
 end
@@ -882,7 +962,7 @@ local function apply(p, step, again)
     local view = p.views[step.view]
     local kind = view and kinds[view.kind]
     if not again then
-      step.after = main_spot(step.before.win)
+      if not step.code_after then step.after = main_spot(step.before.win) end
       if step.saved and kind and kind.save then
         local fine, now = pcall(kind.save, view)
         step.after_saved = fine and type(now) == 'table' and now or nil
@@ -893,7 +973,7 @@ local function apply(p, step, again)
       local fine, err = pcall(kind.restore, view, saved)
       if not fine then kind_failed(view, err) end
     end
-    if not put_spot(again and step.after or step.before) and not saved then return false end
+    if not put_spot(again and (step.code_after or step.after) or step.before) and not saved then return false end
     if view and (saved or p.front ~= view.id) then to_front(view) end
   elseif step.type == 'state' then
     local view = p.views[step.view]
@@ -974,12 +1054,14 @@ function M.record_pops(record)
   local show = type(record.show) == 'table' and record.show or {}
   local function text(value) return type(value) == 'string' and value or nil end
   local function tabs(value) return type(value) == 'table' and value or {} end
-  local out, seen = { { id = 1, tabs = tabs(record.tabs), activeTab = text(record.activeTab), screen = text(show.screen) } }, { true }
+  local out, seen = { { id = 1, tabs = tabs(record.tabs), activeTab = text(record.activeTab), screen = text(show.screen),
+    tiled = show.tiled == true or nil } }, { true }
   for _, saved in ipairs(type(show.pops) == 'table' and show.pops or {}) do
     local id = type(saved) == 'table' and tonumber(saved.id)
     if id and id == math.floor(id) and id >= 2 and id <= M.MAX_POPS and not seen[id] then
       seen[id] = true
-      out[#out + 1] = { id = id, tabs = tabs(saved.tabs), activeTab = text(saved.activeTab), screen = text(saved.screen) }
+      out[#out + 1] = { id = id, tabs = tabs(saved.tabs), activeTab = text(saved.activeTab), screen = text(saved.screen),
+        tiled = saved.tiled == true or nil }
     end
   end
   return out
@@ -997,7 +1079,8 @@ local function tabs_of(p)
     if kind and kind.save then
       local ok, saved = pcall(kind.save, view)
       if ok and type(saved) == 'table' then
-        tabs[#tabs + 1] = { kind = view.kind, pinned = view.pinned == true, target = type(saved.target) == 'table' and saved.target or nil }
+        tabs[#tabs + 1] = { kind = view.kind, pinned = view.pinned == true, id = kind.match and id or nil,
+          target = type(saved.target) == 'table' and saved.target or nil }
       end
     end
   end
@@ -1009,9 +1092,10 @@ local function layout_record()
   local others = {}
   for _, p in ipairs(pops) do
     local tabs = p ~= H and tabs_of(p) or {}
-    if #tabs > 0 then others[#others + 1] = { id = p.id, tabs = tabs, activeTab = p.front, screen = p.screen } end
+    if #tabs > 0 then others[#others + 1] = { id = p.id, tabs = tabs, activeTab = p.front, screen = p.screen, tiled = p.tiled } end
   end
-  return { version = 1, tabs = tabs_of(H), activeTab = H.front, show = { screen = H.screen, pops = #others > 0 and others or nil } }
+  return { version = 1, tabs = tabs_of(H), activeTab = H.front,
+    show = { screen = H.screen, pops = #others > 0 and others or nil, tiled = H.tiled } }
 end
 -- A write that failed is said, in desk-work's own words when it gave some.
 local function not_saved(out)
@@ -1137,6 +1221,7 @@ function M.show(name, ctx, opts)
   if not kind then return tell('No view is called ' .. tostring(name) .. '.', WARN) end
   if refused_here(M.can_pop()) then return end
   ctx = ctx or actions.context()
+  if kind.match and kind.available and refused_here(kind.available(ctx)) then return end
   opts = type(opts) == 'table' and opts or {}
   local p = pop_for(name, opts.pop)
   if not p then return tell('There is no pop-out ' .. tostring(opts.pop) .. '.', WARN) end
@@ -1150,7 +1235,15 @@ function M.show(name, ctx, opts)
   local ok, why = open_pop(p, checkout_of(ctx.win))
   if not ok then return tell(sentence(why), WARN) end
   local view, before = kind_view(p, name), p.front
-  if not (view and ctx.remote) then
+  if kind.match then
+    view = nil
+    for _, id in ipairs(p.order) do
+      local candidate = p.views[id]
+      if candidate.kind == name and kind.match(candidate, ctx) then view = candidate; break end
+    end
+  end
+  if not (view and (ctx.remote or kind.match)) then
+    if not view and (#p.order >= 64 or not new_id(name)) then return tell('This pop-out has no room for another view.', WARN) end
     -- Sent again over what it showed (another graph's o, the map of another checkout): a step Ctrl+o undoes (2026-11-16).
     local was
     if view and kind.save and kind.restore then
@@ -1220,12 +1313,19 @@ function M.is_open(name) return pop_for(name).chan ~= nil end
 -- saved view its kind fills again from what was kept, and the one in front then in front.
 local function restore_tab(p, saved)
   local kind = type(saved) == 'table' and kinds[saved.kind]
-  if not (kind and kind.restore) or kind_view(p, saved.kind) then return end
+  if not (kind and kind.restore) or (not kind.match and kind_view(p, saved.kind)) then return end
+  if #p.order >= 64 or not new_id(saved.kind) then return end
+  if kind.match then
+    for _, view in pairs(p.views) do
+      if view.kind == saved.kind and kind.match(view, { target = saved.target }) then return view end
+    end
+  end
   local view = add_view(p, saved.kind)
   view.pinned = saved.pinned == true
   local fine, err = pcall(kind.restore, view, { pinned = view.pinned, target = type(saved.target) == 'table' and saved.target or nil })
   if not fine then kind_failed(view, err) end
   to_front(view)
+  return view
 end
 
 -- Every pop-out the record has views for opens again (each its own state machine, on its own screen), in its order.
@@ -1239,19 +1339,22 @@ function M.restore_layout()
       for n = #pops + 1, saved.id do pops[n] = new_pop(n) end
       local p = pops[saved.id]
       p.prefer = saved.screen
+      p.tiled = saved.tiled
       local ok, why = open_pop(p, L.saved_root)
       if not ok then return tell(sentence(why), WARN) end
       p.waiting = {}
+      local active
       for _, tab in ipairs(saved.tabs) do
         if type(tab) == 'table' and type(tab.kind) == 'string' and not kinds[tab.kind] then p.waiting[#p.waiting + 1] = tab
         else
-          restore_tab(p, tab)
+          local restored = restore_tab(p, tab)
+          if restored and tab.id == saved.activeTab then active = restored end
           -- Its kind's views go to the pop-out it was in, as when she sent it there.
           if p ~= H and type(tab) == 'table' and kind_view(p, tab.kind) then homes[tab.kind] = p.id end
         end
       end
       -- The one in front, by its kind (a view's id is its kind's name, or kind.2 when another pop-out had one).
-      local active = saved.activeTab and kind_view(p, (saved.activeTab:gsub('%.%d+$', '')))
+      active = active or (saved.activeTab and kind_view(p, (saved.activeTab:gsub('%.%d+$', ''))))
       if active then to_front(active) end
     end
   end
@@ -1271,15 +1374,8 @@ function M.restore_waiting(name)
 end
 
 -- o in the pop-out: the view leaves it, and its kind puts it back in the editor.
-function M.back(view)
-  local kind = view and kinds[view.kind]
-  if not kind then return end
-  M.clear(view.id)
-  if kind.attach then
-    local ok, err = pcall(kind.attach, view)
-    if not ok then tell(sentence('it could not come back: ' .. tostring(err):sub(1, 200)), WARN) end
-  end
-  M.save_layout()
+function M.back(view, line)
+  if view and M.holds(view) then clear_view(view.id, true, line) end
 end
 
 -- p in the pop-out: pinned, a view stays as it is while the editor moves; unpinned, its kind follows the editor again.
@@ -1287,7 +1383,7 @@ function M.pin(view)
   if not view then return end
   view.pinned = not view.pinned
   follow_one(view, { type = 'pin' })
-  M.redraw(view)
+  if not kinds[view.kind].mirror then M.redraw(view) end
   M.save_layout()
 end
 
@@ -1374,7 +1470,7 @@ local function remote_ctx(msg)
   local kind = view and kinds[view.kind]
   local ctx
   if kind and kind.ctx_for then
-    local ok, made = pcall(kind.ctx_for, view, ref, msg.item)
+    local ok, made = pcall(kind.ctx_for, view, ref, msg.item, msg.line)
     if not ok or type(made) ~= 'table' then return nil, "can't tell what is selected there: " .. tostring(made):sub(1, 160) end
     ctx = made
   else
@@ -1382,6 +1478,7 @@ local function remote_ctx(msg)
     ctx.surface = kind and kind.surface or ON
   end
   ctx.pop, ctx.view, ctx.item, ctx.index, ctx.remote, ctx.also = p.id, view, ref, msg.item, true, { ON }
+  ctx.line = msg.line
   L.last = p.id
   return ctx
 end
@@ -1463,7 +1560,7 @@ local function act(msg)
     -- One step for the Enter: where the editor was and, for a kind that keeps its state, what the view was. A step the
     -- kind takes of its own for it (while it runs, or scheduled from it) is folded into this one.
     local saved
-    if entering and kind.save and kind.restore then
+    if entering and not kind.mirror and kind.save and kind.restore then
       local fine, state = pcall(kind.save, view)
       saved = fine and type(state) == 'table' and state or nil
     end
@@ -1483,7 +1580,10 @@ local function act(msg)
     end
     vim.notify = real
     if not ok then return end
-    if before then push_step(p, { type = 'enter', view = view.id, before = before, saved = saved }) end
+    if before then
+      local code_after = kind.mirror and main_spot() or nil
+      push_step(p, { type = 'enter', view = view.id, before = before, saved = saved, code_after = code_after })
+    end
     if entering then vim.schedule(function() if p.folding == view.id then p.folding = nil end end) end
   end)
   return { done = true }
@@ -1532,14 +1632,23 @@ local function on_leaving(msg)
 end
 
 local ID, NUMBER, POP = bridge.field('string', 32), bridge.field('integer', 2147483647), bridge.field('integer', M.MAX_POPS)
+local LINE = bridge.field('integer', M.MIRROR_LINES)
 bridge.register('subscribe', timed(subscribe), { pop = POP, chan = bridge.field('integer', 2147483647, true),
   pid = bridge.field('integer', 2147483647, true), width = bridge.field('integer', 1000), protocol = bridge.field('integer', 1000, true) })
-bridge.register('describe', timed(describe), { pop = POP, view = ID, gen = NUMBER, item = bridge.field('integer', M.MAX_ITEMS) })
-bridge.register('act', timed(act), { pop = POP, view = ID, gen = NUMBER, item = bridge.field('integer', M.MAX_ITEMS),
+bridge.register('describe', timed(describe), { pop = POP, view = ID, gen = NUMBER, item = bridge.field('integer', M.MAX_ITEMS), line = LINE })
+bridge.register('act', timed(act), { pop = POP, view = ID, gen = NUMBER, item = bridge.field('integer', M.MAX_ITEMS), line = LINE,
   action = bridge.field('string', 64, true), text = bridge.field('string', 2000), choice = bridge.field('string', 64) })
 bridge.register('pong', pong, { pop = POP, serial = bridge.field('integer', 2147483647, true) })
 bridge.register('front', timed(front), { pop = POP, view = bridge.field('string', 32, true), quiet = bridge.field('boolean') })
 bridge.register('leaving', on_leaving, { pop = POP, pid = bridge.field('integer', 2147483647, true) })
+bridge.register('resync', timed(function(msg)
+  local p = from_pop(msg)
+  local view = p and p.chan and p.views[msg.view]
+  if not view or not kinds[view.kind].mirror then return refuse('there is no such code view') end
+  if msg.gen ~= view.gen then return refuse('this view moved on') end
+  vim.schedule(function() M.redraw(view) end)
+  return { queued = true }
+end), { pop = POP, view = bridge.field('string', 32, true), gen = bridge.field('integer', 2147483647, true) })
 
 -- An ask of a pop-out's, by notification (id: its number there): the message goes through the bridge as any other,
 -- and its answer back as a notification, to the pop-out it came from (msg.pop; leaving forgets that pop-out, and is
@@ -1556,11 +1665,11 @@ end
 
 -- ─── the pop-out's side ────────────────────────────────────────────────────────────────────────────────────────
 -- chan: to the editor; me: that channel's number there; host: { pid, pane } of the editor; views by id, each in a
--- buffer and a tab page of its own (view.win: its window); empty: the buffer that says nothing is shown, in the one tab
--- left when there is no view; shown: the view in front (nil: none); switching: a tab change of this module's own;
+-- buffer and a window (view.win), normally in separate tabs; tiles: the code views sharing a tab;
+-- empty: the buffer shown when there is no view; shown: the view in front; switching: a window change of our own;
 -- asked: the asks sent so far; waiting and answers: the asks waited for, by id, and their answers once they came;
 -- pop: which of the editor's pop-outs this is (g:desk_popout), named in every message it sends.
-local C = { views = {}, asked = 0, waiting = {}, answers = {}, pop = 1 }
+local C = { views = {}, order = {}, tiles = {}, asked = 0, waiting = {}, answers = {}, pop = 1 }
 local ns = api.nvim_create_namespace('desk_popout')
 
 local function say(text, level) vim.notify(sentence(text), level or vim.log.levels.INFO, { title = 'Pop-out' }) end
@@ -1606,6 +1715,7 @@ M.request = request   -- the tests time it
 local function naming(msg, view, index)
   view = view or shown()
   if view then msg.view, msg.gen, msg.item = view.id, view.gen, index or view.copy.index end
+  if view and view.tick and view.win and api.nvim_win_is_valid(view.win) then msg.line = api.nvim_win_get_cursor(view.win)[1] end
   return msg
 end
 
@@ -1700,9 +1810,11 @@ end
 local function centre(view)
   if not api.nvim_buf_is_valid(view.buf) then return end
   api.nvim_buf_clear_namespace(view.buf, pad_ns, 0, -1)
+  if view.tick then view.gutter = 0; return end
   local lines = api.nvim_buf_get_lines(view.buf, 0, -1, false)
   local width = view.win and api.nvim_win_is_valid(view.win) and api.nvim_win_get_width(view.win) or vim.o.columns
-  local n = M.gutter(lines, width)
+  -- The editor already centred the graph's boxes and anchored its gauge to the left edge.
+  local n = view.copy.drawn and view.copy.drawn.gauge_range and 0 or M.gutter(lines, width)
   view.gutter = n
   -- From the left edge: a window that narrowed kept its sideways scroll, and cut the drawing's start (seen in a VM,
   -- 2026-11-17).
@@ -1767,6 +1879,13 @@ end
 -- A view's key line: its kind's footer, keys as typed here, words in the theme's voice.
 local function keyline(view)
   local said, parts = actions.voice(graphs().retro()), {}
+  if vim.tbl_contains(C.tiles, view.id) then
+    local label = view.title
+    if view.loading then label = label .. ' · ' .. said('loading')
+    elseif view.state ~= '' then label = label .. ' · ' .. view.state end
+    if view.pinned then label = label .. ' · ' .. said('pinned') end
+    parts[#parts + 1] = '%#DeskPopoutKey#' .. escape(label)
+  end
   for _, pair in ipairs(M.key_pairs(view.footer or {}, view.rows)) do
     parts[#parts + 1] = '%#DeskPopoutKey#' .. escape(pair[1]) .. '%#DeskPopoutWords# ' .. escape(said(pair[2]))
   end
@@ -1787,7 +1906,38 @@ local function tab_of(view)
   if win and api.nvim_win_is_valid(win) and api.nvim_win_get_buf(win) == view.buf then return api.nvim_win_get_tabpage(win) end
 end
 local function view_in_tab(tab)
-  for _, view in pairs(C.views) do if tab_of(view) == tab then return view end end
+  local win = api.nvim_tabpage_get_win(tab)
+  local buf = api.nvim_win_get_buf(win)
+  for _, view in pairs(C.views) do if view.win == win and view.buf == buf then return view end end
+end
+
+-- desk-nav can skip sockets altogether at an edge or in a tab without splits.
+local function publish_edges(clear)
+  local edges = ''
+  local current = not clear and shown()
+  if current and current.win == api.nvim_get_current_win() and vim.tbl_contains(C.tiles, current.id) then
+    for _, direction in ipairs({ 'h', 'j', 'k', 'l' }) do
+      if vim.fn.winnr(direction) ~= vim.fn.winnr() then edges = edges .. direction end
+    end
+  end
+  if not C.edge_path or C.edges == edges then return end
+  C.edges = nil
+  if edges == '' then
+    uv.fs_unlink(C.edge_path)
+  else
+    local folder = vim.fs.dirname(C.edge_path)
+    if vim.fn.isdirectory(folder) ~= 1 then pcall(vim.fn.mkdir, folder, 'p', tonumber('700', 8)) end
+    local temporary = C.edge_path .. '.tmp'
+    local fd = uv.fs_open(temporary, 'w', tonumber('600', 8))
+    if not fd then return end
+    local written = uv.fs_write(fd, edges .. '\n', 0)
+    uv.fs_close(fd)
+    if written ~= #edges + 1 or not uv.fs_rename(temporary, C.edge_path) then
+      uv.fs_unlink(temporary)
+      return
+    end
+  end
+  C.edges = edges
 end
 
 -- The header: each view by its tab number and kind, PINNED, ✱ when something new is in it, the one in front in the
@@ -1797,7 +1947,15 @@ local function tabline()
   local said, current, out = actions.voice(retro), api.nvim_get_current_tabpage(), {}
   for n, tab in ipairs(api.nvim_list_tabpages()) do
     local view = view_in_tab(tab)
-    local text = ' ' .. n .. ' ' .. said(view and (view.kind ~= '' and view.kind or view.id) or 'pop-out')
+    if not view and tab == current then view = shown() end
+    local label = view and (view.kind ~= '' and view.kind or view.id) or 'pop-out'
+    if view and vim.tbl_contains(C.tiles, view.id) then label = #C.tiles .. ' code panes' end
+    local text = ' ' .. n .. ' ' .. said(label)
+    if view and view.tick then
+      text = text .. ' · ' .. view.title
+      if view.loading then text = text .. ' · ' .. said('loading')
+      elseif view.state ~= '' then text = text .. ' · ' .. view.state end
+    end
     -- Pinned or following, from the editor's own flags (any kind: the review's state is its progress, 2026-11-16).
     if view and view.pinned then text = text .. (retro and '·' or ' · ') .. said('PINNED')
     elseif view and view.follows then text = text .. ' ' .. (retro and '»' or '↻') end
@@ -1834,13 +1992,16 @@ end
 -- has its keys from the editor once the view is drawn (view.standin: bind_standins).
 local function client_view(id, surface)
   local buf = api.nvim_create_buf(false, true)
-  vim.bo[buf].bufhidden, vim.bo[buf].filetype = 'hide', 'deskpopout'
+  vim.bo[buf].bufhidden, vim.bo[buf].modifiable = 'hide', false
+  if surface == 'code' then vim.bo[buf].undolevels = -1 end
+  if surface ~= 'code' then vim.bo[buf].filetype = 'deskpopout' end
   local view = { id = id, buf = buf, gen = 0, kind = '', title = id, state = '', lines = {}, marks = {}, hl = {}, items = {}, footer = {} }
   view.copy = { buf = buf, view = view }
   local loaded = surface == nil
   if surface and actions.MODULES[surface] then loaded = pcall(require, actions.MODULES[surface]) end
   view.standin = not loaded and surface or nil
   view.rows = actions.popout_rows(surface)
+  if surface == 'code' then view.rows = vim.tbl_filter(function(row) return row.id ~= 'popout.find' end, view.rows) end
   bind(view, surface)
   -- A click is Neovim's own (the cursor, tab and window it lands on), then its zone, if any (M.client_zone_click). An
   -- expression map, not a registry row: the click itself has to happen first.
@@ -1854,6 +2015,7 @@ end
 -- line set.
 local function place(view)
   if tab_of(view) then return end
+  local switching = C.switching
   C.switching = true
   local reuse
   for _, win in ipairs(api.nvim_list_wins()) do
@@ -1867,23 +2029,82 @@ local function place(view)
     vim.cmd('tab sbuffer ' .. view.buf)
     view.win = api.nvim_get_current_win()
   end
-  C.switching = false
+  C.switching = switching
   view.copy.win = view.win
   dress(view.win)
   set_keyline(view)
+end
+
+-- Move a code view to another window without changing its buffer or reading position.
+local function move_code(view, target, split)
+  local previous = view.win
+  local scroll = api.nvim_win_call(previous, vim.fn.winsaveview)
+  if target then
+    view.win = api.nvim_open_win(view.buf, false, { win = target, split = split })
+  else
+    api.nvim_set_current_win(previous)
+    vim.cmd('tab sbuffer ' .. view.buf)
+    view.win = api.nvim_get_current_win()
+  end
+  view.copy.win = view.win
+  api.nvim_win_close(previous, true)
+  dress(view.win)
+  api.nvim_win_call(view.win, function() vim.fn.winrestview(scroll) end)
+end
+
+local function layout_code()
+  if C.closing or C.switching then return end
+  local wanted = {}
+  if C.tiled and vim.o.columns >= 64 and vim.o.lines >= 12 then
+    local limit = vim.o.lines >= 18 and MAX_TILES or 2
+    for _, id in ipairs(C.order) do
+      local view = C.views[id]
+      if view and view.kind == 'code' and tab_of(view) then wanted[#wanted + 1] = id end
+      if #wanted == limit then break end
+    end
+  end
+  if #wanted < 2 then wanted = {} end
+  if vim.deep_equal(C.tiles, wanted) then return publish_edges() end
+  local current = shown()
+  C.switching = true
+  local ok, err = pcall(function()
+    -- Each tab opens just after the shared tab, so move the last pane out first.
+    for index = #C.tiles, 1, -1 do
+      local id = C.tiles[index]
+      local view = C.views[id]
+      if id ~= wanted[1] and view and tab_of(view) and #api.nvim_tabpage_list_wins(tab_of(view)) > 1 then move_code(view) end
+    end
+    C.tiles = {}
+    for index, id in ipairs(wanted) do
+      local view, left = C.views[id], C.views[wanted[1]]
+      if index == 2 then move_code(view, left.win, 'right')
+      elseif index == 3 then move_code(view, C.views[wanted[2]].win, 'below')
+      elseif index == 4 then move_code(view, left.win, 'below') end
+      C.tiles[#C.tiles + 1] = id
+    end
+  end)
+  if current and tab_of(current) then api.nvim_set_current_win(current.win) end
+  C.switching = false
+  for _, view in pairs(C.views) do set_keyline(view) end
+  publish_edges()
+  vim.cmd('redrawtabline')
+  if not ok then say('Could not arrange the code views: ' .. tostring(err), WARN) end
 end
 
 -- Puts a view in front (its tab), the cursor on its selection.
 local function show(view)
   place(view)
   local tab = tab_of(view)
-  if tab and tab ~= api.nvim_get_current_tabpage() then
+  local current = api.nvim_get_current_win()
+  if tab and (tab ~= api.nvim_get_current_tabpage()
+    or (view.win ~= current and api.nvim_win_get_config(current).relative == '')) then
     C.switching = true
-    pcall(api.nvim_set_current_tabpage, tab)
+    pcall(api.nvim_set_current_win, view.win)
     C.switching = false
   end
   C.shown, view.news = view.id, false
   tell_front(view, true)
+  publish_edges()
   if view.copy.index then graphs().select(view.copy, view.copy.index, true) end
   vim.cmd('redrawtabline')
 end
@@ -1939,7 +2160,8 @@ local function valid_items(raw)
       or not valid_spans(item.spans) then break end
     local lines = type(item.strip) == 'table' and item.strip or {}
     items[i] = { key = item.key, kind = item.kind == 'row' and 'row' or 'box', line = item.line, name_col = tonumber(item.name_col) or 0,
-      x = tonumber(item.x) or 0, w = tonumber(item.w) or 1, spans = item.spans, centre = item.centre == true,
+      x = tonumber(item.x) or 0, w = tonumber(item.w) or 1, spans = item.spans, centre = item.centre == true, gauge = item.gauge == true,
+      gauge_band = gauge_band(item.gauge_band, item.line),
       name = type(item.name) == 'string' and item.name:sub(1, 200) or '', mark = short(item.mark, 16),
       strip = type(lines[1]) == 'string' and type(lines[2]) == 'string' and { lines[1]:sub(1, 400), lines[2]:sub(1, 400) } or nil,
       zones = valid_zones(item.zones) }
@@ -1967,14 +2189,25 @@ local function valid_ids(raw)
   return out
 end
 -- A view.set, checked: whatever does not fit is left out, never drawn half.
+local function integer(value, min, max)
+  return type(value) == 'number' and value >= min and value <= max and value % 1 == 0
+end
+local function checked_lines(lines, mirror)
+  if type(lines) ~= 'table' or #lines > M.MAX_LINES or (mirror and not vim.islist(lines)) then return nil end
+  local out = {}
+  for i, line in ipairs(lines) do
+    if type(line) ~= 'string' or (mirror and #line > M.LINE_BYTES) then return nil end
+    out[i] = line:gsub('[\r\n]', ' ')
+  end
+  return out
+end
 local function valid_view(msg)
   if type(msg.id) ~= 'string' or #msg.id > 32 or not msg.id:match('^[%w_.-]+$') or type(msg.gen) ~= 'number' then return nil end
-  if type(msg.lines) ~= 'table' or #msg.lines > M.MAX_LINES then return nil end
-  local lines, marks, hl = {}, {}, {}
-  for i, line in ipairs(msg.lines) do
-    if type(line) ~= 'string' then return nil end
-    lines[i] = line:gsub('[\r\n]', ' ')
-  end
+  local mirror = msg.surface == 'code'
+  local lines = checked_lines(msg.lines, mirror)
+  if not lines then return nil end
+  if mirror and (not integer(msg.tick, 0, 2147483647) or #lines == 0 or not integer(msg.total, #lines, M.MIRROR_LINES)) then return nil end
+  local marks, hl = {}, {}
   for _, m in ipairs(type(msg.marks) == 'table' and msg.marks or {}) do
     if #marks < 20000 and type(m) == 'table' and type(m[1]) == 'number' and type(m[2]) == 'number' and type(m[3]) == 'number'
       and type(m[4]) == 'string' and m[4]:match('^[%w_]+$') then marks[#marks + 1] = m end
@@ -1990,7 +2223,76 @@ local function valid_view(msg)
     lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer),
     strip = type(msg.strip) == 'number' and msg.strip >= 1 and msg.strip < #lines and math.floor(msg.strip) or nil,
     select = short(msg.select, 120), front = msg.front == true, news = msg.news == true, views = valid_ids(msg.views),
-    pinned = msg.pinned == true, follows = msg.follows == true }
+    pinned = msg.pinned == true, follows = msg.follows == true,
+    tick = mirror and msg.tick or nil, total = mirror and msg.total or nil,
+    lang = type(msg.lang) == 'string' and #msg.lang <= 32 and msg.lang:match('^[%w_]+$') and msg.lang or nil,
+    cursor = mirror and integer(msg.cursor, 1, M.MIRROR_LINES) and msg.cursor or nil }
+end
+
+local function mirror_cursor(view)
+  local win = view.win
+  if view.cursor and not view.pinned and win and api.nvim_win_is_valid(win) then
+    local row = math.min(view.cursor, api.nvim_buf_line_count(view.buf))
+    api.nvim_win_set_cursor(win, { row, 0 })
+  end
+end
+
+local function finish_snapshot(view)
+  if view.loading then return end
+  local place = view.saved_scroll
+  view.saved_scroll = nil
+  if view.pinned and place and view.win and api.nvim_win_is_valid(view.win) then
+    api.nvim_win_call(view.win, function() vim.fn.winrestview(place) end)
+  else
+    mirror_cursor(view)
+  end
+end
+
+local function resync(view)
+  if view.resync or not C.chan then return end
+  view.resync = true
+  pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { { type = 'resync', version = 1, pop = C.pop,
+    view = view.id, gen = view.gen, deadline = now_ms() + 2000 } })
+end
+
+local function watch_chunk(view)
+  if not view.loading then return end
+  local gen, length = view.gen, view.length
+  vim.defer_fn(function()
+    if C.views[view.id] == view and view.gen == gen and view.loading and view.length == length then resync(view) end
+  end, 1500)
+end
+
+local function receive_lines(msg)
+  if type(msg.id) ~= 'string' then return end
+  local view = C.views[msg.id]
+  if not (view and view.tick and view.gen == msg.gen) or view.resync then return end
+  local lines = checked_lines(msg.lines, true)
+  local first, last = msg.first, msg.last
+  if not lines or msg.from ~= view.tick or not integer(msg.tick, msg.from, 2147483647)
+    or not integer(first, 0, view.length) or not integer(last, first, view.length)
+    or not integer(msg.total, 1, M.MIRROR_LINES) then return resync(view) end
+  local length = view.length + #lines - (last - first)
+  if view.loading then
+    if msg.chunk ~= true or first ~= view.length or last ~= first or #lines == 0
+      or msg.total ~= view.total or length > view.total then return resync(view) end
+  elseif msg.chunk or length ~= msg.total then return resync(view) end
+  if first ~= last or #lines > 0 then
+    vim.bo[view.buf].modifiable = true
+    api.nvim_buf_set_lines(view.buf, first, last, true, lines)
+    vim.bo[view.buf].modifiable = false
+    vim.bo[view.buf].modified = false
+  end
+  view.length, view.total, view.tick = length, msg.total, msg.tick
+  view.loading = length < msg.total
+  view.state = short(msg.state, 200) or view.state
+  if type(msg.pinned) == 'boolean' then view.pinned = msg.pinned end
+  if integer(msg.cursor, 1, M.MIRROR_LINES) then view.cursor = msg.cursor end
+  if msg.chunk then finish_snapshot(view)
+  elseif msg.cursor then mirror_cursor(view) end
+  watch_chunk(view)
+  set_keyline(view)
+  vim.cmd('redrawtabline')
 end
 
 -- Draws a view into its buffer. Its selection: the item the editor asks for (select), else the one selected before (by
@@ -2010,12 +2312,14 @@ local function draw(view, keep)
   if not pcall(api.nvim_buf_set_name, buf, 'pop-out · ' .. view.title) then pcall(api.nvim_buf_set_name, buf, 'pop-out · ' .. view.title .. ' · ' .. view.id) end
   view.rows_only = #view.items > 0
   for _, item in ipairs(view.items) do if item.kind ~= 'row' then view.rows_only = false end end
-  s.drawn, s.index, s.win, view.strip_for = { boxes = view.items }, nil, view.win, nil
+  s.drawn, s.index, s.win, view.strip_for = { boxes = view.items, gauge_range = G.gauge_range(view.items) }, nil, view.win, nil
   local first = keep and index_of(view, keep)
   for i, item in ipairs(view.items) do if not first and item.centre then first = i end end
   first = first or (view.items[1] and 1)
   api.nvim_buf_clear_namespace(buf, G.sel_ns, 0, -1)
+  api.nvim_buf_clear_namespace(buf, G.gauge_ns, 0, -1)
   if first then G.select(s, first, true); view.cursor_line = view.items[first].line end
+  G.gauge_edges(s)
   centre(view)
   strip(view)
   set_keyline(view)
@@ -2052,14 +2356,15 @@ function M.closing(why)
   vim.defer_fn(function() vim.cmd('qa!') end, M.LINGER_MS)
 end
 
-local RECEIVES = { ['view.set'] = true, ['view.clear'] = true, ping = true, bye = true, answer = true, notice = true }
+local RECEIVES = { ['view.set'] = true, ['view.lines'] = true, ['view.layout'] = true, ['view.clear'] = true,
+  ping = true, bye = true, answer = true, notice = true }
 -- A view off this window: its tab closes (the empty view shown when it was the last), its buffer goes.
 local function drop(id)
   local view = C.views[id]
   if not view then return end
   C.views[id] = nil
   if view.win and api.nvim_win_is_valid(view.win) and api.nvim_win_get_buf(view.win) == view.buf then
-    if #api.nvim_list_tabpages() > 1 then
+    if #api.nvim_list_tabpages() > 1 or #api.nvim_tabpage_list_wins(tab_of(view)) > 1 then
       C.switching = true
       pcall(api.nvim_win_close, view.win, true)
       C.switching = false
@@ -2071,6 +2376,7 @@ local function drop(id)
   local now = view_in_tab(api.nvim_get_current_tabpage())
   C.shown = now and now.id or nil
   if now then tell_front(now, true) elseif next(C.views) == nil then show_empty(nothing_shown()) end
+  layout_code()
   vim.cmd('redrawtabline')
 end
 local function handle(msg)
@@ -2089,19 +2395,42 @@ local function handle(msg)
       C.views[got.id] = view
     end
     local before = view.copy.index and view.items[view.copy.index]
-    for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'state', 'lines', 'marks', 'hl', 'items', 'footer', 'strip', 'pinned', 'follows' }) do view[field] = got[field] end
+    for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'state', 'lines', 'marks', 'hl', 'items', 'footer', 'strip', 'pinned', 'follows',
+      'tick', 'total', 'cursor' }) do view[field] = got[field] end
+    if got.tick then
+      if not view.loading and got.pinned and view.win and api.nvim_win_is_valid(view.win) then
+        view.saved_scroll = api.nvim_win_call(view.win, vim.fn.winsaveview)
+      end
+      view.length, view.loading, view.resync = #got.lines, #got.lines < got.total, nil
+      if got.lang ~= view.lang then
+        vim.treesitter.stop(view.buf)
+        if got.lang then pcall(vim.treesitter.start, view.buf, got.lang) end
+        view.lang = got.lang
+      end
+    end
     if got.news and C.shown ~= got.id then view.news = true end
     C.received = (C.received or 0) + 1
     draw(view, got.select or (before and before.key))
     -- A view the editor sends anew, or asks to show, comes to the front; one drawn again behind another stays behind.
     if fresh or got.front or not shown() then show(view) else vim.cmd('redrawtabline') end
+    if got.tick then
+      finish_snapshot(view)
+      watch_chunk(view)
+    end
     bind_standins(view)
     -- The views the editor has: a tab here of any other is one whose view.clear never came, and it goes.
     if got.views then
+      C.order = got.views
       local keep = { [got.id] = true }
       for _, id in ipairs(got.views) do keep[id] = true end
       for _, id in ipairs(vim.tbl_keys(C.views)) do if not keep[id] then drop(id) end end
     end
+    C.tiled = msg.tiled == true
+    layout_code()
+  elseif msg.type == 'view.lines' then
+    receive_lines(msg)
+  elseif msg.type == 'view.layout' then
+    if type(msg.tiled) == 'boolean' then C.tiled = msg.tiled; layout_code() end
   elseif msg.type == 'view.clear' then
     if type(msg.id) == 'string' then drop(msg.id) end
   elseif msg.type == 'ping' then
@@ -2133,7 +2462,7 @@ end
 -- resize, whose new width goes without waiting.
 function M.subscribe(again)
   if not C.chan then return refuse('the pop-out is not connected to an editor') end
-  local msg = { version = 1, type = 'subscribe', pop = C.pop, chan = C.me, pid = vim.fn.getpid(), width = math.min(1000, width()), protocol = M.PROTOCOL,
+  local msg = { version = 1, type = 'subscribe', pop = C.pop, chan = C.me, pid = vim.fn.getpid(), width = math.min(1000, vim.o.columns), protocol = M.PROTOCOL,
     deadline = now_ms() + 2000 }
   if again then
     pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { msg })
@@ -2276,6 +2605,10 @@ function M.client()
   vim.g.desk_popout = vim.g.desk_popout or 1
   local id = tonumber(vim.g.desk_popout)
   C.pop = id and id >= 1 and id <= M.MAX_POPS and math.floor(id) or 1
+  if vim.env.XDG_RUNTIME_DIR and vim.env.XDG_RUNTIME_DIR ~= '' then
+    C.edge_path = vim.env.XDG_RUNTIME_DIR .. '/desk-popout-splits/' .. vim.fn.getpid()
+    publish_edges(true)
+  end
   vim.o.shadafile = 'NONE'   -- her history and marks are the editor's to keep
   local server
   for _, arg in ipairs(vim.fn.argv()) do server = server or arg:match('^desk%-popout:(/.+)$') end
@@ -2293,13 +2626,23 @@ function M.client()
   vim.o.showtabline, vim.o.laststatus = 2, 2
   vim.o.tabline = "%!v:lua.require'desk.popout'.tabline()"
   local group = api.nvim_create_augroup('desk_popout_client', { clear = true })
-  api.nvim_create_autocmd('TabEnter', { group = group, callback = function()
+  api.nvim_create_autocmd({ 'WinEnter', 'TabEnter' }, { group = group, callback = function()
+    if C.switching then return end
     local view = view_in_tab(api.nvim_get_current_tabpage())
-    C.shown = view and view.id or nil
-    if view then
+    if view and C.shown ~= view.id then
+      C.shown = view.id
       view.news = false
-      tell_front(view, C.switching)
+      tell_front(view)
+    elseif not view and api.nvim_win_get_config(0).relative == '' then
+      C.shown = nil
     end
+    publish_edges()
+    vim.cmd('redrawtabline')
+  end })
+  api.nvim_create_autocmd('VimLeavePre', { group = group, callback = function() publish_edges(true) end })
+  api.nvim_create_autocmd('WinScrolled', { group = group, callback = function(a)
+    local view = shown()
+    if view and tonumber(a.match) == view.win then graphs().gauge_edges(view.copy) end
   end })
   -- A view's window closed some other way than q (:q there): the view closes as q would close it.
   api.nvim_create_autocmd('WinClosed', { group = group, callback = function(a)
@@ -2308,6 +2651,7 @@ function M.client()
     for id, view in pairs(C.views) do
       if view.win == closed then vim.schedule(function() if C.views[id] and C.chan then client_act('popout.close', nil, view) end end) end
     end
+    vim.schedule(publish_edges)
   end })
   api.nvim_create_autocmd('ColorScheme', { group = group, callback = header_groups })
   show_empty('connecting to the editor…')
@@ -2328,6 +2672,7 @@ function M.client()
   end))
   local resized = uv.new_timer()
   api.nvim_create_autocmd('VimResized', { group = group, callback = function()
+    layout_code()
     for _, view in pairs(C.views) do centre(view) end
     resized:stop()
     resized:start(100, 0, vim.schedule_wrap(function() if C.chan then M.subscribe(true) end end))
@@ -2345,7 +2690,8 @@ function M.client_state()
     title = view and view.title or '', state = view and view.state or '', index = s.index or 0, selected = item and item.name or '',
     selected_key = item and item.key or '', lines = api.nvim_buf_get_lines(buf, 0, -1, false), closing = C.closing or '',
     win = view and view.win or (C.empty and C.empty.win) or 0, current_win = win, buf = buf, mode = api.nvim_get_mode().mode,
-    received = C.received or 0, views = vim.tbl_keys(C.views), tabs = #api.nvim_list_tabpages(), tab = vim.fn.tabpagenr(),
+    received = C.received or 0, pinned = view and view.pinned == true, views = vim.tbl_keys(C.views),
+    tabs = #api.nvim_list_tabpages(), tab = vim.fn.tabpagenr(), tiles = vim.deepcopy(C.tiles),
     header = M.header(), keyline = rendered(vim.wo[win].statusline, { winid = win }) }
 end
 
@@ -2447,6 +2793,21 @@ local ROWS = actions.add({
       choose_for(p, ctx.choice)
       if p.kitty and p.chan then M.place(p.kitty, nil, p) end
     end },
+  remote({ id = 'popout.tile-code', group = 'Pop-out', name = 'Toggle code panes', on = ON,
+    about = 'Show up to four live code views side by side in one tab, or return them to separate tabs',
+    available = function(ctx)
+      if not ctx.remote then return true end
+      local p, count = pressed_in(ctx), 0
+      if p.tiled then return true end
+      for _, view in pairs(p.views) do if view.kind == 'code' then count = count + 1 end end
+      return count >= 2 or 'open at least two live code views'
+    end },
+    function(ctx)
+      local p = pressed_in(ctx)
+      p.tiled = not p.tiled or nil
+      send(p, { type = 'view.layout', tiled = p.tiled == true })
+      M.save_layout()
+    end),
   remote({ id = 'popout.send', group = 'Pop-out', name = 'Send to another pop-out', on = ON,
     about = "Asks which: another open pop-out, or a new one (which asks its screen); the view moves there as it is, and this kind's views go there from now on while it is open",
     available = showing, input = { choices = send_choices } },
@@ -2479,10 +2840,10 @@ local ROWS = actions.add({
     available = showing }, function(ctx) M.pin(ctx.view) end),
   remote({ id = 'popout.back', group = 'Pop-out', name = 'Back to the editor', key = 'o', on = ON,
     about = 'This view back to the editor as a split (the call graph as the live panel), pinned if it is pinned here; the pop-out stays open',
-    available = showing }, function(ctx) M.back(ctx.view) end),
+    available = showing }, function(ctx) M.back(ctx.view, ctx.line) end),
   -- H and L as in the editor, where they go to the previous / next buffer (her ask, 2026-11-16); gt and gT too.
   { id = 'popout.prev-view', group = 'Pop-out', name = 'The previous view', key = 'H', on = ON, menu = false,
-    doc = 'The previous / next view (each view is a tab), as `H` and `L` go through buffers in the editor; `gT` / `gt` too, and `2gt` the second',
+    doc = 'The previous / next tab, as `H` and `L` go through buffers in the editor; `gT` / `gt` too, and `2gt` the second',
     run = function() pcall(vim.cmd, 'tabprevious') end },
   { id = 'popout.next-view', group = 'Pop-out', name = 'The next view', key = 'L', on = ON, menu = false, line = 'popout.prev-view',
     run = function() pcall(vim.cmd, 'tabnext') end },
@@ -2498,7 +2859,8 @@ local ROWS = actions.add({
   remote({ id = 'popout.history-forward', group = 'Pop-out', name = 'Forward', key = '<C-r>', on = ON,
     about = 'Forward again, after going back', available = ahead_there }, function(ctx) M.history_forward(pressed_in(ctx)) end),
   { id = 'popout.find', group = 'Pop-out', name = 'Find a box or row', key = '/', on = ON,
-    about = 'Every box or row of this view by its whole name, filtered as you type; `Enter` selects it', run = function() M.client_find() end },
+    about = 'Every box or row of this view by its whole name, filtered as you type; `Enter` selects it',
+    available = function(ctx) return not (ctx.view and ctx.view.kind == 'code') end, run = function() M.client_find() end },
   { id = 'popout.keys', group = 'Pop-out', name = "The pop-out's keys", key = '?', on = ON, about = 'The keys of this view in the pop-out, in a list',
     run = function() M.client_keys() end },
   { id = 'popout.swap', group = 'Pop-out', name = 'To the editor, or next pop-out', key = '<leader><Tab>', on = ON, remote = true,
@@ -2564,6 +2926,7 @@ local set = false
 function M.setup()
   if set or M.is_popout() then return end
   set = true
+  require('desk.codeview').setup()
   actions.map('editor', { rows = ROWS })
   api.nvim_create_user_command('PopOut', function(opts) M.show(opts.args ~= '' and opts.args or 'graph', actions.context()) end,
     { nargs = '?', complete = function() return vim.tbl_keys(kinds) end, desc = 'A view in the pop-out window (the live call graph when none is named)' })

@@ -156,6 +156,19 @@ local function scenario()
   vim.fn.chansend(tui, 'n')
   ok(wait(3000, function() return mode_of(sock) == 'n' end), '… answered, and it goes')
   eq(ask(sock, "return { require('desk.popout').host.views.graph.pinned }"), { false }, '… nothing was pinned under it')
+  write(dir .. '/second.lua', 'return "second file"')
+  ask(sock, [[
+    local P = require('desk.popout')
+    P.show('code')
+    vim.cmd.vsplit(vim.env.POPOUT_TEST .. '/second.lua')
+    P.show('code')
+    return true
+  ]])
+  ok(wait(5000, function() return ask(dir .. '/p1', "return require('desk.popout').client_state().shown") == 'code.2' end),
+    'two code tabs were saved with the second in front')
+  eq(ask(dir .. '/p1', "return require('desk.popout').request({type='act',action='popout.tile-code'})"),
+    { done = true }, 'tile both code tabs before restart')
+  ok(wait(5000, function() return ask(dir .. '/p1', "return #require('desk.popout').client_state().tiles") == 2 end), 'two files tile')
   vim.fn.chansend(tui, ':restart\r')
   local restarted = wait(3000, function() return not alive(old) end)
   ok(restarted, ':restart with the pop-out open: the old editor exits at once, no key pressed')
@@ -165,8 +178,13 @@ local function scenario()
   ok(wait(5000, function() return not alive(popout) end), '… and quits')
   ok(wait(10000, function() local pid = server(); return pid ~= old and alive(pid) end), 'the new editor runs')
   local _, sock2 = server()
-  ok(wait(10000, function() return ask(sock2, "return require('desk.actions').get('popout.restore').name") == 'Restore 1 view' end),
-    "… and offers the pop-out's view again: Restore 1 view")
+  ok(wait(10000, function() return ask(sock2, "return require('desk.actions').get('popout.restore').name") == 'Restore 3 views' end),
+    '… and offers the graph and both code tabs again')
+  ask(sock2, "require('desk.popout').restore_layout(); return true")
+  ok(wait(5000, function()
+    local state = ask(dir .. '/p1', "return require('desk.popout').client_state()")
+    return state and state.shown == 'code.2' and #state.views == 3 and #state.tiles == 2 and state.lines[1] == 'return "second file"'
+  end), 'Restore reopens both panes and remembers the active file')
   ask(sock2, "vim.schedule(function() vim.cmd('qa!') end); return true")
   ok(wait(5000, function() return not alive((server())) end), 'the new editor closes')
 end

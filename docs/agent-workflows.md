@@ -306,7 +306,8 @@ list there yourself). It draws in the palette and keeps its session records in p
   never unchecks it), `u` goes to the first unread file (risky ones first),
   `a` (or Space Space, in the list or a diff) opens every other action and `?` lists every key. `s` in the list puts
   a label on every row, as `s` does in code (flash.nvim), and typing one moves there; in a diff `s` is the code's
-  own. `gs` shows the changed C or C++ symbol in symdeps. `q` in the list
+  own. `gs` or `Space dd` shows the changed C or C++ symbol in symdeps; `Space dm` opens its menu. These use the
+  working source near the reviewed line, including the cursor's column. `q` in the list
   hides it; `q` in a diff closes the review and returns to your
   editor. Backspace in a diff pane brings the list back, and `Space re` toggles it.
 - **On the other screen**: `o` in the list moves it to the pop-out, a window of its own on the second screen, and the
@@ -372,6 +373,10 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   seconds at most), and a file whose server has no call hierarchy says which server it has. `s` puts a label on
   every box, as `s` does in code (flash.nvim); typing one selects that box. For C and C++, `gs` opens the function in symdeps when that
   plugin is installed (every use by role); without it the line reads "requires symdeps".
+- **Call depth**. `+` expands the selected side of the graph, and `-` collapses it or cancels the level being read.
+  From the centre, both keys act on the callee side. The gauge shows the depth of the selected box, and `m` reveals
+  functions past the first 24 on each level. Expansion uses the built project map when it can match the source
+  location, with the language server as a fallback. The tab, panel, and pop-out share these controls.
 - **Live panel**: `Space co` (`:CallGraphPanel`) opens a narrow split on the right that follows the cursor. It redraws
   when the cursor has rested for 300 ms in another function, keeps each answer until that file is saved, asks the
   server one thing at a time and never takes the focus. Inside it (`Ctrl+w l`) the same keys move between boxes and
@@ -414,6 +419,15 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   editor, the one last used). Each pop-out has its own views, its own `Ctrl+o` / `Ctrl+r` and its own screen; one that
   closes or crashes brings back only its own pinned views, and the others go on. Restore brings them all back, each on
   its screen.
+- **Live code in the pop-out**. Press `Space cv` on a file, or choose **View this file in the pop-out** under Views.
+  Each file gets its own tab. Edits appear as you type and `●` (or `*` in retro) marks unsaved changes.
+  Use `p` to keep your reading position or resume following the editor. Search with `/` and `n`. Enter takes the
+  editor to the selected line, `f` also moves focus there, and `o` brings the file back as a split. The pop-out is
+  read-only. It supports up to 50,000 lines and 8 MiB per file and marks individual shortened lines with `…`.
+- **Code panes**. With two or more live code tabs in a pop-out, open its home menu with `Space Space` and choose
+  **Toggle code panes**. Up to four files share a tab on a wide screen. Use `Ctrl+h/j/k/l` to move between them.
+  Each pane keeps its own reading position and pin state. Choose the same action to return the files to their
+  own tabs. The layout is saved with the pop-out and switches to separate tabs if the window is too small.
 - **What the last turn changed**: when a Claude turn ends, the notebook reads the function or class around each hunk
   it changed (treesitter, as the review's changed functions; a headless Neovim, three seconds at most) and puts the
   count on the last-turn row, `✎ 2 files · 3 functions`. Enter lists them by file; each opens Neovim with its graph
@@ -443,11 +457,14 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   20), `m` a part of the checkout from a menu (`/` filters it by name). `r` reads the page again where it is, as in a
   call graph: desk-work's status and the level shown, a query's answer asked again (`R` rebuilds the map). `c` opens
   the call graph centred on the function, as `c` centres a graph: a graph tab here, the call graph in the pop-out. The box
-  under the cursor is the default answer to the prompt. A call that is part of recursion reads "in a cycle".
+  under the cursor is the default answer to the prompt. On caller and reach pages, `+` and `-` change the depth and
+  Backspace returns to the previous page. The gauge marks the current zoom or the selected call level. A call that
+  is part of recursion reads "in a cycle".
 - **In the pop-out**: `o` in the map's tab moves it to the pop-out on the other screen, at the level it was on (Space
   Space › "Pop out the project map" opens this checkout's from anywhere; in the pop-out's own menu it is the only map
   row, so a map asked for there opens there). There it is the same map: `Enter` zooms in,
-  or goes to a function in the editor while the keyboard stays in the pop-out; `-` zooms out; `D` and `U` ask about the
+  or goes to a function in the editor while the keyboard stays in the pop-out. `-` zooms out or reduces call depth.
+  `D` and `U` ask about the
   selected function, `c` shows its call graph there (`Ctrl+o` comes back to the map), `P` asks only where to; `r` reads
   it again, `R` rebuilds. `Ctrl+o` and Backspace go back through its zooms, answers and
   the code spots Enter went to; its name in the pop-out's header is marked when an answer or a rebuild lands behind
@@ -587,6 +604,10 @@ symlinks, binary files and ignored build outputs. They stop at 4,000 files,
 1 MiB per file and 32 MiB total; an incomplete snapshot cannot establish a
 passing baseline. Repos in `claude-private-repos` get no source copies.
 External dependencies and environment changes are outside this source check.
+Neovim labels a cached pass **last pass · unavailable** when it cannot refresh
+the test records and **last pass · stale** when the recorded source differs from
+the checkout. Both labels use the theme's warning color. The pass count returns when a refresh
+verifies the same result or a newer one.
 
 Project cards have a **worktrees button**, or **w** on the keyboard; **n** opens
 their next steps. Worktrees show their branch, dirty/untracked files, unpushed

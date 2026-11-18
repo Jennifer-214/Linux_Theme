@@ -197,11 +197,9 @@ starts adjustment with `h/l`; Escape finishes. `/` searches menu actions from a
 group, or filters the current app/device/clipboard list. Escape goes back before
 closing. Shutdown, restart, suspend and logout require confirmation.
 
-Desktop keys (full list in `KEYBINDS.md`): `Alt+h/j/k/l` goes that way through every layer: to Neovim's split
-that way when the focused terminal shows Neovim, else to tmux's pane that way, else to the window (or the
-monitor, at the edge) that way. `desk-nav` asks each layer directly, so no key passes through tmux or Neovim; a
-zoomed tmux pane or a Neovim float counts as an edge, and a Neovim in a window of its own (the pop-out) is asked
-the same way. `Alt+Backspace` goes back to the window you were in before. `Alt+Shift+h/j/k/l` moves the focused
+Desktop keys (full list in `KEYBINDS.md`): `Alt+h/j/k/l` focuses the window (or the monitor, at the edge) that way
+directly through Hyprland, including from a review or pop-out. `Ctrl+h/j/k/l` moves between Neovim's splits.
+`Alt+Backspace` goes back to the window you were in before. `Alt+Shift+h/j/k/l` moves the focused
 window that way, tiled or floating, onto the
 neighboring monitor at the edge (`Alt+R` then `Shift+h/j/k/l` still nudges a
 floating window by pixels). `Alt+Ctrl+L` locks the screen. `Alt+Ctrl+Shift+K` is

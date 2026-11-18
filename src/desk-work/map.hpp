@@ -364,10 +364,37 @@ J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
     J out;
     long a = -1, b = -1;
     if (q == "reach" || q == "callers") {
-        const auto refusal = pick(!opts["--from"].empty() ? opts["--from"] : opts["--of"], "", a);
-        if (!refusal.is_null()) return refusal;
-        out = desk_map::walk(g, static_cast<size_t>(a), std::clamp(map_number(opts["--depth"], 3), 1, 12), q == "callers",
+        if (opts["--file"].empty()) {
+            const auto refusal = pick(!opts["--from"].empty() ? opts["--from"] : opts["--of"], "", a);
+            if (!refusal.is_null()) return refusal;
+        } else {
+            const auto file = map_relative(root, opts["--file"]);
+            const auto line = map_number(opts["--line"], 0);
+            if (file.empty() || line < 1) return refuse("Name a file and its function's line in this checkout");
+            const auto name = desk_map::match_key(opts["--from"]);
+            const auto dot = name.find_last_of(":.");
+            const auto leaf = dot == std::string::npos ? name : name.substr(dot + 1);
+            const J empty_spans = J::object();
+            const auto stored_spans = g.doc.find("spans");
+            const auto& spans = stored_spans != g.doc.end() && stored_spans->is_object() ? *stored_spans : empty_spans;
+            for (size_t i = 0; i < g.nodes.size(); ++i) {
+                const auto& n = g.nodes[i];
+                if (str(n, "file") != file || str(n, "kind") != "function") continue;
+                const auto first = num(n, "line");
+                const auto span = spans.find(str(n, "id"));
+                if (first != line && (span == spans.end() || !span->is_array() || span->size() < 2
+                    || !(*span)[1].is_number_integer() || first > line || (*span)[1].get<int>() < line)) continue;
+                const auto label = desk_map::match_key(str(n, "label"));
+                const auto last = label.find_last_of(":.");
+                if (!leaf.empty() && leaf != (last == std::string::npos ? label : label.substr(last + 1))) continue;
+                if (a >= 0) return refuse("Several functions in the map match this location");
+                a = static_cast<long>(i);
+            }
+            if (a < 0) return refuse("No function in the map matches this location");
+        }
+        out = desk_map::walk(g, static_cast<size_t>(a), std::max(1, map_number(opts["--depth"], 3)), q == "callers",
                              static_cast<size_t>(std::clamp(map_number(opts["--cap"], 300), 1, 3000)));
+        if (!opts["--file"].empty()) out["root"] = root;
     } else if (q == "paths") {
         auto refusal = pick(opts["--from"], "From: ", a);
         if (refusal.is_null()) refusal = pick(opts["--to"], "To: ", b);

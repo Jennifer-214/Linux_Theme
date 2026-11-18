@@ -702,7 +702,8 @@ local function options(r)
   values = vim.tbl_filter(function(v) return not v:match('^context:') and not v:match('^iwhite') end, values)
   values[#values + 1] = 'context:' .. (r.context and '999999' or '6')
   if r.whitespace then values[#values + 1] = 'iwhiteall' end
-  r.applied_diffopt = table.concat(values, ','); vim.o.diffopt = r.applied_diffopt
+  r.applied_diffopt = table.concat(values, ',')
+  if vim.o.diffopt ~= r.applied_diffopt then vim.o.diffopt = r.applied_diffopt end
 end
 local function restore_options(r)
   if r.applied_diffopt and vim.o.diffopt == r.applied_diffopt then vim.o.diffopt = r.original_diffopt end
@@ -1597,6 +1598,11 @@ M.rows = actions.add({
     run = function(ctx) if ctx.copy then return jump_items(ctx.copy) end; M.jump_rows(ctx.review) end },
   { id = 'review.symdeps', group = 'Review', name = 'Inspect changed C++ symbol in working copy', key = 'gs', on = BOTH, available = symdeps_here,
     remote = false, about = 'Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line)', run = function() M.symdeps(false) end },
+  { id = 'review.symdeps-hud', group = 'Review', name = 'Inspect changed C++ symbol in working copy', key = '<leader>dd', on = BOTH,
+    available = symdeps_here, line = 'review.symdeps', menu = false, remote = false, run = function() M.symdeps(false) end },
+  { id = 'review.symdeps-menu', group = 'Review', name = 'symdeps for the working file', key = '<leader>dm', on = BOTH,
+    available = symdeps_here, remote = false, about = 'Open symdeps in the working C/C++ file near the reviewed line',
+    run = function() M.symdeps_menu() end },
   { id = 'review.source', group = 'Review', name = 'Open the working file for this change', key = 'gf', on = BOTH, remote = false,
     about = 'Open the editable working file in a separate tab', run = function() M.open_source() end },
   { id = 'review.layout', group = 'Review', name = 'Compare struct layout with review base', key = 'S', on = BOTH, available = symdeps_here,
@@ -1722,11 +1728,13 @@ local function panel_buffer(r)
   maps(r, r.panel_buf, true)
 end
 local function configure_panel(r)
-  api.nvim_win_set_buf(r.panel_win, r.panel_buf)
+  -- A new sidebar inherits its parent's diff and code folds. Clear them before putting its list there.
   api.nvim_win_call(r.panel_win, function() vim.cmd.diffoff() end)
   local options = { number = false, relativenumber = false, signcolumn = 'no', wrap = false, winfixwidth = true,
-    winbar = '', statusline = ' ', cursorline = false, list = false, foldcolumn = '0', scrollbind = false, cursorbind = false }
+    winbar = '', statusline = ' ', cursorline = false, list = false, foldcolumn = '0', foldmethod = 'manual',
+    foldexpr = '0', foldenable = false, scrollbind = false, cursorbind = false }
   for key, value in pairs(options) do vim.wo[r.panel_win][key] = value end
+  api.nvim_win_set_buf(r.panel_win, r.panel_buf)
 end
 
 function M.hide_panel()
@@ -2234,7 +2242,10 @@ end
 -- Use the optional plugin's menu kit so its selection, detail strip and navigation stay identical.
 function M.show_menu(items, opts)
   opts = opts or {}
-  local ok, menu = pcall(require, 'fox-symdeps.menu')
+  -- A pop-out never sets up symdeps: its menu module can load, but its selection colours remain empty.
+  local popout = vim.g.desk_popout
+  local ok, menu
+  if popout == nil or popout == false or popout == 0 then ok, menu = pcall(require, 'fox-symdeps.menu') end
   if not ok then
     -- Without the plugin: the same list in the built-in menu, drawn to the same rules (foxml/menu.lua).
     local found, fallback = pcall(require, 'desk.menu')
@@ -2459,7 +2470,8 @@ function M.open_source()
   local file = r.files[r.index]
   if vim.fn.filereadable(file.path) ~= 1 and vim.fn.bufnr(file.path) < 0 then tell('This historical file is absent from the working copy.'); return false end
   local current = api.nvim_get_current_win()
-  local line = r.symbol and r.symbol.line or (current == r.left_win or current == r.right_win) and api.nvim_win_get_cursor(current)[1]
+  local cursor = (current == r.left_win or current == r.right_win) and api.nvim_win_get_cursor(current) or nil
+  local line = cursor and cursor[1] or r.symbol and r.symbol.line
     or (file.hunks[1] and file.hunks[1][3]) or 1
   local automatic, all = vim.o.autowrite, vim.o.autowriteall
   vim.o.autowrite, vim.o.autowriteall = false, false
@@ -2467,14 +2479,16 @@ function M.open_source()
     if r.source_tab and api.nvim_tabpage_is_valid(r.source_tab) then api.nvim_set_current_tabpage(r.source_tab)
     else vim.cmd('tabnew'); r.source_tab = api.nvim_get_current_tabpage() end
     vim.cmd.edit(vim.fn.fnameescape(file.path))
-    api.nvim_win_set_cursor(0, { math.min(line, api.nvim_buf_line_count(0)), 0 })
+    line = math.min(line, api.nvim_buf_line_count(0))
+    local text = api.nvim_buf_get_lines(0, line - 1, line, false)[1] or ''
+    api.nvim_win_set_cursor(0, { line, math.min(cursor and cursor[2] or 0, math.max(0, #text - 1)) })
   end)
   vim.o.autowrite, vim.o.autowriteall = automatic, all
   if not ok then tell(tostring(err), vim.log.levels.WARN); return false end
   return true
 end
 
-function M.symdeps(compare)
+local function symdeps_source(compare)
   local r = M.current
   if not r then return end
   if api.nvim_get_current_win() == r.panel_win and not M.enter(true) then return end
@@ -2484,6 +2498,19 @@ function M.symdeps(compare)
   if not loaded then tell('Requires symdeps (an optional plugin for C and C++ symbols).'); return end
   if compare and r.row.kind ~= 'commit' then tell('Layout compare needs a commit: it compares with the commit\'s parent.'); return end
   if not M.open_source() then return end
+  return plugin, r
+end
+
+function M.symdeps_menu()
+  if not symdeps_source(false) then return end
+  local ok, features = pcall(require, 'fox-symdeps.features')
+  if not ok or type(features.open_menu) ~= 'function' then tell('This symdeps version does not expose its menu.'); return end
+  features.open_menu()
+end
+
+function M.symdeps(compare)
+  local plugin, r = symdeps_source(compare)
+  if not plugin then return end
   if compare and r.row.kind == 'commit' then
     local available, rev = pcall(require, 'fox-symdeps.revcompare')
     local found, context = pcall(require, 'fox-symdeps.context')
@@ -2967,6 +2994,8 @@ function M.open(row, root, callbacks)
     original_diffopt = vim.o.diffopt, close = callbacks.close, on_close = callbacks.on_close }
   M.current = r
   vim.cmd('tabnew'); r.tab = api.nvim_get_current_tabpage(); r.right_win = api.nvim_get_current_win()
+  -- tabnew copies code folding: a snapshot would run that expression on every line before diffthis replaces it.
+  vim.wo.foldmethod, vim.wo.foldexpr = 'manual', '0'
   vim.t[r.tab].desk_view = 'review'   -- code never opens in its windows (desk.nav.code_window)
   local empty = api.nvim_get_current_buf()
   vim.bo[empty].buflisted, vim.bo[empty].bufhidden = false, 'wipe'

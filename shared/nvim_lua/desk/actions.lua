@@ -38,6 +38,7 @@ M.SURFACES = {
   ['callgraph-panel'] = 'the live call graph panel',
   since = 'the since-you-last-looked page',
   map = 'the project map tab',
+  code = 'a read-only working file in the pop-out',
   popout = 'the pop-out window',
   menu = 'a menu drawn by desk.menu (the home menu and the review actions when symdeps is absent; every ? key list)',
   screens = 'the screen question drawn as a map of the screens (desk.screens)',
@@ -45,7 +46,7 @@ M.SURFACES = {
 -- The module that adds a surface's rows: a pop-out showing a view of that surface loads it, to have the same keys.
 M.MODULES = { ['review-list'] = 'desk.review', ['review-diff'] = 'desk.review', callgraph = 'desk.callgraph',
   ['callgraph-panel'] = 'desk.callgraph', since = 'desk.since', map = 'desk.map', popout = 'desk.popout', menu = 'desk.menu',
-  screens = 'desk.screens' }
+  screens = 'desk.screens', code = 'desk.codeview' }
 -- The file that declared each surface (M.surface): the same file declaring it again (a reload) replaces it; any
 -- other file is refused. The ones above are this file's.
 local surface_from = {}

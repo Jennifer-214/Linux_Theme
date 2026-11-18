@@ -229,11 +229,12 @@ M.REQUIRES = 'Requires desk-work: it builds the project map and answers its quer
 function M.desk_work(args, done, timeout)
   local argv = { 'desk-work' }
   vim.list_extend(argv, args)
-  local ok = pcall(vim.system, argv, { text = true, timeout = timeout or 20000 }, vim.schedule_wrap(function(out)
+  local ok, job = pcall(vim.system, argv, { text = true, timeout = timeout or 20000 }, vim.schedule_wrap(function(out)
     local parsed, value = pcall(vim.json.decode, out.stdout or '', { luanil = { object = true, array = true } })
     done(parsed and type(value) == 'table' and value or nil, out)
   end))
-  if not ok then vim.schedule(function() done(nil, { code = -1, stdout = '', stderr = M.REQUIRES, missing = true }) end) end
+  if not ok then vim.schedule(function() done(nil, { code = -1, stdout = '', stderr = M.REQUIRES, missing = true }) end)
+  else return job end
 end
 
 local function refusal(answer, out)
@@ -277,7 +278,10 @@ function M.retro() return vim.g.desk_style == 'retro' end
 function M.layout(page, width, retro)
   width = math.max(20, width or 80)
   local G = M.glyphs(retro)
-  local lines, hits, marks, placed = {}, {}, {}, {}
+  local lines, hits, marks, placed, bands = {}, {}, {}, {}, {}
+  local graph = require('desk.callgraph')
+  local gauge = width >= 28 and (page.zoom or page.layered)
+  if gauge then width = width - graph.GAUGE_WIDTH end
   local function add(text, group, from, to)
     lines[#lines + 1] = text
     if group then marks[#marks + 1] = { #lines, from or 0, to or #text, group } end
@@ -336,7 +340,14 @@ function M.layout(page, width, retro)
     end
   end
   for _, h in ipairs(page.header or {}) do add(fit(h[1], width, G.ellipsis), h[2]) end
+  if gauge and page.zoom then
+    for i, label in ipairs({ 'all', 'dir', 'src', 'cls' }) do
+      if not lines[i] then add('') end
+      bands[#bands + 1] = { first = i, last = i, level = i - 1, label = retro and label:upper() or label, active = i == page.zoom }
+    end
+  end
   for _, s in ipairs(page.sections or {}) do
+    local first = #lines + 1
     if s.head then centred(G.said(s.head), 'DeskMapHead')
     elseif s.boxes then
       if #s.boxes == 0 and s.none then centred(G.said(s.none), 'DeskMapDim') end
@@ -359,6 +370,7 @@ function M.layout(page, width, retro)
       end
       add(text, s.group)
     elseif s.blank then add('') end
+    if s.level and #lines >= first then bands[#bands + 1] = { first = first, last = #lines, level = s.level } end
   end
   -- Notes wrap at the width (a "requires …" line is worth reading whole), between its " · " parts where it has them,
   -- else between words; only a word wider than the page is cut. A note given as { text } keeps its case in retro
@@ -379,7 +391,12 @@ function M.layout(page, width, retro)
       if line ~= '' then add(fit(line, width, G.ellipsis), 'DeskMapDim') end
     end
   end
-  return { lines = lines, hits = hits, marks = marks, items = placed }
+  local drawn = { lines = lines, hits = hits, marks = marks, items = placed, boxes = placed }
+  if gauge then
+    graph.gauge(drawn, bands, retro, 'DeskMapDim', 'DeskMapFocus')
+    drawn.gauge_range = graph.gauge_range(placed)
+  end
+  return drawn
 end
 
 function M.item_at(drawn, lnum, col)
@@ -470,7 +487,7 @@ local function layered(sections, keys, edges, item_of, degree, cap)
   local shown, more = busiest(keys, degree, cap)
   for i, tier in ipairs(M.layers(shown, edges)) do
     if i > 1 then sections[#sections + 1] = { arrow = true } end
-    sections[#sections + 1] = { boxes = vim.tbl_map(item_of, tier) }
+    sections[#sections + 1] = { boxes = vim.tbl_map(item_of, tier), level = i - 1 }
   end
   if more > 0 then sections[#sections + 1] = { head = '+' .. more .. ' more (fewer calls)' } end
 end
@@ -704,22 +721,22 @@ function M.level_query(answer)
     local more = math.max(0, #list - M.MAX_TIER)
     local items = {}
     for i = 1, math.min(#list, M.MAX_TIER) do items[i] = item(list[i]) end
-    sections[#sections + 1] = { boxes = items, more = more }
+    sections[#sections + 1] = { boxes = items, more = more, level = backwards and -d or d }
   end
   local label = (backwards and 'who calls ' or 'what ') .. code(start.label) .. (backwards and '' or ' reaches') .. ' · depth ' .. (answer.depth or '?')
   sections[#sections + 1] = { head = label }
-  if not backwards then sections[#sections + 1] = { boxes = { item(start) }, frame = 'double' } end
+  if not backwards then sections[#sections + 1] = { boxes = { item(start) }, frame = 'double', level = 0 } end
   for _, d in ipairs(order) do
     if not backwards or d ~= order[1] then sections[#sections + 1] = { arrow = true } end
     tier(d)
   end
   if backwards then
     if #order > 0 then sections[#sections + 1] = { arrow = true } end
-    sections[#sections + 1] = { boxes = { item(start) }, frame = 'double' }
+    sections[#sections + 1] = { boxes = { item(start) }, frame = 'double', level = 0 }
   end
   if #order == 0 then sections[#sections + 1] = { head = backwards and 'nothing in the map calls it' or 'it calls nothing in the map' } end
   if (answer.more or 0) > 0 then sections[#sections + 1] = { head = answer.more .. ' more calls were left out' } end
-  return { crumbs = { backwards and 'callers' or 'reach' }, sections = sections }
+  return { crumbs = { backwards and 'callers' or 'reach' }, sections = sections, layered = true }
 end
 
 -- ─── the view ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -861,6 +878,10 @@ local function page_for(view, G)
     page = page_of(view) or { sections = { { parts = { { waiting } }, group = 'DeskMapDim' } } }
   end
   page.header = M.header(view, G)
+  local top = view.stack[#view.stack]
+  if page.crumbs and top.kind ~= 'query' then
+    page.zoom = ({ modules = 1, files = 2, functions = 3, class = 4 })[top.kind]
+  end
   if page.crumbs then table.insert(page.header, { table.concat(page.crumbs, G.crumb), 'DeskMapDim' }) end
   table.insert(page.header, { '' })
   return page
@@ -875,7 +896,9 @@ function M.render(view)
   page.notes = M.footer(view, G)
   view.drawn = M.layout(page, api.nvim_win_get_width(view.win) - 2, retro)
   draw(view.buf, view.drawn)
-  view.sel = { buf = view.buf, win = view.win, drawn = { boxes = view.drawn.items or {} } }
+  local s = view.sel or {}
+  s.buf, s.win, s.drawn, s.index = view.buf, view.win, view.drawn, nil
+  view.sel = s
   M.mark_selected(view)
 end
 
@@ -1142,6 +1165,28 @@ local function query(view, args, from, again)
   end)
 end
 
+local function walk_level(view)
+  local top = view and view.stack and view.stack[#view.stack]
+  local answer = top and top.answer
+  if answer and (answer.q == 'reach' or answer.q == 'callers') and top.args then return top end
+end
+
+local function change_walk(view, ctx, delta)
+  local top = walk_level(view)
+  if not top then return end
+  local depth = (top.answer.depth or 3) + delta
+  if depth < 1 then return tell('Already showing the first level.') end
+  local args = vim.list_slice(top.args)
+  for i = 1, #args - 1 do if args[i] == '--depth' then args[i + 1] = tostring(depth) end end
+  if view.out then top.selected = ctx.item and ctx.item.key
+  else
+    local cursor = api.nvim_win_get_cursor(view.win)
+    local item = M.item_at(view.drawn, cursor[1], cursor[2])
+    top.keep = { box = item and box_of(item), cursor = cursor }
+  end
+  query(view, args, nil, top)
+end
+
 local function name_of(node, typed) return node and typed == node.label and node.id or typed end
 
 -- r and c: here, asked with the box under the cursor as the default (a count first is the depth); in the pop-out, of
@@ -1303,6 +1348,9 @@ function M.open(root, from)
   actions.map('map', { buffer = buf, nowait = true, ctx = { map = view }, press = function(row, ctx) row.run(ctx) end })
   local group = api.nvim_create_augroup('desk_map_' .. buf, { clear = true })
   api.nvim_create_autocmd('CursorMoved', { group = group, buffer = buf, callback = function() M.mark_selected(view) end })
+  api.nvim_create_autocmd('WinScrolled', { group = group, callback = function(a)
+    if tonumber(a.match) == view.win then require('desk.callgraph').gauge_edges(view.sel) end
+  end })
   api.nvim_create_autocmd('BufWipeout', { group = group, buffer = buf, once = true, callback = function()
     stop_polling(view)
     views[buf] = nil
@@ -1410,7 +1458,19 @@ local ROWS = actions.add({
     "Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open", back,
     nil, HERE),
   row('out', '-', 'Zoom out', 'Zoom out a level',
-    function(view) if view.out then return zoom_out(view) end; back(view) end, nil, { line = 'map.back', menu = false, remote = true }),
+    function(view, ctx)
+      if walk_level(view) then return change_walk(view, ctx, -1) end
+      if view.out then return zoom_out(view) end
+      back(view)
+    end, nil, { line = 'map.back', menu = false, remote = true,
+      doc = 'Zoom out, or reduce the number of levels on a callers or reach page' }),
+  row('expand', '+', 'Expand call depth', 'Read another level on the callers or reach page',
+    function(view, ctx) change_walk(view, ctx, 1) end, function(ctx)
+      local top = walk_level(ctx.map)
+      if not top then return 'open a callers or reach page first' end
+      for _, step in ipairs(top.answer.steps or {}) do if step.mark == 'capped' then return true end end
+      return 'no more levels in the project map'
+    end, THERE),
   -- D and U: down and up the calls (2026-11-16: r and c here meant what they do not mean on a graph, read again and
   -- centre).
   row('reach', 'D', 'What a function reaches (downstream)',
@@ -1512,7 +1572,7 @@ local function render_view(view, width, style)
     local key = item_key(p.item, seen)
     p.item.key = key
     items[#items + 1] = { key = key, kind = 'box', line = p.line, name_col = p.name_col, x = p.x, w = p.w, spans = p.spans,
-      centre = p.centre == true, name = tostring(p.item.name or ''), ref = p.item }
+      centre = p.centre == true, gauge = p.gauge, gauge_band = p.gauge_band, name = tostring(p.item.name or ''), ref = p.item }
   end
   return { title = 'project map · ' .. vim.fn.fnamemodify(view.root or '', ':t'), state = '',
     lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = FOOTER, news = view.news == true }

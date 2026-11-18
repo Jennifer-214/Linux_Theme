@@ -162,6 +162,7 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "nvim_lua/desk/bridge.lua",    "~/.config/nvim/lua/desk/bridge.lua" },
     { "nvim_lua/desk/actions.lua",   "~/.config/nvim/lua/desk/actions.lua" },
     { "nvim_lua/desk/popout.lua",    "~/.config/nvim/lua/desk/popout.lua" },
+    { "nvim_lua/desk/codeview.lua",  "~/.config/nvim/lua/desk/codeview.lua" },
     { "nvim_lua/desk/map.lua",       "~/.config/nvim/lua/desk/map.lua" },
     { "nvim_lua/desk/screens.lua",   "~/.config/nvim/lua/desk/screens.lua" },
 

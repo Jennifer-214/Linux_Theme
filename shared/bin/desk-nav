@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# desk-nav h|j|k|l — ALT+h/j/k/l: one set of direction keys through every layer. The focused window's Neovim moves to
+# desk-nav h|j|k|l — directional navigation through every layer. The focused window's Neovim moves to
 # its split that way when it has one (desk.nav, shared/nvim_lua/desk/nav.lua); else its tmux pane moves to the pane
 # that way; else Hyprland moves the focus that way, to the next window or the next monitor at the edge. Each layer is
 # asked directly, so no key is passed through anything (and none can loop back). A zoomed tmux pane fills its window
@@ -68,10 +68,13 @@ for pid in $(pgrep -x nvim 2>/dev/null); do
     server=
     args=()
     { mapfile -d '' -t args < "/proc/$pid/cmdline"; } 2>/dev/null
-    # The editor's pop-outs never split (their views are tab pages, their menus floats): asking one can only answer no,
-    # and waits while it is busy drawing, up to the half second, before the window moves. Each is started with its
-    # number (g:desk_popout=1, 2, …).
-    [[ " ${args[*]} " =~ \ let\ g:desk_popout=[0-9]+\  ]] && desktop
+    # A tiled pop-out publishes directions available from the focused code pane. Skip IPC when it has no split
+    # that way, including while displaying a menu. Continue scanning because Neovim may have a separate TUI process.
+    if [[ " ${args[*]} " =~ \ let\ g:desk_popout=[0-9]+\  ]]; then
+        edges=
+        { read -r edges < "${XDG_RUNTIME_DIR:-/run/user/$UID}/desk-popout-splits/$pid"; } 2>/dev/null
+        [[ "$edges" =~ ^[hjkl]+$ && "$edges" == *"$dir"* ]] || continue
+    fi
     for ((i = 0; i + 1 < ${#args[@]}; i++)); do [[ "${args[i]}" == --listen ]] && server=${args[i + 1]}; done
     [[ -n "$server" ]] || server="${XDG_RUNTIME_DIR:-/run/user/$UID}/nvim.$pid.0"
     nvim_moved "$server" && exit 0

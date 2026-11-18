@@ -213,6 +213,7 @@ function M.open(items, opts)
       vim.wo[win].winhighlight = table.concat({ 'Normal:' .. hl('FoxSymdepsText', 'NormalFloat'), 'FloatBorder:' .. hl('FoxSymdepsBorder', 'FloatBorder'),
         'FloatTitle:' .. hl('FoxSymdepsTitle', 'Title') }, ',')
       vim.wo[win].cursorline, vim.wo[win].wrap = false, false
+      vim.wo[win].foldmethod, vim.wo[win].foldexpr, vim.wo[win].foldenable = 'manual', '0', false
     end
     local rows = row_lines()
     local target = rows[1]

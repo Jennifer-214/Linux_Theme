@@ -39,5 +39,6 @@ end
 P.kind({ name = 'symdeps', title = "symdeps' board", menu = "Pop out symdeps' board", surface = 'symdeps',
   about = "symdeps' board, its cards at the pop-out's width", render = render,
   ctx_for = function() local ctx = A.context(); ctx.surface = 'symdeps'; return ctx end,
-  attach = function(view) T.attached = view.id end,
-  close = function(view) T.closed = view.id end })
+  open = function(view) T.live = view end,
+  attach = function(view) if T.live == view then T.attached = view.id end end,
+  close = function(view) T.closed, T.live = view.id, nil end })

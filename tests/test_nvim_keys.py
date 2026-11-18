@@ -51,6 +51,8 @@ SHARED_GLOBALS = {
 REVIEW_OVER_GLOBAL = {
     '<leader>bd': 'in a review, closing the buffer means closing the review',
     '<leader>rn': 'LSP rename attaches to source buffers; review panes are scratch buffers with no language server',
+    '<leader>dd': 'the review opens the working source before asking symdeps for its card',
+    '<leader>dm': 'the review opens the working source before asking symdeps for its menu',
 }
 
 

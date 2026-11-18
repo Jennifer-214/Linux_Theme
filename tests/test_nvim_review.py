@@ -1135,6 +1135,55 @@ press('q')
 assert(not api.nvim_win_is_valid(win))
 ''')
 
+    def test_popout_menu_keeps_a_selection_bar_without_setting_up_symdeps(self):
+        self.run_lua(r'''
+vim.g.desk_popout=1
+api.nvim_set_hl(0,'FoxSymdepsSelection',{})
+api.nvim_set_hl(0,'Visual',{reverse=true})
+local attempted=false
+package.preload['fox-symdeps.menu']=function()
+  attempted=true
+  return {open=function() error('the plugin menu has no initialized selection colours here') end}
+end
+R.show_menu({{name='One',run=function() end},{name='Two',run=function() end}},{title='Pop-out'})
+assert(not attempted,'a pop-out must use its own menu without loading symdeps')
+local menu=require('desk.menu')._last
+local ns=api.nvim_get_namespaces().foxml_menu
+local function bar()
+  for _,m in ipairs(api.nvim_buf_get_extmarks(menu.buf,ns,0,-1,{details=true})) do
+    if m[4].line_hl_group then return m[2]+1,m[4].line_hl_group end
+  end
+end
+local line,group=bar()
+assert(group=='Visual' and api.nvim_get_hl(0,{name=group,link=false}).reverse,'the row uses a visible selection highlight')
+vim.fn.maparg('j','n',false,true).callback()
+assert(bar()==line+1,'the selection bar follows the selected row')
+vim.fn.maparg('q','n',false,true).callback()
+''')
+
+    def test_review_list_does_not_recompute_inherited_code_folds_on_each_move(self):
+        self.run_lua(r'''
+local calls=0
+_G.ReviewFoldProbe=function()
+  if vim.b.desk_review_panel or vim.b.desk_review then calls=calls+1 end
+  return 0
+end
+vim.wo.foldmethod='expr'
+vim.wo.foldexpr='v:lua.ReviewFoldProbe()'
+C.open_review(row,root)
+local r=R.current
+assert(calls==0,'opening review snapshots ran the code fold expression '..calls..' times')
+api.nvim_set_current_win(r.panel_win)
+calls=0
+for _=1,3 do
+  vim.cmd('normal! j')
+  api.nvim_exec_autocmds('CursorMoved',{buffer=r.panel_buf})
+  vim.cmd('redraw!')
+end
+assert(calls==0,'moving in the file list ran the code fold expression '..calls..' times')
+C.close()
+''')
+
     def test_a_change_request_waits_on_its_file_then_reads_ready_for_re_review_and_a_check_settles_it(self):
         source = self.repo / 'asked.lua'
         source.write_text('local a = 1\nreturn a\n')
@@ -1464,13 +1513,27 @@ assert(inspected,'changed symbol was not sent to symdeps')
 -- a newer symdeps keeps the card in its own module: that one is preferred
 local by_card=false
 package.preload['fox-symdeps.card']=nil
-package.loaded['fox-symdeps.card']={inspect_cursor=function() by_card=true end}
+package.loaded['fox-symdeps.card']={inspect_cursor=function()
+  assert(api.nvim_buf_get_name(0)==file and vim.bo.buftype=='')
+  assert(api.nvim_win_get_cursor(0)[2]==7,'the identifier column was lost')
+  by_card=true
+end}
 inspected=false
-R.symdeps(false)
+local r=R.current
+api.nvim_set_current_win(r.right_win)
+api.nvim_win_set_cursor(0,{1,7})
+vim.fn.maparg('<Space>dd','n',false,true).callback()
 assert(by_card and not inspected,'the card module is used when it exists')
+local menu=false
+package.loaded['fox-symdeps.features']={open_menu=function()
+  assert(api.nvim_buf_get_name(0)==file and vim.bo.buftype=='','the menu got a snapshot instead of the working source')
+  menu=true
+end}
+api.nvim_set_current_win(r.left_win)
+vim.fn.maparg('<Space>dm','n',false,true).callback()
+assert(menu,'Space dm did not open symdeps on the working file')
 package.loaded['fox-symdeps.card']=nil
 package.preload['fox-symdeps.card']=function() error('an older symdeps: no card module') end
-local r=R.current
 r.row.kind='commit';r.row.parent=parent
 package.loaded['fox-symdeps.revcompare']={open=function(ctx,rev)
   assert(ctx.file==file and rev==parent);compared=true

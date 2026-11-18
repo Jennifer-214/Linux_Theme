@@ -195,10 +195,8 @@ class DeskNav(unittest.TestCase):
         os.killpg(window.pid, signal.SIGSTOP)
         self.assertEqual(self.nav("h", "desk-popout", window.pid, timeout=5), self.desktop("left", "l"))
 
-    def test_the_editors_pop_out_is_never_asked(self):
-        # The real pop-out (g:desk_popout on its command line) never splits: ALT+h/l off it goes to the desktop at once,
-        # even while it is busy (stopped here; asked, it would hold the key the whole half second, 2026-11-16). Every one
-        # of the editor's pop-outs (started with its number) is the same, never only the first.
+    def test_a_pop_out_without_a_split_hint_is_never_asked(self):
+        # Without a split in that direction, desk-nav goes to the desktop without waiting on Neovim.
         for number in ("1", "12"):
             with self.subTest(popout=number):
                 listening = self.run_dir / f"popout{number}.sock"
@@ -212,19 +210,33 @@ class DeskNav(unittest.TestCase):
                 self.assertEqual(self.nav("h", "desk-popout", window.pid, timeout=5), self.desktop("left", "l"))
                 self.assertLess(time.monotonic() - started, 0.4, "the pop-out was asked and waited on")
 
+    def test_a_tiled_pop_out_only_answers_for_its_published_directions(self):
+        listening = self.run_dir / "popout-tiles.sock"
+        args = self.nvim_args(listening)
+        args[1:1] = ["--cmd", "let g:desk_popout=2"]
+        window = self.spawn(["sh", "-c", shlex.join(args) + "; :"])
+        self.until(lambda: listening.is_socket(), "Neovim never listened")
+        self.until(lambda: self.ask(listening, "winnr()") == "2", "Neovim never split")
+        info = self.run_dir / "desk-popout-splits"
+        info.mkdir()
+        (info / self.ask(listening, "getpid()")).write_text("h\n")
+        self.assertEqual(self.nav("l", "desk-popout", window.pid), self.desktop("right", "r"))
+        self.assertEqual(self.ask(listening, "winnr()"), "2")
+        self.assertEqual(self.nav("h", "desk-popout", window.pid), [])
+        self.assertEqual(self.ask(listening, "winnr()"), "1")
+
     def test_usage(self):
         ran = subprocess.run(["bash", str(SCRIPT), "x"], env=self.env, capture_output=True, text=True, timeout=10)
         self.assertEqual(ran.returncode, 2)
 
 
 class Binds(unittest.TestCase):
-    def test_alt_hjkl_run_it_in_both_twins(self):
+    def test_alt_hjkl_focus_the_desktop_directly_in_both_twins(self):
         lua = (ROOT / "shared/hyprland_modules/keybinds.lua").read_text()
         conf = (ROOT / "shared/hyprland_modules/keybinds.conf").read_text()
-        for key in "hjkl":
-            self.assertIn(f'hl.bind(mainMod .. " + {key}", hl.dsp.exec_cmd("~/.local/bin/desk-nav {key}"))', lua)
-            self.assertIn(f"bind = $mainMod, {key}, exec, ~/.local/bin/desk-nav {key}", conf)
-        self.assertTrue(os.access(SCRIPT, os.X_OK))
+        for key, direction, legacy in zip("hjkl", ("left", "down", "up", "right"), "ldur"):
+            self.assertIn(f'hl.bind(mainMod .. " + {key}", hl.dsp.focus({{ direction = "{direction}" }}))', lua)
+            self.assertIn(f"bind = $mainMod, {key}, movefocus, {legacy}", conf)
 
     def test_neovim_maps_no_alt_direction_key_for_it(self):
         # The keys never reach Neovim under Hyprland; its own Alt maps (move a line, j and k) are left as they are.

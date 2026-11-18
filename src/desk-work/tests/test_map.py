@@ -132,6 +132,12 @@ class Map(unittest.TestCase):
         self.assertEqual({(s["from"].split("::")[-1], s["to"].split("::")[-1]) for s in reach["steps"]},
                          {("M.alpha", "M.beta"), ("M.alpha", "helper"), ("M.beta", "helper")})
         self.assertEqual(reach["providers"], ["syntax"])
+        located = self.query("--q", "reach", "--from", "M.alpha", "--file", self.repo / "lua/mod.lua",
+                             "--line", "4", "--depth", "13")
+        self.assertEqual((located["root"], located["from"]["id"], located["depth"]),
+                         (str(self.repo), reach["from"]["id"], 13))
+        wrong_file = self.query("--q", "reach", "--from", "M.alpha", "--file", "csrc/prog.c", "--line", "3", code=1)
+        self.assertIn("No function in the map matches this location", wrong_file["message"])
         callers = self.query("--q", "callers", "--of", "helper")
         self.assertEqual({s["from"].split("::")[-1] for s in callers["steps"]}, {"M.alpha", "M.beta"})
         ways = self.query("--q", "paths", "--from", "main", "--to", "leaf")

@@ -42,6 +42,59 @@ local function fit(s, w, ellipsis)
 end
 local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width_of(s))) end
 
+M.GAUGE_WIDTH = 7
+function M.gauge_range(boxes)
+  local first, last
+  for _, box in ipairs(boxes) do
+    if box.gauge then first, last = first or box.line, box.line end
+  end
+  if first then return { first, last } end
+end
+
+function M.gauge(drawn, bands, retro, group, active_group)
+  local rail, offsets, active = {}, {}, {}
+  local selectable = {}
+  for _, band in ipairs(bands) do
+    local shade = retro and ({ '█', '▓', '▒', '░' })[math.min(4, math.abs(band.level) + 1)] or '│'
+    local label = band.label or (band.level == 0 and '0' or string.format('%+d', band.level))
+    local marker = band.active and not retro and '‹' or ' '
+    if retro and band.active then shade = '█' end
+    for line = band.first, band.last do
+      rail[line] = marker .. shade .. ' ' .. pad(line == band.first and fit(label, 3, '…') or '', 3) .. ' '
+      selectable[line] = not band.label and band or nil
+      if retro and band.active then active[line] = true end
+    end
+  end
+  for i, line in ipairs(drawn.lines) do
+    local prefix = rail[i] or string.rep(' ', M.GAUGE_WIDTH)
+    offsets[i], drawn.lines[i] = #prefix, prefix .. line
+  end
+  for _, m in ipairs(drawn.marks) do m[2], m[3] = m[2] + offsets[m[1]], m[3] + offsets[m[1]] end
+  for line, hits in pairs(drawn.hits or {}) do
+    for _, hit in ipairs(hits) do hit.s, hit.e = hit.s + offsets[line], hit.e + offsets[line] end
+  end
+  for _, box in ipairs(drawn.boxes) do
+    local band = selectable[box.line]
+    box.gauge = band ~= nil
+    if band then box.gauge_band = { band.first, band.last } end
+    box.x, box.name_col = box.x + M.GAUGE_WIDTH, box.name_col + offsets[box.line]
+    for _, span in ipairs(box.spans) do span[2], span[3] = span[2] + offsets[span[1]], span[3] + offsets[span[1]] end
+  end
+  for i, prefix in pairs(rail) do drawn.marks[#drawn.marks + 1] = { i, 0, #prefix, group or 'DeskCallGraphDim' } end
+  for i in pairs(active) do drawn.marks[#drawn.marks + 1] = { i, 1, 1 + #'█', active_group or 'DeskCallGraphCentre', 1 } end
+end
+
+local SIDES = { 'callers', 'callees' }
+local function layers_of(graph, side)
+  return (graph.layers or {})[side] or (graph[side] and { graph[side] } or {})
+end
+
+local function identity(item)
+  local start = item.range and item.range.start
+  if start and item.uri then return table.concat({ item.uri, start.line, item.name or '' }, '\0') end
+  return item.map_id or tostring(item.name or '')
+end
+
 -- ─── layout (pure) ─────────────────────────────────────────────────────────────────────────────────────────────
 -- graph: { center = item?, callers = {item}?, callees = {item}?, more = {callers, callees}?, message = text?,
 --          notes = {text}?, keys = {{key, words}}? (the key line, last), header = text? (first) }
@@ -52,7 +105,9 @@ local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width_of(s)
 function M.layout(graph, width, retro)
   width = math.max(16, width or 80)
   local G = M.glyphs(retro)
-  local lines, boxlist, marks = {}, {}, {}
+  local lines, boxlist, marks, bands = {}, {}, {}, {}
+  local gauge = graph.layers and width >= 36
+  if gauge then width = width - M.GAUGE_WIDTH end
   local function add(text, group, from, to)
     lines[#lines + 1] = text
     if group then marks[#marks + 1] = { #lines, from or 0, to or #text, group } end
@@ -115,13 +170,61 @@ function M.layout(graph, width, retro)
     if (more or 0) > 0 then centred(G.said('+' .. more .. ' more'), 'DeskCallGraphDim') end
   end
   local more = graph.more or {}
-  group('callers', graph.callers, more.callers, 'no callers found', 'caller')
-  if graph.center then
-    if graph.callers then centred(G.down, 'DeskCallGraphBox') end
-    boxes({ graph.center }, G.double, 'DeskCallGraphCentre', 'DeskCallGraphCentre', 'centre')
-    if graph.callees then centred(G.down, 'DeskCallGraphBox') end
+  local function display_layers(side)
+    local tiers = layers_of(graph, side)
+    local hidden = graph.hidden and graph.hidden[side]
+    if graph.layers and not graph.layers[side] and hidden and #hidden > 0 then
+      return { vim.list_extend(vim.list_slice(tiers[1]), hidden) }
+    end
+    return tiers
   end
-  group('callees', graph.callees, more.callees, 'calls nothing found', 'callee')
+  local above, below = display_layers('callers'), display_layers('callees')
+  local nearest, used = {}, {}
+  if graph.center then used[identity(graph.center)] = true end
+  if graph.layers then
+    for _, tiers in ipairs({ above, below }) do
+      for d, tier in ipairs(tiers) do
+        for _, item in ipairs(tier) do
+          local id = identity(item)
+          nearest[id] = math.min(nearest[id] or d, d)
+        end
+      end
+    end
+    centred(G.said(('layers %s … %s · %d functions'):format(#above == 0 and '0' or '-' .. #above,
+      #below == 0 and '0' or '+' .. #below, vim.tbl_count(nearest) + (graph.center and 1 or 0)
+        - (graph.center and nearest[identity(graph.center)] and 1 or 0))), 'DeskCallGraphHead')
+  end
+  local function tier(side, list, depth, sign, none, role)
+    local first = #lines + 1
+    local items, left = list, more[side]
+    if graph.layers then
+      items = {}
+      for _, item in ipairs(list) do
+        local id = identity(item)
+        if not used[id] and nearest[id] == depth then used[id] = true; items[#items + 1] = item end
+      end
+      left = not graph.all_layers and math.max(0, #items - M.MAX) or 0
+      if left > 0 then items = vim.list_slice(items, 1, M.MAX) end
+    end
+    group(depth == 1 and side or (side .. ' ' .. depth), items, left, none, role)
+    bands[#bands + 1] = { first = first, last = #lines, level = sign * depth }
+  end
+  for d = #above, 1, -1 do
+    tier('callers', above[d], d, -1, 'no callers found', 'caller')
+    if d > 1 then centred(G.down, 'DeskCallGraphBox') end
+  end
+  if graph.center then
+    if #above > 0 then centred(G.down, 'DeskCallGraphBox') end
+    local first = #lines + 1
+    boxes({ graph.center }, G.double, 'DeskCallGraphCentre', 'DeskCallGraphCentre', 'centre')
+    bands[#bands + 1] = { first = first, last = #lines, level = 0 }
+  end
+  for d, list in ipairs(below) do
+    if graph.center or d > 1 then centred(G.down, 'DeskCallGraphBox') end
+    tier('callees', list, d, 1, 'calls nothing found', 'callee')
+  end
+  local drawn = { lines = lines, boxes = boxlist, marks = marks }
+  if gauge then M.gauge(drawn, bands, retro); width = width + M.GAUGE_WIDTH end
   if graph.message then
     if #lines > 0 then add('') end
     for _, line in ipairs(vim.split(graph.message, '\n')) do centred(G.said(fit(line, width, G.ellipsis)), 'DeskCallGraphDim') end
@@ -157,10 +260,13 @@ function M.layout(graph, width, retro)
     for _, box in ipairs(boxlist) do
       box.top, box.line = box.top + 1, box.line + 1
       for _, span in ipairs(box.spans) do span[1] = span[1] + 1 end
+      local band = box.gauge_band
+      if band then band[1], band[2] = band[1] + 1, band[2] + 1 end
     end
     marks[#marks + 1] = { 1, #left, #left + #text, 'DeskCallGraphKey', 1 }
   end
-  return { lines = lines, boxes = boxlist, marks = marks }
+  if gauge then drawn.gauge_range = M.gauge_range(boxlist) end
+  return drawn
 end
 
 -- The box at a buffer position (1-based line, byte column), by index.
@@ -232,15 +338,49 @@ end
 -- keys move it box to box, a cursor that lands inside a box (a click, a motion) selects that box, and Enter goes to
 -- the selected box's function, wherever the cursor is.
 M.sel_ns = api.nvim_create_namespace('desk_callgraph_selected')
+M.gauge_ns = api.nvim_create_namespace('desk_callgraph_gauge')
+local edge_ns = api.nvim_create_namespace('desk_callgraph_gauge_edges')
+
+function M.gauge_edges(s)
+  local range = s and s.drawn and s.drawn.gauge_range
+  if not range and not (s and s.gauge_edges_drawn) then return end
+  if not (s and s.win and api.nvim_win_is_valid(s.win) and api.nvim_win_get_buf(s.win) == s.buf) then return end
+  api.nvim_buf_clear_namespace(s.buf, edge_ns, 0, -1)
+  s.gauge_edges_drawn = nil
+  if not range then return end
+  local top, bottom = vim.fn.line('w0', s.win), vim.fn.line('w$', s.win)
+  local selected = s.index and s.drawn.boxes[s.index]
+  local function arrow(row, text)
+    if row <= 0 or (selected and row == selected.line) then return end
+    pcall(api.nvim_buf_set_extmark, s.buf, edge_ns, row - 1, 0,
+      { virt_text = { { text, 'DeskCallGraphDim' } }, virt_text_pos = 'overlay', priority = 290 })
+    s.gauge_edges_drawn = true
+  end
+  if range[1] < top then arrow(top, '▲') end
+  if range[2] > bottom then arrow(bottom, '▼') end
+end
 
 local function paint(s)
   if not api.nvim_buf_is_valid(s.buf) then return end
   -- Its colour, when no graph has been opened yet to define it (the map paints its boxes with it too).
   if next(api.nvim_get_hl(0, { name = 'DeskCallGraphSelected' })) == nil then highlights() end
   api.nvim_buf_clear_namespace(s.buf, M.sel_ns, 0, -1)
+  api.nvim_buf_clear_namespace(s.buf, M.gauge_ns, 0, -1)
   local box = s.index and s.drawn and s.drawn.boxes[s.index]
   for _, span in ipairs(box and box.spans or {}) do
     pcall(api.nvim_buf_set_extmark, s.buf, M.sel_ns, span[1] - 1, span[2], { end_col = span[3], hl_group = 'DeskCallGraphSelected', priority = 300 })
+  end
+  if box and box.gauge then
+    if M.retro() then
+      local band = box.gauge_band or { box.line, box.line }
+      local opts = { virt_text = { { '█', 'Title' } }, virt_text_pos = 'overlay', priority = 300 }
+      for line = band[1], math.min(band[2], api.nvim_buf_line_count(s.buf)) do
+        pcall(api.nvim_buf_set_extmark, s.buf, M.gauge_ns, line - 1, 1, opts)
+      end
+    else
+      pcall(api.nvim_buf_set_extmark, s.buf, M.gauge_ns, box.line - 1, 0,
+        { virt_text = { { '›', 'DeskCallGraphSelected' } }, virt_text_pos = 'overlay', priority = 300 })
+    end
   end
 end
 
@@ -252,6 +392,7 @@ function M.select(s, index, place)
   if place and s.win and api.nvim_win_is_valid(s.win) and api.nvim_win_get_buf(s.win) == s.buf then
     pcall(api.nvim_win_set_cursor, s.win, { box.line, box.name_col })
   end
+  M.gauge_edges(s)
 end
 
 function M.move(s, how)
@@ -275,13 +416,18 @@ end
 -- A new drawing: the centre box selected (else the first), the cursor on it; keep: the same graph drawn again, so
 -- the selection stays where it was.
 local function show(s, drawn, keep)
-  local was = keep and s.index
+  local was = keep and s.index and s.drawn and s.drawn.boxes[s.index]
   s.drawn, s.index = drawn, nil
   draw(s.buf, drawn)
-  local first = was and drawn.boxes[was] and was
+  local first
+  if was then
+    for i, box in ipairs(drawn.boxes) do
+      if box.role == was.role and identity(box.item) == identity(was.item) then first = i; break end
+    end
+  end
   for i, box in ipairs(drawn.boxes) do if not first and box.centre then first = i end end
   first = first or (drawn.boxes[1] and 1)
-  if first then M.select(s, first, true) else paint(s) end
+  if first then M.select(s, first, true) else paint(s); M.gauge_edges(s) end
 end
 
 -- The cursor moved in the surface's window: inside a box, that box is the selection; elsewhere it stays.
@@ -298,6 +444,8 @@ end
 local function bind_selection(s, surface)
   actions.map(surface, { buffer = s.buf, nowait = true, ctx = { graph = s } })
   api.nvim_create_autocmd('CursorMoved', { buffer = s.buf, callback = function() M.follow_cursor(s) end })
+  local scroll = api.nvim_create_autocmd('WinScrolled', { pattern = tostring(s.win), callback = function() M.gauge_edges(s) end })
+  api.nvim_create_autocmd('BufWipeout', { buffer = s.buf, once = true, callback = function() api.nvim_del_autocmd(scroll) end })
 end
 
 -- ─── the symbol under a position (treesitter) ──────────────────────────────────────────────────────────────────
@@ -436,10 +584,17 @@ function M.show_all(graph)
     end
   end
   graph.hidden, graph.more = nil, nil
+  if graph.layers then graph.all_layers = true end
 end
 local function left_out(graph)
   local more = graph and graph.more or {}
-  return (more.callers or 0) + (more.callees or 0)
+  local count = (more.callers or 0) + (more.callees or 0)
+  if graph and graph.layers and not graph.all_layers then
+    for _, tiers in pairs(graph.layers) do
+      for _, tier in ipairs(tiers) do count = count + math.max(0, #tier - M.MAX) end
+    end
+  end
+  return count
 end
 
 -- Its centre's file edited since the graph was read (unsaved: the server answered for the text before the edit).
@@ -465,7 +620,7 @@ function M.fetch(client, target, done)
     end)
   end
   local function from(raw)
-    local graph = { center = M.item(raw, enc) }
+    local graph = { center = M.item(raw, enc), source = buf, client_id = client.id }
     -- Where its centre's file stood when it was read: edits after it move the lines the graph names (M.edited_since).
     local file_buf = raw.uri and vim.fn.bufnr(vim.uri_to_fname(raw.uri)) or -1
     if file_buf > 0 then graph.read_at = { buf = file_buf, tick = api.nvim_buf_get_changedtick(file_buf) } end
@@ -474,7 +629,7 @@ function M.fetch(client, target, done)
       graph.callers, more.callers, hidden.callers = calls(incoming, 'from', enc)
       step('callHierarchy/outgoingCalls', { item = raw }, function(outgoing)
         graph.callees, more.callees, hidden.callees = calls(outgoing, 'to', enc)
-        graph.more, graph.hidden = more, hidden
+        graph.more, graph.hidden, graph.layers = more, hidden, {}
         done(graph)
       end)
     end)
@@ -492,6 +647,159 @@ function M.fetch(client, target, done)
   return function() cancelled = true; cancel() end
 end
 
+local function location(item)
+  if item.uri and item.range and item.uri:match('^file:') then
+    return vim.uri_to_fname(item.uri), item.range.start.line + 1
+  end
+  if item.buf and api.nvim_buf_is_valid(item.buf) and item.row then return api.nvim_buf_get_name(item.buf), item.row + 1 end
+end
+
+-- Expand through every member of a frontier, including boxes hidden by the display limit.
+local function server_layers(graph, side, depth, active, done)
+  local source = graph.source
+  local client = source and api.nvim_buf_is_valid(source) and vim.iter(M.clients(source)):find(function(c) return c.id == graph.client_id end)
+  if not (client and graph.center.raw and graph[side]) then
+    done(nil, 'requires a project map or a language server with call hierarchy')
+    return function() end
+  end
+  local tiers = { vim.list_extend(vim.list_slice(graph[side]), graph.hidden and graph.hidden[side] or {}) }
+  local kept = graph.layer_source and graph.layer_source[side] == 'server' and layers_of(graph, side)
+  if kept then tiers = vim.list_slice(kept) end
+  local visited = { [identity(graph.center)] = true }
+  for _, tier in ipairs(tiers) do
+    for _, item in ipairs(tier) do visited[identity(item)] = true end
+  end
+  local outgoing = side == 'callees'
+  local method, field = outgoing and 'callHierarchy/outgoingCalls' or 'callHierarchy/incomingCalls', outgoing and 'to' or 'from'
+  local stopped, cancel, at, next_tier = false, function() end, 0, {}
+  local function stop() stopped = true; cancel() end
+  local function step()
+    if stopped or not active() then return end
+    local last = tiers[#tiers] or {}
+    if #tiers >= depth or #last == 0 then return done(tiers) end
+    at = at + 1
+    local item = last[at]
+    if not item then
+      if #next_tier == 0 then return done(tiers) end
+      table.sort(next_tier, function(a, b) return a.name < b.name end)
+      tiers[#tiers + 1], at, next_tier = next_tier, 0, {}
+      return step()
+    end
+    cancel = M.transport(client, source, method, { item = item.raw }, function(err, result)
+      vim.schedule(function()
+        if stopped or not active() then return end
+        if err then return done(nil, 'the language server failed: ' .. tostring(err.message or err)) end
+        for _, call in ipairs(result or {}) do
+          local raw = call[field]
+          if raw then
+            local found = M.item(raw, client.offset_encoding or 'utf-16')
+            local id = identity(found)
+            if not visited[id] then visited[id] = true; next_tier[#next_tier + 1] = found end
+          end
+        end
+        step()
+      end)
+    end)
+  end
+  vim.defer_fn(function()
+    if not stopped and active() then stop(); done(nil, 'the language server took too long to read this level') end
+  end, M.WAIT_MS)
+  step()
+  return stop
+end
+
+local function map_layers(graph, side, depth, active, done)
+  local file, line = location(graph.center)
+  if not file or file == '' or M.edited_since(graph) then done(); return end
+  local buf = vim.fn.bufnr(file)
+  if buf > 0 and vim.bo[buf].modified then done(); return end
+  return require('desk.map').desk_work({ 'map', 'query', '--root', vim.fs.dirname(file), '--q', side == 'callers' and side or 'reach',
+    '--file', file, '--line', tostring(line), '--from', graph.center.name or '', '--depth', tostring(depth), '--cap', '3000' }, function(answer)
+    if not active() then return end
+    if not (answer and answer.ok and type(answer.root) == 'string' and type(answer.nodes) == 'table') then return done() end
+    local tiers = {}
+    for _, n in ipairs(answer.nodes) do
+      if type(n.depth) == 'number' and n.depth >= 1 and n.depth <= depth then
+        local item = { name = n.label, map_id = n.id, detail = n.detail or 'project map' }
+        if type(n.file) == 'string' and type(n.line) == 'number' and n.line >= 1 then
+          local start = { line = n.line - 1, character = 0 }
+          item.uri, item.range, item.enc = vim.uri_from_fname(answer.root .. '/' .. n.file), { start = start, ['end'] = start }, 'utf-8'
+          item.detail = vim.fs.basename(n.file) .. ':' .. n.line
+        end
+        tiers[n.depth] = tiers[n.depth] or {}
+        table.insert(tiers[n.depth], item)
+      end
+    end
+    for _, tier in ipairs(tiers) do table.sort(tier, function(a, b) return a.name < b.name end) end
+    done(tiers, answer.capped and 'more calls were left out of the project map answer' or nil)
+  end, 2500)
+end
+
+local function stop_depth(holder)
+  local requests = holder.depth_requests
+  holder.depth_requests = nil
+  for _, request in pairs(requests or {}) do if request.cancel then request.cancel() end end
+end
+
+local function with_depth(holder, graph)
+  local notes = vim.list_slice(graph.notes or {})
+  for _, side in ipairs(SIDES) do
+    local request = (holder.depth_requests or {})[side]
+    if request then
+      notes[#notes + 1] = ('reading %s level %d…'):format(side, request.depth)
+    elseif graph.layer_note and graph.layer_note[side] then
+      notes[#notes + 1] = graph.layer_note[side]
+    end
+  end
+  return vim.tbl_extend('force', {}, graph, { notes = notes })
+end
+
+local function change_depth(holder, side, delta, redraw)
+  local graph = holder.graph
+  if not (graph and graph.center) then return end
+  local count = #layers_of(graph, side)
+  local requests = holder.depth_requests or {}
+  holder.depth_requests = requests
+  if delta < 0 then
+    local request = requests[side]
+    requests[side] = nil
+    if request then if request.cancel then request.cancel() end; return redraw() end
+    if count > 1 then
+      graph.layers[side] = vim.list_slice(graph.layers[side], 1, count - 1)
+      if graph.exhausted then graph.exhausted[side] = nil end
+      if graph.layer_note then graph.layer_note[side] = nil end
+      redraw()
+    end
+    return
+  end
+  if requests[side] or (graph.exhausted or {})[side] then return end
+  local request = { depth = count + 1 }
+  requests[side] = request
+  local function active() return holder.graph == graph and holder.depth_requests == requests and requests[side] == request end
+  local function finish(tiers, source, note)
+    if not active() then return end
+    requests[side] = nil
+    graph.layer_note = graph.layer_note or {}
+    graph.layer_note[side] = note
+    if tiers then
+      graph.layers, graph.layer_source, graph.exhausted = graph.layers or {}, graph.layer_source or {}, graph.exhausted or {}
+      graph.layers[side], graph.layer_source[side] = tiers, source
+      if source == 'map' then graph.message = nil end
+      if #tiers < request.depth then
+        graph.exhausted[side] = true
+        graph.layer_note[side] = note or ('no more ' .. side)
+      end
+    end
+    redraw()
+  end
+  redraw()
+  local job = map_layers(graph, side, request.depth, active, function(tiers, note)
+    if tiers then return finish(tiers, 'map', note) end
+    request.cancel = server_layers(graph, side, request.depth, active, function(answer, why) finish(answer, 'server', why) end)
+  end)
+  if job then request.cancel = function() pcall(job.kill, job, 15) end end
+end
+
 -- What symdeps adds, for C and C++: its own card on the centre (every use by role) when it is loaded.
 local function symdeps_state(buf)
   local ft = api.nvim_buf_is_valid(buf) and vim.bo[buf].filetype
@@ -500,7 +808,19 @@ local function symdeps_state(buf)
 end
 
 -- An item from the language server goes to its range; the centre drawn before the answer, to where it was asked.
+local target_at
+local function target_for_item(item, source)
+  if item.raw then return { buf = source, item = item, name = item.name } end
+  local file, line = location(item)
+  if file and item.map_id then return target_at(file, line, item.name) end
+end
+
 local function jump(item, win)
+  if item.map_id then
+    local target = target_for_item(item)
+    if not target then return tell('The project map has no working source for ' .. item.name .. '.', vim.log.levels.WARN) end
+    return M.jump({ buf = target.buf, row = target.row, col = target.col }, win)
+  end
   require('desk.nav').code_target(win)   -- that window when it is code, else another code window: never a view's
   if item.uri and item.range then
     vim.lsp.util.show_document({ uri = item.uri, range = item.range }, item.enc or 'utf-16', { focus = true })
@@ -516,6 +836,10 @@ local function placeholder(target)
            buf = target.buf, row = target.row, col = target.col }
 end
 
+local function pending_graph(center, message)
+  return { center = center, message = message or 'reading the call hierarchy…', reading = true }
+end
+
 -- ─── the graph view (one tab, reused) ──────────────────────────────────────────────────────────────────────────
 -- Like the review: Enter goes to a function in the code window the graph came from and the tab stays open behind it,
 -- Backspace goes back to that window as it was, and Space cc from anywhere brings the same tab back on the function
@@ -525,8 +849,7 @@ local views = {}
 -- keep: the same graph again (its window changed width), so the selection stays.
 local function render(view, keep)
   if not api.nvim_win_is_valid(view.win) then return end
-  local graph = vim.deepcopy(view.graph)
-  graph.notes = graph.notes or {}
+  local graph = with_depth(view, view.graph)
   local symdeps = symdeps_state(view.source)
   if symdeps == 'missing' then graph.notes[#graph.notes + 1] = 'every use by role: requires symdeps' end
   if M.edited_since(view.graph) then graph.notes[#graph.notes + 1] = M.EDITED .. ' · ' .. M.typed('reload') .. ' reads it again' end
@@ -544,9 +867,10 @@ end
 M.name_view = name_view
 
 local function load(view, target)
+  stop_depth(view)
   if view.cancel then view.cancel() end
   name_view(view, target)
-  view.graph = { center = target.item or placeholder(target), message = 'reading the call hierarchy…' }
+  view.graph = pending_graph(target.item or placeholder(target))
   render(view)
   local stop_fetch
   local stop_wait = M.ready(target.buf, function(client, why)
@@ -557,13 +881,16 @@ local function load(view, target)
       if graph and why then graph.notes = { why } end
       render(view)
     end)
-  end, function(message) view.graph = { center = view.graph.center, message = message }; render(view) end)
+  end, function(message) view.graph = pending_graph(view.graph.center, message); render(view) end)
   view.cancel = function() stop_wait(); if stop_fetch then stop_fetch() end end
 end
 
 function M.close_view(buf)
   local view = views[buf]
-  if view and view.cancel then view.cancel() end
+  if view then
+    stop_depth(view)
+    if view.cancel then view.cancel() end
+  end
   views[buf] = nil
   if vim.g.desk_work_view then vim.cmd('confirm qall'); return end
   if view and api.nvim_win_is_valid(view.win) then
@@ -617,6 +944,7 @@ function M.open(target)
     if view.graph and api.nvim_win_is_valid(view.win) and api.nvim_win_get_width(view.win) ~= view.width then render(view, true) end
   end })
   api.nvim_create_autocmd('BufWipeout', { buffer = buf, once = true, callback = function()
+    stop_depth(view)
     if views[buf] and views[buf].cancel then views[buf].cancel() end
     views[buf] = nil
     pcall(api.nvim_del_augroup_by_id, resized)
@@ -660,9 +988,10 @@ end
 -- keep: the same graph again (pinning, unpinning, a new width), so the selection stays.
 local function panel_show(graph, keep)
   if not panel_open() then return end
+  if panel.graph ~= graph then stop_depth(panel) end
   panel.graph = graph
   panel.width = api.nvim_win_get_width(panel.win)
-  local drawn = vim.tbl_extend('force', {}, graph, { keys = M.panel_keys(panel.pinned), header = panel.pinned and 'PINNED' or nil })
+  local drawn = vim.tbl_extend('force', with_depth(panel, graph), { keys = M.panel_keys(panel.pinned), header = panel.pinned and 'PINNED' or nil })
   show(panel, M.layout(drawn, panel.width - 1, M.retro()), keep)
 end
 
@@ -689,7 +1018,7 @@ local function panel_request()
       if graph and why then graph.notes = { why } end
       finish(graph or { center = center, message = err })
     end)
-  end, function(message) if panel.key == target.key then panel_show({ center = center, message = message }) end end)
+  end, function(message) if panel.key == target.key then panel_show(pending_graph(center, message)) end end)
   panel.stop = function() stop_wait(); if stop_fetch then stop_fetch() end end
 end
 
@@ -710,7 +1039,7 @@ function M.panel_update()
     if not target then return panel_show({ message = why }) end
     local cached = panel.cache[cache_key(target)]
     if cached then panel.wanted = nil; return panel_show(cached) end
-    panel_show({ center = placeholder(target), message = 'reading the call hierarchy…' })
+    panel_show(pending_graph(placeholder(target)))
     -- Back on the function already being asked about: its answer is on the way.
     if panel.inflight and panel.inflight.key == target.key then panel.wanted = nil; return end
     panel.wanted = target
@@ -747,6 +1076,7 @@ end
 function M.panel_reload()
   local target = panel.target
   if not panel_open() then return end
+  stop_depth(panel)
   if not panel.pinned then
     if target and target.buf and target.name and target.row then panel.cache[cache_key(target)] = nil end
     panel.key = nil
@@ -778,21 +1108,23 @@ end
 -- c in the panel: the graph centred on the selected box and pinned there, as in the pop-out; p follows again.
 function M.panel_centre()
   local item = panel_open() and M.selected(panel)
-  if not (item and item.raw) then return end
+  if not item then return end
   local buf = panel.target and panel.target.buf
   if not (buf and api.nvim_buf_is_valid(buf)) and panel.source_win and api.nvim_win_is_valid(panel.source_win) then
     buf = api.nvim_win_get_buf(panel.source_win)
   end
-  if not buf then return end
+  local target = target_for_item(item, buf)
+  if not (target and target.buf) then return end
   if panel.timer then panel.timer:stop() end
   local row = item.range and item.range.start.line or 0
-  local target = { buf = buf, item = item, name = item.name, row = row, col = 0, key = 'centre:' .. tostring(item.uri) .. ':' .. row }
+  target.row, target.col, target.key = target.row or row, target.col or 0, 'centre:' .. tostring(item.uri) .. ':' .. row
   panel.pinned, panel.target, panel.key, panel.wanted = true, target, target.key, target
-  panel_show({ center = item, message = 'reading the call hierarchy…' })
+  panel_show(pending_graph(item))
   if not (panel.inflight and panel.inflight.key == target.key) then panel_request() end
 end
 
 function M.panel_close()
+  stop_depth(panel)
   if panel.stop then panel.stop() end
   if panel.timer then panel.timer:stop() end
   panel.inflight, panel.wanted, panel.stop, panel.key, panel.pinned, panel.target, panel.graph = nil, nil, nil, nil, false, nil, nil
@@ -927,6 +1259,49 @@ end
 local popout_centre, popout_reload, popout_symdeps   -- the pop-out's c, r and gs, with its view kind below
 local function pop() return require('desk.popout') end
 local GRAPH, BOTH = 'callgraph', { 'callgraph', 'callgraph-panel' }
+local function depth_side(ctx, graph)
+  if not ctx.view and ctx.graph then
+    local box = ctx.graph.drawn and ctx.graph.drawn.boxes[ctx.graph.index or 0]
+    return box and box.role == 'caller' and 'callers' or 'callees'
+  end
+  if ctx.item and ctx.item ~= graph.center then
+    local nearest, side = math.huge, 'callees'
+    for _, candidate in ipairs(SIDES) do
+      for depth, tier in ipairs(layers_of(graph, candidate)) do
+        if depth < nearest and vim.tbl_contains(tier, ctx.item) then nearest, side = depth, candidate end
+      end
+    end
+    return side
+  end
+  return 'callees'
+end
+
+local function depth_row(delta, id, key, name)
+  return { id = 'callgraph.' .. id, group = 'Call graph', name = name, key = key, on = BOTH, remote = true,
+    about = delta > 0 and 'Read the next level on the selected side. From the centre, expand callees.'
+      or 'Collapse the outermost level on the selected side, or cancel the level being read',
+    available = function(ctx)
+      local holder = ctx.view or ctx.graph
+      local graph = holder and holder.graph
+      if not (graph and graph.center) then return 'no function is shown' end
+      if graph.reading then return 'reading the call hierarchy' end
+      local side = depth_side(ctx, graph)
+      local pending = (holder.depth_requests or {})[side]
+      if delta < 0 then return pending ~= nil or #layers_of(graph, side) > 1 or 'already showing the first level' end
+      if pending then return 'already reading this side' end
+      return not (graph.exhausted or {})[side] or 'no more ' .. side
+    end,
+    run = function(ctx)
+      local holder = ctx.view or ctx.graph
+      if not holder or not holder.graph then return end
+      change_depth(holder, depth_side(ctx, holder.graph), delta, function()
+        if ctx.view then return pop().redraw(holder) end
+        if holder == panel then return panel_show(holder.graph, true) end
+        render(holder, true)
+      end)
+    end }
+end
+
 local function moving(how, key, name, about, line, doc)
   return { id = 'callgraph.' .. how, group = 'Call graph', name = name, about = about, key = key, on = BOTH, menu = false, drawn = true,
     line = line and ('callgraph.' .. line) or nil, doc = doc, run = function(ctx) M.move(ctx.copy or ctx.graph, how) end }
@@ -986,17 +1361,20 @@ local ROWS = actions.add({
     available = function(ctx)
       if not ctx.view then return end
       if not ctx.item then return 'no box is selected' end
-      return ctx.item.raw ~= nil or 'this box is not from the language server yet'
+      return ctx.item.raw ~= nil or (ctx.item.map_id ~= nil and ctx.item.uri ~= nil) or 'this box has no call hierarchy or working source'
     end,
     run = function(ctx)
       if ctx.view then return popout_centre(ctx.view, ctx.item) end
       if ctx.graph == panel then return M.panel_centre() end
       local view, item = ctx.graph, M.selected(ctx.graph)
-      if item and item.raw then view.target = { buf = view.source, item = item, name = item.name }; load(view, view.target) end
+      local target = item and target_for_item(item, view.source)
+      if target then view.source, view.target = target.buf, target; load(view, target) end
     end },
+  depth_row(1, 'expand', '+', 'Expand call depth'),
+  depth_row(-1, 'collapse', '-', 'Collapse call depth'),
   -- m and gs on every graph, the panel too (2026-11-16: there m set a Vim mark and gs slept a second).
   { id = 'callgraph.more', group = 'Call graph', name = 'Show every caller and callee', key = 'm', on = BOTH, remote = true,
-    about = 'Draw the callers and callees past the first ' .. M.MAX .. ' on each side too (where it says "+N more")',
+    about = 'Draw the callers and callees past the first ' .. M.MAX .. ' on each level (where it says "+N more")',
     available = function(ctx)
       local graph = ctx.view and ctx.view.graph or (ctx.graph and ctx.graph.graph)
       return left_out(graph) > 0 or 'nothing is left out'
@@ -1146,6 +1524,7 @@ end
 
 local function show_followed(view, graph, target)
   if view.gone or view.pinned then return end
+  if view.graph ~= graph then stop_depth(view) end
   view.graph, view.target = graph, target or view.target
   pop().redraw(view)
 end
@@ -1165,7 +1544,7 @@ local function follow_request(view)
     view.cache[key] = graph
     if view.key == target.key then show_followed(view, graph, target) end
     follow_request(view)
-  end, function(message) if view.key == target.key then show_followed(view, { center = centre_of(target), message = message }, target) end end)
+  end, function(message) if view.key == target.key then show_followed(view, pending_graph(centre_of(target), message), target) end end)
 end
 
 -- Where the cursor is now in the followed window: drawn from the cache, or asked. Pinned, the graph stays put.
@@ -1183,7 +1562,7 @@ local function follow_update(view)
     if not target then return show_followed(view, { message = why }, nil) end
     local cached = view.cache[follow_key(target)]
     if cached then view.wanted = nil; return show_followed(view, cached, target) end
-    show_followed(view, { center = centre_of(target), message = 'reading the call hierarchy…' }, target)
+    show_followed(view, pending_graph(centre_of(target)), target)
     -- Back on the function already being asked about: its answer is on the way.
     if view.inflight and view.inflight.key == target.key then view.wanted = nil; return end
     view.wanted = target
@@ -1212,11 +1591,12 @@ end
 -- A graph read for the view (pinned: its own file was saved; centred; sent here still being read). waiting: what to
 -- show meanwhile, with the message. Its answer is news in the pop-out's header until she looks.
 local function read_for(view, target, waiting)
+  stop_depth(view)
   if view.stop then view.stop() end
   view.stop = read(target, function(graph)
     view.stop = nil
     if not view.gone then view.graph, view.news = graph, true; pop().redraw(view) end
-  end, waiting and function(message) if not view.gone then view.graph = { center = waiting, message = message }; pop().redraw(view) end end)
+  end, waiting and function(message) if not view.gone then view.graph = pending_graph(waiting, message); pop().redraw(view) end end)
 end
 
 -- A pinned graph is read again once its own file is saved (by the server's item when it has one: a save can move it).
@@ -1252,12 +1632,13 @@ end
 
 -- c in the pop-out: the graph centred on a box, pinned there; Ctrl+o there goes back to the graph before.
 popout_centre = function(view, item)
-  if not (item and item.raw) then return end
+  if not item then return end
   local before = save_view(view)
   local buf = view.target and view.target.buf
   if not (buf and api.nvim_buf_is_valid(buf)) then buf = api.nvim_win_get_buf(target_window(view) or 0) end
-  local target = { buf = buf, item = item, name = item.name }
-  view.pinned, view.target, view.graph = true, target, { center = item, message = 'reading the call hierarchy…' }
+  local target = target_for_item(item, buf)
+  if not target then return end
+  view.pinned, view.target, view.graph = true, target, pending_graph(item)
   pop().redraw(view)
   read_for(view, target, item)
   pop().stepped(view, before)
@@ -1291,7 +1672,7 @@ end
 
 -- A function named by its file and line (the notebook's, a saved layout's): its file loaded, the function around that
 -- line (treesitter), else the line itself. nil and why when the file is gone.
-local function target_at(file, line, name)
+target_at = function(file, line, name)
   if type(file) ~= 'string' or not uv.fs_stat(file) then return nil, 'that file is no longer there' end
   local buf = vim.fn.bufadd(file)
   vim.bo[buf].buflisted = true
@@ -1311,7 +1692,7 @@ local function pin_on(view, target)
   view.pinned, view.target, view.key = true, target, nil
   local win = target_window(view)
   view.win, view.followed = win or view.win, win or view.followed
-  view.graph = { center = centre_of(target), message = 'reading the call hierarchy…' }
+  view.graph = pending_graph(centre_of(target))
   read_for(view, target, centre_of(target))
 end
 
@@ -1332,7 +1713,7 @@ local function open_view(view, ctx)
     if from_panel then M.panel_close() else M.close_view(s.buf) end
     local graph = view.graph or {}
     -- Still being read when it left: read again for the pop-out.
-    if view.pinned and view.target and not (graph.callers or graph.callees) then read_for(view, view.target)
+    if view.pinned and view.target and not (graph.callers or graph.callees or graph.layers) then read_for(view, view.target)
     elseif not view.pinned then follow_update(view) end
     return
   end
@@ -1365,6 +1746,7 @@ end
 -- The history's step back as it was (step); the layout record's { pinned, target } after a restart: a pinned graph read
 -- again for its function, else following from the code window here.
 local function restore_view(view, saved)
+  stop_depth(view)
   view.cache = view.cache or {}
   if view.stop then view.stop() end
   if saved.step then
@@ -1397,7 +1779,7 @@ local function box_key(box)
 end
 local function render_view(view, width, style)
   highlights()
-  local graph = view.graph or { message = 'move the cursor into a function' }
+  local graph = with_depth(view, view.graph or { message = 'move the cursor into a function' })
   view.shown_edited = M.edited_since(graph)
   if view.shown_edited then
     graph = vim.tbl_extend('force', {}, graph, { notes = vim.list_extend(vim.deepcopy(graph.notes or {}), { M.EDITED .. ' · ' .. M.typed('reload') .. ' reads it again' }) })
@@ -1406,7 +1788,7 @@ local function render_view(view, width, style)
   local items = {}
   for i, box in ipairs(drawn.boxes) do
     items[i] = { key = box_key(box), kind = 'box', line = box.line, x = box.x, w = box.w, name_col = box.name_col, spans = box.spans,
-      centre = box.centre, name = tostring(box.item.name or ''), ref = box.item }
+      centre = box.centre, gauge = box.gauge, gauge_band = box.gauge_band, name = tostring(box.item.name or ''), ref = box.item }
   end
   local center = graph.center
   return { title = 'call graph' .. (center and center.name and (' · ' .. center.name) or ''), state = '',
@@ -1433,6 +1815,7 @@ M.view_kind = {
     M.panel_open_with(view.graph, view.target, view.pinned)
   end,
   close = function(view)
+    stop_depth(view)
     if view.timer then view.timer:stop(); if not view.timer:is_closing() then view.timer:close() end; view.timer = nil end
     if view.stop_follow then view.stop_follow() end
     if view.stop then view.stop() end
@@ -1452,7 +1835,7 @@ function M.panel_on(target)
   if panel.timer then panel.timer:stop() end
   panel.pinned, panel.target = true, target
   panel.key, panel.wanted = target.key, target
-  panel_show({ center = placeholder(target), message = 'reading the call hierarchy…' })
+  panel_show(pending_graph(placeholder(target)))
   if not (panel.inflight and panel.inflight.key == target.key) then panel_request() end
 end
 

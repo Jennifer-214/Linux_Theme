@@ -101,6 +101,7 @@ eq(G.layout({ message = "waiting for the language server…" }, 40, false).lines
 -- ─── the symbol under the cursor ───────────────────────────────────────────────────────────────────────────────
 local dir = vim.fn.tempname()
 vim.fn.mkdir(dir, "p")
+vim.fn.mkdir(dir .. "/.git")
 local file = dir .. "/sample.lua"
 local source = { "local M = {}", "function M.alpha()", "  return M.beta()", "end", "function M.beta()", "  return 1", "end",
                  "local function gamma() return M.alpha() end", "return M" }
@@ -187,10 +188,10 @@ eq(painted(view), spans(middle), "only the selected box is highlighted, all four
 -- What is here (actions.about): the selected box's function, the graph it is in, its callers and callees by name.
 local A = require("desk.actions")
 eq(A.about({ surface = "callgraph", graph = view }), { title = "M.alpha", excerpt = "M.alpha\ncallers: caller_of_M.alpha\ncallees: callee_of_M.alpha",
-  refs = { { kind = "unit", file = file, line = 2, name = "M.alpha", label = "M.alpha · " .. file .. ":2" },
-    { kind = "graph", file = file, line = 2, name = "M.alpha", label = "the call graph of M.alpha" } } }, "what is here: the selected box's function")
+  refs = { { kind = "unit", file = "sample.lua", line = 2, name = "M.alpha", label = "M.alpha · sample.lua:2" },
+    { kind = "graph", file = "sample.lua", line = 2, name = "M.alpha", label = "the call graph of M.alpha" } } }, "what is here: the selected box's function")
 eq(A.about({ surface = "callgraph", view = { graph = view.graph }, item = view.graph.callees[1] }).refs[1],
-  { kind = "unit", file = file, line = 5, name = "callee_of_M.alpha", label = "callee_of_M.alpha · " .. file .. ":5" },
+  { kind = "unit", file = "sample.lua", line = 5, name = "callee_of_M.alpha", label = "callee_of_M.alpha · sample.lua:5" },
   "… in the pop-out, the box its ask names")
 eq({ A.about({ surface = "callgraph", view = {} }) }, { nil, "no box is selected" }, "… and none selected says so")
 key("k")
@@ -496,8 +497,8 @@ eq({ G.target_at(dir .. "/no-such-file.lua", 1) }, { nil, "that file is no longe
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "m", "r", "q", "gs", "o" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "m", "r", "gs", "p", "q", "o" }, "the panel's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", "m", "r", "q", "gs", "o" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", "m", "r", "gs", "p", "q", "o" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do
@@ -550,6 +551,83 @@ do
   eq({ #all.callers, all.callers[G.MAX + 1].name, all.more, all.hidden }, { G.MAX + 3, rest[1].name, nil, nil }, "… in name order")
   local A = require("desk.actions")
   eq(A.get("callgraph.more").available({ graph = { graph = all } }), "nothing is left out", "m says when nothing is left out")
+end
+
+do
+  local Map = require('desk.map')
+  local reads = 0
+  Map.desk_work = function(args, done)
+    reads = reads + 1
+    eq({ args[6], args[8], args[10], args[14] }, { 'reach', file, '2', '2' }, 'the next tier uses the exact map source location')
+    vim.schedule(function() done({ ok = true, root = dir, nodes = {
+      { id = 'beta', label = 'M.beta', file = 'sample.lua', line = 5, depth = 1 },
+      { id = 'gamma', label = 'gamma', file = 'sample.lua', line = 7, depth = 2 },
+    } }) end)
+  end
+  served = { fake }
+  vim.bo[buf].modified = false
+  local target = { buf = buf, row = 1, col = 11, name = 'M.alpha', key = 'depth fixture' }
+  local layered = G.open(target)
+  ok(vim.wait(2000, function() return layered.graph.callees end), 'the layered graph starts at one level')
+  local before = #requests
+  key('+')
+  ok(vim.wait(2000, function() return named(layered, 'gamma') end), 'the deeper project-map level is drawn')
+  eq({ reads, #requests }, { 1, before }, 'only one map traversal, with no server request for expansion')
+  G.select(layered, named(layered, 'gamma'), true)
+  local gauge = api.nvim_buf_get_extmarks(layered.buf, G.gauge_ns, 0, -1, {})
+  eq(gauge[1] and gauge[1][2] + 1, layered.drawn.boxes[layered.index].line, 'the gauge marker follows the selected box')
+  vim.g.desk_style = 'retro'
+  for _, name in ipairs({ 'M.alpha', 'gamma' }) do
+    G.select(layered, named(layered, name), true)
+    local band = layered.drawn.boxes[layered.index].gauge_band
+    local expected = {}
+    for row = band[1], band[2] do expected[#expected + 1] = { row, 1, { { '█', 'Title' } } } end
+    local solid = api.nvim_buf_get_extmarks(layered.buf, G.gauge_ns, 0, -1, { details = true })
+    eq(vim.tbl_map(function(mark) return { mark[2] + 1, mark[3], mark[4].virt_text } end, solid), expected,
+      'retro lights the full selected bar for ' .. name)
+  end
+  vim.g.desk_style = 'paper'
+  ok(line_with(layered.drawn.lines, '+2') and line_with(layered.drawn.lines, '4 functions'), 'the header counts the layered functions')
+  key('-')
+  eq({ #layered.graph.layers.callees, G.selected(layered).name }, { 1, 'M.alpha' }, 'collapse removes the outer tier and returns selection to centre')
+
+  Map.desk_work = function(_, done) vim.schedule(function() done(nil) end) end
+  local transport = G.transport
+  G.transport = function(client, source_buf, method, params, done)
+    local name = params.item and params.item.name
+    local function raw(label, line)
+      return { name = label, uri = uri, selectionRange = { start = { line = line, character = 0 } } }
+    end
+    if method == 'callHierarchy/outgoingCalls' and name == 'callee_of_M.alpha' then
+      vim.schedule(function() done(nil, { { to = raw('M.alpha', 1) }, { to = raw('gamma', 6) }, { to = raw('gamma', 6) } }) end)
+      return function() end
+    elseif method == 'callHierarchy/outgoingCalls' and name == 'gamma' then
+      vim.schedule(function() done(nil, { { to = raw('M.alpha', 1) } }) end)
+      return function() end
+    end
+    return transport(client, source_buf, method, params, done)
+  end
+  key('+')
+  ok(vim.wait(2000, function() return layered.graph.layer_source.callees == 'server' end), 'the language server fills the next tier when the map is unavailable')
+  eq(vim.tbl_map(function(i) return i.name end, layered.graph.layers.callees[2]), { 'gamma' }, 'the next tier excludes the centre cycle and duplicates')
+  key('+')
+  ok(vim.wait(2000, function() return layered.graph.exhausted.callees end), 'a level of only previously seen nodes stops expansion')
+  local pending
+  Map.desk_work = function(args, done)
+    eq(args[6], 'callers', 'the caller box expands the other side')
+    pending = done
+  end
+  G.select(layered, named(layered, 'caller_of_M.alpha'), true)
+  key('+')
+  ok(pending and layered.depth_requests.callers, 'the caller side has a request in flight')
+  key('-')
+  pending({ ok = true, root = dir, nodes = { { id = 'late', label = 'late', depth = 2 } } })
+  eq({ layered.depth_requests.callers, layered.graph.layers.callers }, {}, 'collapse cancels a pending level and discards its late answer')
+  local map_only = { center = item('M.alpha'), layers = { callees = { { item('M.beta') }, { item('gamma') } } } }
+  layered.graph = map_only
+  local moved = {}
+  G.view_kind.open(moved, { graph = layered })
+  ok(moved.graph == map_only and not moved.stop, 'transferring a map-only graph keeps its expanded levels without asking the server')
 end
 
 vim.fn.delete(dir, "rf")

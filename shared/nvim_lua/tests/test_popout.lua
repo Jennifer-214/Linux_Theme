@@ -118,6 +118,10 @@ if [ "$1" = workspace ]; then
   else echo null; fi
   exit 0
 fi
+if [ "$1 $2 $3 $4 $5 $6" = "map query --root $POPOUT_TEST --q reach" ]; then
+  printf '%s\n' "$*" >> "$POPOUT_TEST/map.log"
+  exit 1
+fi
 printf '%s\n' "desk-work $*" >> "$POPOUT_TEST/others.log"
 exit 1
 ]], 'rwxr-xr-x')
@@ -297,6 +301,33 @@ eq(s.keyline, ' j/k/h/l move · Enter go · f go+focus · p pin · ? keys ', "th
 ok(not popped():find('Enter go', 1, true) and not popped():find('PINNED', 1, true), '… and neither is in the drawing')
 eq(pop("return { vim.o.showtabline, vim.o.laststatus }"), { 2, 2 }, '… the tab line always shown, a status line per window')
 
+press('+')
+ok(wait(3000, function() return popped():find('callee_of_callee_of_', 1, true) end), 'the pop-out asks the editor for another call level')
+ok(read('map.log'):find('--from M.alpha --depth 2', 1, true), 'the editor tries the built map before falling back to the language server')
+ok(popped():find('layers -1 … +2', 1, true), 'the pop-out draws the depth range')
+eq(state().gutter, 0, 'the pop-out keeps the gauge and selection marker at the same left edge')
+press('G')
+ok(wait(2000, function() return state().selected == 'callee_of_callee_of_M.alpha' end), 'the outer level is selectable in the pop-out')
+ok(pop([=[local G = require('desk.callgraph'); local a = vim.api.nvim_buf_get_extmarks(0, G.gauge_ns, 0, -1, {})
+  return a[1] and a[1][2] + 1 == vim.api.nvim_win_get_cursor(0)[1]]=]), 'the gauge marks the selected layer in the pop-out')
+pop("vim.g.desk_style = 'retro'")
+host("vim.g.desk_style = 'retro'; local P = require('desk.popout'); P.redraw(P.view_of('graph'))")
+ok(wait(3000, function() return popped():find('LAYERS -1 … +2', 1, true) end), 'the pop-out draws the Retro graph')
+ok(pop([=[
+  local G = require('desk.callgraph')
+  local marks = vim.api.nvim_buf_get_extmarks(0, G.gauge_ns, 0, -1, { details = true })
+  if #marks < 4 then return false end
+  local first = vim.api.nvim_buf_get_lines(0, marks[1][2], marks[1][2] + 1, false)[1]
+  return first:find('+2', 1, true) ~= nil and vim.iter(marks):all(function(mark)
+    return mark[3] == 1 and vim.deep_equal(mark[4].virt_text, { { '█', 'Title' } })
+  end)
+]=]), 'the full selected Retro bar reaches the pop-out')
+pop("vim.g.desk_style = 'paper'")
+host("vim.g.desk_style = 'paper'")
+press('-')
+ok(wait(3000, function() return state().selected == 'M.alpha' and not popped():find('callee_of_callee_of_', 1, true) end),
+  'collapse removes the outer level, keeping the graph open')
+
 -- ─── Enter: the editor goes there, the keyboard stays in the pop-out ─────────────────────────────────────────────
 press('j')
 ok(wait(2000, function() return state().selected == 'callee_of_M.alpha' end), 'j moves the selection, in the pop-out')
@@ -337,14 +368,14 @@ eq(door({ version = 1, type = 'act', view = 'graph', gen = gen, item = 1, action
 eq(act({ action = 'callgraph.go', deadline = later(-1000) }), { refused = 'this message came after its sender stopped waiting' },
   '… and one past it')
 eq(door({ version = 1, type = 'subscribe', chan = 1, pid = 1, width = 80, protocol = 1, deadline = later(5000) }),
-  { refused = 'this editor speaks pop-out protocol 4 and this pop-out 1: close it and open it again' }, 'a pop-out of another protocol is refused')
+  { refused = 'this editor speaks pop-out protocol 5 and this pop-out 1: close it and open it again' }, 'a pop-out of another protocol is refused')
 -- This test's own channel to the editor is not a pop-out's: it never named itself with nvim_set_client_info.
 local subscribed = host("return require('desk.popout').host.chan")
-eq(door({ version = 1, type = 'subscribe', chan = vim.rpcrequest(h, 'nvim_get_api_info')[1], pid = vim.fn.getpid(), width = 80, protocol = 4,
+eq(door({ version = 1, type = 'subscribe', chan = vim.rpcrequest(h, 'nvim_get_api_info')[1], pid = vim.fn.getpid(), width = 80, protocol = 5,
   deadline = later(5000) }), { refused = 'a pop-out subscribes on its own channel, named with nvim_set_client_info first' },
   'a subscribe on a channel that is no named pop-out is refused')
 eq(host("return require('desk.popout').host.chan"), subscribed, '… and the pop-out it has stays')
-eq(pop("return require('desk.bridge').receive(...)", { version = 1, type = 'subscribe', chan = 1, pid = 1, width = 80, protocol = 4, deadline = later(5000) }),
+eq(pop("return require('desk.bridge').receive(...)", { version = 1, type = 'subscribe', chan = 1, pid = 1, width = 80, protocol = 5, deadline = later(5000) }),
   { refused = 'this editor keeps no pop-out' }, 'a pop-out takes no pop-out of its own')
 eq(pop("return require('desk.popout').receive({ version = 1, type = 'view.set', id = 'old', gen = 1, lines = { 'x' } })"), false,
   '… and the pop-out takes nothing of another protocol')
@@ -418,13 +449,15 @@ end
 eq(pop("local P = require('desk.popout'); return { P.gutter({ 'abcd', '  ab' }, 20), P.gutter({ '      xx      ' }, 14), P.gutter({ 'a' }, 1), P.gutter({ '', '  ' }, 50) }"),
   { 8, 0, 0, 0 }, 'the gutter centres the drawing by its own edges: none for one already centred, too wide, or empty')
 do
-  local before = pop('return vim.api.nvim_win_get_cursor(0)')
+  local before = state().selected
   local columns = pop('return vim.o.columns')
+  local received = state().received
   pop('vim.o.columns = ' .. (columns + 160))
-  ok(wait(3000, function() return state().gutter >= 70 end), 'wider by 160 columns: the drawing moves in by half of it: ' .. tostring(state().gutter))
-  eq(pop('return vim.api.nvim_win_get_cursor(0)'), before, '… the cursor on the same buffer column: only the screen moved')
+  ok(wait(3000, function() return state().received > received end), 'a wider window gets a fresh drawing')
+  eq({ state().gutter, state().selected }, { 0, before }, '… with no extra gutter and the same selected function')
+  received = state().received
   pop('vim.o.columns = ' .. columns)
-  ok(wait(3000, function() return state().gutter < 70 end), '… and back')
+  ok(wait(3000, function() return state().received > received and state().gutter == 0 end), '… and back')
   -- A window scrolled sideways (narrowed under a long line) is drawn from its left edge again at the next resize.
   pop("vim.fn.winrestview({ leftcol = 12 })")
   pop('vim.o.columns = ' .. (columns - 4))
@@ -486,7 +519,7 @@ ok(wait(2000, function() return pop("return vim.api.nvim_win_get_config(0).relat
 local keys = pop("return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\\n')")
 ok(keys:find('j/k%s+The box below / above') and keys:find('Enter%s+Go to the selected function') and keys:find('f/Shift%+Enter%s+Go to it, in the editor')
   and keys:find('Space Tab%s+To the editor') and keys:find('Space Space%s+Home menu') and keys:find('q%s+Close this view')
-  and keys:find('H/L/gt/gT%s+The previous / next view') and keys:find('Ctrl%+o/BS%s+Back') and keys:find('Ctrl%+r%s+Forward'),
+  and keys:find('H/L/gt/gT%s+The previous / next tab') and keys:find('Ctrl%+o/BS%s+Back') and keys:find('Ctrl%+r%s+Forward'),
   "… the graph's keys and the window's, as typed, with the rows' names:\n" .. keys)
 ok(not keys:find('Back to the code', 1, true) and keys:find('r%s+Read the graph again'), "… none of the editor's own, and r reads the graph again as in the tab")
 ok(keys:find('Space Tab in the editor comes back here', 1, true), '… and the way back')
@@ -712,6 +745,11 @@ ok(wait(2000, function() return state().current_win == state().win end), '… q 
 press('q')
 ok(wait(3000, function() return state().shown == 'graph' and state().tabs == 1 end), 'q: the board closes, the graph stays')
 eq(host('return _G.board_test.closed'), 'symdeps', '… its kind told')
+host("local A = require('desk.actions'); A.get('popout.view.symdeps').run(A.context())")
+ok(wait(3000, function() return state().shown == 'symdeps' end), 'the board can be opened again')
+press('o')
+ok(wait(3000, function() return state().shown == 'graph' end), 'o returns the board and leaves the graph in the pop-out')
+eq(host('return _G.board_test.attached'), 'symdeps', 'the board is attached before its resources are released')
 
 -- ─── q on the last view: the pop-out closes, the editor stops sending ─────────────────────────────────────────────
 mark = #read('hyprctl.log')
@@ -1202,23 +1240,26 @@ end
 -- In pop-out chan: Space Space, then Enter on the row called `name`; each question it asks is answered with the first
 -- choice whose words hold the next of `answers`. What was asked is kept there (_G.asked).
 local function menu_row(chan, name, answers)
-  in_pop(chan, [[_G.asked = {}; local answers = ...
+  in_pop(chan, [[_G.asked = {}; local name, answers = ...
+    vim.ui.input = function(_, done) done(name) end
     vim.ui.select = function(items, opts, done)
       local names = vim.tbl_map(opts.format_item, items)
       table.insert(_G.asked, { prompt = opts.prompt, kind = opts.kind, names = names })
       local want = table.remove(answers, 1)
       for i, n in ipairs(names) do if want and n:find(want, 1, true) then return done(items[i], i) end end
       done(nil)
-    end]], answers)
+    end]], name, answers)
   vim.rpcrequest(chan, 'nvim_input', '<Space><Space>')
   ok(wait(3000, function() return in_pop(chan, "local m = require('desk.menu')._last; return m ~= nil and vim.api.nvim_win_is_valid(m.win)") end),
     'Space Space: the menu, for ' .. name)
-  local found = in_pop(chan, [[local m, name = require('desk.menu')._last, ...
-    for i, line in ipairs(vim.api.nvim_buf_get_lines(m.buf, 0, -1, false)) do
-      if line:find(name, 1, true) and line:sub(1, 2) == '  ' then vim.api.nvim_win_set_cursor(m.win, { i, 0 }); return true end
-    end
-    return false]], name)
-  ok(found, '… which lists ' .. name .. ': ' .. in_pop(chan, "return table.concat(vim.api.nvim_buf_get_lines(require('desk.menu')._last.buf, 0, -1, false), '\\n')"))
+  vim.rpcrequest(chan, 'nvim_input', '/')
+  ok(wait(3000, function()
+    return in_pop(chan, [[local m, name = require('desk.menu')._last, ...
+      local config = vim.api.nvim_win_get_config(m.win)
+      local title = type(config.title) == 'table' and config.title[1][1] or config.title or ''
+      return title:find('/' .. name, 1, true) ~= nil
+        and not vim.tbl_contains(vim.api.nvim_buf_get_lines(m.buf, 0, -1, false), '  nothing matches')]], name)
+  end), '… which lists ' .. name .. ' when filtered')
   vim.rpcrequest(chan, 'nvim_input', '<CR>')
 end
 do
@@ -1356,6 +1397,125 @@ do
   ok(wait(3000, settled), '… the rows asked for from the editor')
   eq(host("local P = require('desk.popout'); return { P.pops[1].order, P.pops[2].order }"), { { 'graph' }, { 'rows' } }, '… go to the second, where they were')
   p, psock = one, dir .. '/p' .. (count + 1)
+end
+
+-- The actual editor and pop-out exchange a large code snapshot and live edits on their own sockets.
+do
+  local file = dir .. '/live-code.lua'
+  write(file, table.concat(vim.tbl_map(tostring, vim.fn.range(1, 5000)), '\n'))
+  local function same()
+    return state().kind == 'code' and vim.deep_equal(state().lines, host('return vim.api.nvim_buf_get_lines(0, 0, -1, true)'))
+  end
+  host([[
+    vim.cmd.edit(vim.fn.fnameescape(...))
+    vim.api.nvim_win_set_cursor(0, { 4000, 0 })
+    vim.fn.maparg('<Space>cv', 'n', false, true).callback()
+    vim.api.nvim_buf_set_lines(0, 0, 1, true, { 'unsaved before the snapshot finished' })
+  ]], file)
+  ok(wait(5000, same), 'code: the entire snapshot and a concurrent edit reach the pop-out')
+  ok(wait(3000, function() return state().state == '●' end), 'code: unsaved edits are marked')
+  eq(pop("return { vim.bo.modifiable, vim.bo.filetype, vim.fn.maparg('/', 'n') }"),
+    { false, '', '' }, 'code: read-only scratch, native text search, no FileType')
+  eq(pop('return vim.api.nvim_win_get_cursor(0)[1]'), 4000, 'code: follows the source cursor past the first chunk')
+  local gen, received = state().gen, state().received
+  host([[
+    local A = vim.api
+    for i = 1, 50 do
+      A.nvim_buf_set_lines(0, 2, 2, true, { 'insert ' .. i })
+      A.nvim_buf_set_lines(0, 100, 101, true, {})
+    end
+    A.nvim_buf_set_lines(0, 1, 1, true, { 'before the merged edit' })
+  ]])
+  ok(wait(5000, same), 'code: a burst of insertions and deletions coalesces without corrupting text')
+  eq({ state().gen, state().received }, { gen, received }, 'code: edits do not replace the view generation or snapshot')
+  pop([[
+    local P = require('desk.popout')
+    local receive = P.receive
+    P.receive = function(msg)
+      if msg.type == 'view.lines' and #msg.lines > 0 then P.receive = receive; return true end
+      return receive(msg)
+    end
+  ]])
+  host("vim.api.nvim_buf_set_lines(0, 0, 1, true, { 'missing delta' })")
+  ok(wait(3000, function() return host("return not require('desk.popout').view_of('code').mirror_queued") end), 'code: the first delta is sent')
+  host("vim.api.nvim_buf_set_lines(0, 3, 4, true, { 'forces resync' })")
+  ok(wait(5000, function() return same() and state().gen ~= gen end), 'code: a missing delta requests a fresh snapshot')
+  host("vim.cmd.write()")
+  ok(wait(3000, function() return state().state == '' end), 'code: writing clears the unsaved marker')
+  press('p')
+  ok(wait(3000, function() return state().pinned == true end), 'code: pins')
+  pop('vim.api.nvim_win_set_cursor(0, { 40, 0 })')
+  host("vim.api.nvim_win_set_cursor(0, { 120, 0 }); vim.api.nvim_exec_autocmds('CursorMoved', {})")
+  press('<CR>')
+  ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]') == 40 end), 'code: Enter visits the pinned line')
+  press('<C-o>')
+  ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]') == 120 end), 'code: Ctrl+o goes back in the editor')
+  eq(pop('return vim.api.nvim_win_get_cursor(0)[1]'), 40, 'code: pin keeps the pop-out cursor apart from the editor')
+  host([[
+    local P = require('desk.popout')
+    P.host.stalled = true
+    vim.api.nvim_buf_set_lines(0, 0, 1, true, { 'edited while stalled' })
+  ]])
+  ok(wait(5000, same), 'code: a resumed connection redraws changes made while stalled')
+  eq(pop('return vim.api.nvim_win_get_cursor(0)[1]'), 40, 'code: a pinned reading position survives a full redraw')
+  local refused = pop("return require('desk.popout').request({ type = 'act', action = 'code.go', view = 'code', gen = ..., line = 1.5 })", state().gen)
+  ok(refused.refused and refused.refused:find('whole number', 1, true), 'code: bridge refuses a fractional line')
+  host("vim.cmd.vsplit(vim.fn.fnameescape(...)); require('desk.popout').show('code')", dir .. '/sample.lua')
+  ok(wait(3000, function() return state().shown == 'code.2' end), 'code: a second file gets its own tab')
+  for i = 3, 4 do
+    local extra = dir .. '/tile-' .. i .. '.lua'
+    write(extra, 'return ' .. i)
+    host("vim.cmd.vsplit(vim.fn.fnameescape(...)); require('desk.popout').show('code')", extra)
+  end
+  ok(wait(3000, function() return state().shown == 'code.4' end), 'code: four file tabs are open')
+  local toggle = [[return require('desk.popout').request({ type = 'act', action = 'popout.tile-code' })]]
+  menu_row(p, 'Toggle code panes', {})
+  ok(wait(3000, function()
+    return vim.deep_equal(state().tiles, { 'code', 'code.2', 'code.3', 'code.4' })
+  end), 'code: four files now share a tab')
+  eq(pop([[
+    local wins = vim.api.nvim_tabpage_list_wins(0)
+    local rows, columns = {}, {}
+    for _, win in ipairs(wins) do
+      local row, col = unpack(vim.api.nvim_win_get_position(win))
+      rows[row], columns[col] = true, true
+    end
+    return { #wins, vim.tbl_count(rows), vim.tbl_count(columns) }
+  ]]), { 4, 2, 2 }, 'code: the shared tab has a two-by-two grid')
+  eq(pop("return require('desk.nav').go('l')"), 1, 'code: move right from the lower left pane')
+  eq(state().shown, 'code.3', 'code: the focused pane becomes the active view')
+  local hint = pop("return vim.env.XDG_RUNTIME_DIR .. '/desk-popout-splits/' .. vim.fn.getpid()")
+  eq(vim.trim(read(hint)), 'hk', 'code: only reachable directions are published for desk-nav')
+  host("vim.api.nvim_buf_set_lines(vim.fn.bufnr(...), 0, 1, true, {'return 33'})", dir .. '/tile-3.lua')
+  ok(wait(3000, function() return state().lines[1] == 'return 33' end), 'code: an unsaved line reaches the focused tile')
+  press('<CR>')
+  ok(wait(3000, function() return host("return vim.fn.expand('%:t')") == 'tile-3.lua' end), 'code: Enter uses the focused tile')
+  press('q')
+  ok(wait(3000, function() return #(state().tiles or {}) == 3 and not vim.tbl_contains(state().views, 'code.3') end),
+    'code: q closes just the focused pane')
+  eq(pop(toggle), { done = true }, 'code: the same action separates the panes')
+  ok(wait(3000, function() return #(state().tiles or {}) == 0 and not exists(hint) end),
+    'code: separate tabs remove the desk-nav hint')
+  eq(pop([[
+    local code = {}
+    for _, tab in ipairs(vim.api.nvim_list_tabpages()) do
+      local buffer = vim.api.nvim_win_get_buf(vim.api.nvim_tabpage_get_win(tab))
+      local line = vim.api.nvim_buf_get_lines(buffer, 0, 1, false)[1] or ''
+      if vim.bo[buffer].filetype ~= 'deskpopout' then code[#code + 1] = line end
+    end
+    return code
+  ]]), { 'edited while stalled', 'local M = {}', 'return 4' }, 'code: untile preserves code tab order')
+  host("local P = require('desk.popout'); P.clear('code.4'); vim.cmd.buffer(vim.fn.bufnr(...)); P.show('code')", dir .. '/sample.lua')
+  ok(wait(3000, function() return state().shown == 'code.2' end), 'code: choose the second file again after untile')
+  host("vim.cmd.bwipeout()")
+  ok(wait(3000, function() return (state().state or ''):find('buffer was closed', 1, true) end), 'code: a wiped buffer is reported')
+  host("local P = require('desk.popout'); P.clear('code.2'); vim.cmd.buffer(vim.fn.bufnr(...)); P.show('code')", file)
+  ok(wait(5000, same), 'code: asking again for the same buffer reuses its tab')
+  pop('vim.api.nvim_win_set_cursor(0, { 42, 0 })')
+  press('o')
+  ok(wait(3000, function()
+    return host("return require('desk.popout').view_of('code') == nil and vim.api.nvim_win_get_cursor(0)[1] == 42 and #vim.api.nvim_tabpage_list_wins(0) > 1")
+  end), 'code: o opens an editor split at the pop-out reading position')
 end
 
 vim.rpcnotify(h, 'nvim_command', 'qa!')

@@ -58,6 +58,8 @@ ONE_SIDED = {
         "native-only action registry: the desk keys, which-key's words and the home menu; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/desk/popout.lua", "~/.config/nvim/lua/desk/popout.lua"):
         "native-only pop-out window: views the editor sends to another screen; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "nvim_lua/desk/codeview.lua", "~/.config/nvim/lua/desk/codeview.lua"):
+        "native-only read-only code pop-out; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/desk/screens.lua", "~/.config/nvim/lua/desk/screens.lua"):
         "native-only screen question drawn as a map of the screens; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/desk/map.lua", "~/.config/nvim/lua/desk/map.lua"):

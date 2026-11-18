@@ -131,6 +131,10 @@ for i = 1, 70 do many.modules[i] = { name = string.format("m%02d", i), files = 1
 ok(line_with(Map.layout(Map.level_modules(many), 100, false).lines, "+10 more"), "past 60 boxes on a level: +N more")
 local retro = Map.layout(page, 70, true)
 ok(line_with(retro.lines, "┌") and not line_with(retro.lines, "╭") and line_with(retro.lines, "CALLS BETWEEN PARTS"), "retro: code page 437 boxes and capitals")
+local zoom = Map.layout(vim.tbl_extend("force", page, { zoom = 2 }), 70, true)
+eq(zoom.lines[2]:sub(1, #" █ DIR"), " █ DIR", "retro lights the current zoom bar itself")
+ok(vim.iter(zoom.marks):any(function(m) return vim.deep_equal(m, { 2, 1, #" █", "DeskMapFocus", 1 }) end),
+  "the active zoom bar has the focus colour")
 
 local contents = { ok = true, q = "module", module = "lua",
   files = { { file = "lua/mod.lua", functions = 3, types = 0 }, { file = "lua/other.lua", functions = 2, types = 0 } },
@@ -183,7 +187,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "D", "U", "c", "P", "m", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "P", "m", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -220,7 +224,8 @@ local function fake(args, done)
   elseif args[2] == "build" then building = true; answer = { ok = true, started = true }
   elseif args[2] == "query" and args[6] == "module" and args[9] == "--name" then answer = args[10] == "lua" and contents or { ok = false, message = "No part" }
   elseif args[2] == "query" and args[6] == "module" then answer = modules
-  elseif args[2] == "query" and args[6] == "reach" then answer = reach
+  elseif args[2] == "query" and args[6] == "reach" then
+    answer = vim.tbl_extend("force", reach, { depth = tonumber(args[10]) or reach.depth })
   elseif args[2] == "query" and args[6] == "paths" then answer = paths end
   vim.defer_fn(function() done(answer, { code = 0, stdout = "", stderr = "" }) end, 5)   -- never in the caller's path
 end
@@ -389,8 +394,13 @@ ok(vim.wait(1000, function() return #asked >= before_r + 2 end), "r on an answer
 eq({ asked[before_r + 1]:match("^map status") ~= nil, asked[before_r + 2]:find("--q reach --from lua/other.lua::use --depth 2", 1, true) ~= nil },
   { true, true }, "… its status, then the same question")
 ok(vim.wait(1000, function() return #view.stack == depth and line_with(view.drawn.lines, "║ use") end), "… the answer in its place, not one more page")
+press("+")
+ok(vim.wait(1000, function() return view.stack[depth].answer.depth == 3 end), "+ increases the walk depth in place")
 press("-")
-ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "- leaves it too")
+ok(vim.wait(1000, function() return view.stack[depth].answer.depth == 2 end), "- reduces the walk depth in place")
+ok(line_with(view.drawn.lines, "+2"), "reach tiers have a signed gauge")
+press("<BS>")
+ok(vim.wait(1000, function() return #view.stack == depth - 1 and line_with(view.drawn.lines, "│ M.alpha") end), "Backspace leaves the depth query")
 -- c on a function: the call graph centred on it, where the map is (here a graph tab), as c centres a graph.
 cursor_on("M.alpha")
 press("c")
@@ -559,7 +569,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.in", "map.left", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.up" },
+eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.in", "map.left", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.up" },
   "in the pop-out Enter, -, r, c, P and R run here and hjkl move its selection; Backspace, q, m, B and o stay the tab's")
 local views_row = A.get("popout.view.map")
 eq(views_row and { views_row.group, views_row.name, views_row.remote }, { "Views", "Pop out the project map", true },
@@ -686,8 +696,12 @@ local saved = K.save(pv)
 eq({ saved.step, #saved.stack, saved.target.root, #saved.target.levels }, { true, 4, tab_root, 3 },
   "save: all of it for the history; for the layout record its checkout and zoom, not a query's answer")
 ok(pcall(vim.json.encode, saved.target), "… plain data")
-act("map.out")
-ok(vim.wait(1000, function() return item_named(shown(), "M.alpha") ~= nil end), "- leaves the answer")
+eq(act("map.expand"), { true }, "+ expands the reach page from the pop-out")
+ok(vim.wait(1000, function() return pv.stack[#pv.stack].answer.depth == 4 end), "… one more level, in place")
+eq(act("map.out"), { true }, "- collapses the reach page from the pop-out")
+ok(vim.wait(1000, function() return pv.stack[#pv.stack].answer.depth == 3 end), "… back to the original depth")
+eq(act("popout.history-back"), { true }, "going back leaves the reach page")
+ok(vim.wait(1000, function() return #pv.stack == 3 and item_named(shown(), "M.alpha") ~= nil end), "the pop-out returns to the file's functions")
 eq(act("map.paths", alpha, { text = "M.beta" }), { true }, "P from the pop-out, with the words it asked there")
 ok(asked[#asked]:find("--q paths --from lua/mod.lua::M.alpha --to M.beta", 1, true), "… the ways from the selected function to the one named")
 ok(vim.wait(1000, function() return table.concat(shown().lines, "\n"):find("ways from use to M.beta", 1, true) end), "… shown there")

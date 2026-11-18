@@ -146,7 +146,7 @@ Examples:
 | `Ctrl+w s` | Split horizontal |
 | `Ctrl+w v` | Split vertical |
 | `Ctrl+w h/j/k/l` | Navigate splits |
-| `Alt+h/j/k/l` | The desktop's key: the split that way, else the tmux pane, else the window that way (`desk-nav`, `desk/nav.lua`); Neovim maps no Alt key for it |
+| `Alt+h/j/k/l` | Focus the desktop window or monitor that way directly; `Ctrl+h/j/k/l` moves between editor splits |
 | `Ctrl+w q` | Close split |
 | `Ctrl+w o` | Close all other splits |
 | `Ctrl+w =` | Equalize split sizes |
@@ -300,7 +300,9 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `Enter` in a graph, a double click | Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it) |
 | `<BS>` in the graph tab | Back to that code window as it was, the graph left open |
 | `c` in a graph | Centre the graph on the selected box: its own callers and callees (in the panel and the pop-out it is pinned there; `p` follows again) |
-| `m` in a graph | Draw the callers and callees past the first 24 on each side too (where it says "+N more") |
+| `+` in a graph | Read the next level on the selected side. From the centre, expand callees. |
+| `-` in a graph | Collapse the outermost level on the selected side, or cancel the level being read |
+| `m` in a graph | Draw the callers and callees past the first 24 on each level (where it says "+N more") |
 | `r` in a graph | Ask the language server for the graph again (a graph that follows the cursor: for the function under it) |
 | `q` in the graph tab | Close the graph tab |
 | `gs` in a graph | The centre function in symdeps' card (C and C++); in the panel and the pop-out, the selected box's function, shown in the code |
@@ -326,7 +328,7 @@ the keyboard stays in the pop-out; `f` or Shift+Enter puts the keyboard here too
 | `f` / `Shift+Enter` in the pop-out | What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too; where `Enter` only acts in the view (a zoom, a fold) the keyboard stays |
 | `p` in the pop-out | Pin this view (PINNED: it stays as it is while the editor moves, and `Enter` visits its items one by one), or follow the editor's cursor again |
 | `o` in the pop-out | This view back to the editor as a split (the call graph as the live panel), pinned if it is pinned here; the pop-out stays open |
-| `H` / `L` / `gt` / `gT` in the pop-out | The previous / next view (each view is a tab), as `H` and `L` go through buffers in the editor; `gT` / `gt` too, and `2gt` the second |
+| `H` / `L` / `gt` / `gT` in the pop-out | The previous / next tab, as `H` and `L` go through buffers in the editor; `gT` / `gt` too, and `2gt` the second |
 | `<C-o>` / `<BS>` in the pop-out | Back where you were: the view before, the graph before a centre, the code spot before `Enter` (the editor goes back too) |
 | `<C-r>` in the pop-out | Forward again, after going back |
 | `/` in the pop-out | Every box or row of this view by its whole name, filtered as you type; `Enter` selects it |
@@ -347,6 +349,7 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `Space cm`, `:ProjectMap` | The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was, or the map out in the pop-out back as the tab |
 | `Enter` in the map | Zoom into the part, file or class under the cursor; on a function, go to its code (the map stays open) |
 | `<BS>` / `-` in the map | Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open |
+| `+` in the map | Read another level on the callers or reach page |
 | `D` in the map | Everything a function reaches, down the calls (a count before `D` is the depth; 3 without one) |
 | `U` in the map | Who calls a function, up the calls, transitively (a count before `U` is the depth) |
 | `c` in the map | The call graph centred on the selected function, where the map is: a graph tab here, the call graph in the pop-out (`Ctrl+o` there comes back to the map) |
@@ -663,6 +666,7 @@ which-key its words.
 | home menu: This pop-out to another screen | Asks which screen (every one, this one too); the pop-out (the one this is pressed in; in the editor the one last used) moves there now if it is open, and opens there from now on, this session |
 | home menu: Pop out the call graph | The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (`p` there pins it), and `Enter` there goes to a function here while the keyboard stays there |
 | home menu: Review list to the pop-out | The open review's file list in the pop-out on the other screen: the comparison takes this whole screen, and `Enter` there shows a file here while the keyboard stays there |
+| `Space cv` | Show a live copy of this file, including unsaved changes |
 | home menu: Pop out the project map | The project map in the pop-out, a window of its own on the other screen: `Enter` there zooms in, or goes to a function here while the keyboard stays there; `-` and `Backspace` go back out |
 | `Space Space` | Everything that applies where the cursor is, in one menu: this function, the review, Claude, work, symdeps |
 | home menu: This function in symdeps | symdeps' card for the unit at the cursor: its layout, uses, callers and calls |
@@ -751,7 +755,8 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `<BS>` in a diff | Back to the file list from a comparison pane, showing it again if it was hidden (or in the pop-out) |
 | `Space re`, `:ReviewFiles` | Toggle the review file list, keeping the comparison open; `Space e` keeps its normal Neo-tree binding |
 | `s` in the file list | Labels on the rows on screen, as `s` draws them in code (flash.nvim): typing one moves there, as `j` and `k` would; `Esc` stays |
-| `gs` | Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line) |
+| `gs` / `Space dd` | Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line) |
+| `Space dm` | Open symdeps in the working C/C++ file near the reviewed line |
 | `gf` | Open the editable working file in a separate tab |
 | `S` | Compare the current struct's layout with the selected commit's parent |
 | `r` | Refresh the comparison |

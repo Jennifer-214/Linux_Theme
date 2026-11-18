@@ -282,10 +282,13 @@ vim.cmd('qa!')
             fake = folder/'bin/desk-work'
             fake.write_text('#!/usr/bin/python3\nimport os, sys\n'
                             "open(os.environ['FAKE_CALLS'], 'a').write(' '.join(sys.argv[1:]) + '\\n')\n"
-                            "print(open(os.environ['FAKE_RUN']).read())\n")
+                            "reply = open(os.environ['FAKE_RUN']).read()\n"
+                            "if reply.strip() == 'fail': sys.exit(3)\n"
+                            "print(reply)\n")
             fake.chmod(0o755)
             env = dict(os.environ, PATH=str(folder/'bin') + os.pathsep + '/usr/bin:/bin', FAKE_RUN=str(folder/'run.json'),
                        FAKE_CALLS=str(folder/'calls'), TEST_WORK_LUA=str(ROOT/'shared/nvim_lua'),
+                       FAKE_TOOL=str(fake),
                        TEST_SOURCE=str(folder/'repo/a.cpp'), NVIM_LOG_FILE=str(folder/'nvim.log'))
             script = folder/'status.lua'
             script.write_text(r'''
@@ -322,6 +325,23 @@ assert(W.tests_status(true) == '', 'no run must show nothing')
 fixture({ state = 'passed', tests = { passed = 128, failed = 0 } })
 assert(shown(true, '     √ 128'))
 assert(W.tests_state() == 'passed')
+vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'int unsaved;' })
+vim.fn.writefile({ 'fail' }, vim.env.FAKE_RUN)
+assert(shown(true, 'LAST PASS · UNAVAILABLE'))
+assert(W.tests_state() == 'unavailable', 'a failed refresh kept the green state')
+fixture({ state = 'passed', tests = { passed = 128, failed = 0 } })
+assert(shown(true, '     √ 128') and W.tests_state() == 'passed', 'the same result can be verified again')
+vim.fn.writefile({ '{broken' }, vim.env.FAKE_RUN)
+assert(shown(false, 'last pass · unavailable'))
+fixture({ state = 'passed', stale = true, tests = { passed = 128, failed = 0 } })
+assert(shown(true, 'LAST PASS · STALE') and W.tests_state() == 'stale', 'a pass for older source stayed green')
+assert(vim.uv.fs_rename(vim.env.FAKE_TOOL, vim.env.FAKE_TOOL .. '.held'))
+assert(shown(true, 'LAST PASS · UNAVAILABLE') and W.tests_state() == 'unavailable')
+assert(vim.uv.fs_rename(vim.env.FAKE_TOOL .. '.held', vim.env.FAKE_TOOL))
+fixture({ state = 'passed', tests = { passed = 128, failed = 0 } })
+assert(shown(true, '     √ 128') and W.tests_state() == 'passed', 'the status recovered when the backend returned')
+assert(vim.bo.modified and vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] == 'int unsaved;', 'the outage lost an unsaved buffer')
+assert(vim.fn.readfile(vim.env.TEST_SOURCE)[1] == 'int a;', 'the outage wrote the unsaved edit to disk')
 fixture({ state = 'failed', tests = { passed = 126, failed = 2 } })
 assert(shown(true, '  2 FAILED'))
 fixture({ state = 'running', tests = { passed = vim.NIL, failed = vim.NIL } })

@@ -113,11 +113,11 @@ hl.bind(mainMod .. " + SHIFT + R", hl.dsp.exec_cmd("hyprctl reload"))
 -- ─────────────────────────────────────────
 -- Window Focus
 -- ─────────────────────────────────────────
--- Go that way: Neovim's split that way, else tmux's pane, else the window or monitor that way (shared/bin/desk-nav).
-hl.bind(mainMod .. " + h", hl.dsp.exec_cmd("~/.local/bin/desk-nav h"))
-hl.bind(mainMod .. " + j", hl.dsp.exec_cmd("~/.local/bin/desk-nav j"))
-hl.bind(mainMod .. " + k", hl.dsp.exec_cmd("~/.local/bin/desk-nav k"))
-hl.bind(mainMod .. " + l", hl.dsp.exec_cmd("~/.local/bin/desk-nav l"))
+-- Focus the window or monitor that way. Ctrl+h/j/k/l moves inside the editor.
+hl.bind(mainMod .. " + h", hl.dsp.focus({ direction = "left" }))
+hl.bind(mainMod .. " + j", hl.dsp.focus({ direction = "down" }))
+hl.bind(mainMod .. " + k", hl.dsp.focus({ direction = "up" }))
+hl.bind(mainMod .. " + l", hl.dsp.focus({ direction = "right" }))
 -- Back to the window you were in before (again: back here), after a jump from the drawer, a notice or the notebook.
 -- It takes Alt+Backspace (delete a word) from the terminal apps; Ctrl+w still does that.
 hl.bind(mainMod .. " + BackSpace", hl.dsp.focus({ last = true }))

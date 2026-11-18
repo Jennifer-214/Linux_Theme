@@ -21,9 +21,10 @@ local function identity()
 end
 
 local function report(root, fields)
-  if not tool() then return end
+  local bin = tool()
+  if not bin then return end
   local ok, build = pcall(require, 'desk.build')
-  local argv = { tool(), 'client-report', '--client', 'nvim', '--build', ok and build.id or 'development', '--pid', 'parent', '--root', root }
+  local argv = { bin, 'client-report', '--client', 'nvim', '--build', ok and build.id or 'development', '--pid', 'parent', '--root', root }
   for key, value in pairs(fields) do vim.list_extend(argv, { '--' .. key, tostring(value) }) end
   vim.list_extend(argv, identity())
   pcall(vim.system, argv, { text = true, timeout = 2000 }, function() end)
@@ -32,9 +33,9 @@ end
 local function refresh(root, state)
   if M.roots[root] ~= state or state.reading then return end
   state.reading = true
-  state.request = vim.system({ tool(), 'attention', '--root', root }, { text = true, timeout = 5000 }, vim.schedule_wrap(function(out)
+  local function finished(out)
     if M.roots[root] ~= state then return end
-    state.reading = false
+    state.reading, state.request = false, nil
     local ok, items = pcall(vim.json.decode, out.stdout or '')
     if out.code == 0 and ok and type(items) == 'table' and vim.islist(items) then state.items, state.error = items, false
     else state.error = true end
@@ -49,7 +50,13 @@ local function refresh(root, state)
     api.nvim_exec_autocmds('User', { pattern = 'FoxWorkChanged', data = { root = root, revision = state.revision or '' } })
     pcall(vim.cmd.redrawstatus)
     if state.again then state.again = false; refresh(root, state) end
-  end))
+  end
+  local bin = tool()
+  if bin then
+    local ok, job = pcall(vim.system, { bin, 'attention', '--root', root }, { text = true, timeout = 5000 }, vim.schedule_wrap(finished))
+    if ok then state.request = job; return end
+  end
+  finished({ code = -1 })
 end
 
 -- A burst of events (an agent saving file after file) is one refresh a second at most, and the last event is always
@@ -131,7 +138,8 @@ function M.subscribe(root, callback)
 end
 
 function M.signal(root)
-  if tool() and root then vim.system({ tool(), 'signal', '--root', root }, { text = true, timeout = 2000 }, function() end) end
+  local bin = tool()
+  if bin and root then pcall(vim.system, { bin, 'signal', '--root', root }, { text = true, timeout = 2000 }, function() end) end
 end
 
 -- The newest test run of each checkout, for the status line. desk-work is asked in the background only (BufEnter,
@@ -170,18 +178,24 @@ local function read_tests(root, min_age)
   local entry = tests.runs[root]
   if not entry then entry = {}; tests.runs[root] = entry end
   if entry.reading then entry.again = entry.again or min_age == 0; return end   -- a change during a read: once more
-  if (entry.at and uv.now() - entry.at < (min_age or 0)) or not tool() then return end
+  if entry.at and uv.now() - entry.at < (min_age or 0) then return end
   entry.reading, entry.at = true, uv.now()
-  local ok = pcall(vim.system, { tool(), 'tests', '--root', root }, { text = true, timeout = 3000 }, vim.schedule_wrap(function(out)
+  local function finished(out)
     entry.reading = false
     local valid, run = pcall(vim.json.decode, out.stdout or '')
-    if out.code == 0 and valid then   -- a slow or failed read keeps what was shown
-      run = type(run) == 'table' and run or false
-      if not vim.deep_equal(run, entry.run) then entry.run = run; pcall(vim.cmd.redrawstatus) end
-    end
+    local failed = out.code ~= 0 or not valid or (run ~= vim.NIL and (type(run) ~= 'table' or type(run.state) ~= 'string'))
+    local previous_run, previous_error = entry.run, entry.error
+    if not failed then entry.run = run ~= vim.NIL and run or nil end
+    entry.error = failed
+    if previous_error ~= failed or not vim.deep_equal(previous_run, entry.run) then pcall(vim.cmd.redrawstatus) end
     if entry.again then entry.again = false; read_tests(root, 0) end
-  end))
-  if not ok then entry.reading = false end
+  end
+  local bin = tool()
+  if bin then
+    local ok = pcall(vim.system, { bin, 'tests', '--root', root }, { text = true, timeout = 3000 }, vim.schedule_wrap(finished))
+    if ok then return end
+  end
+  finished({ code = -1 })
 end
 
 local function start_tests()
@@ -200,21 +214,34 @@ local function start_tests()
   front(0)
 end
 
--- The status line part: '' until a run is known (and always without desk-work, outside a checkout, or in the pop-out,
--- which watches nothing of its own).
+local function evidence_state(entry)
+  if not entry then return end
+  if entry.error then return 'unavailable' end
+  local run = entry.run
+  if not run then return end
+  if run.stale == true and (run.state == 'passed' or run.state == 'failed') then return 'stale' end
+  return run.state
+end
+
+-- A cached result remains visible on a failed refresh, with its own label and colour.
 function M.tests_status(retro)
   if vim.g.desk_popout then return '' end
   if not tests.started then tests.started = true; vim.schedule(start_tests) end
   local root = current_root()
   local entry = root and tests.runs[root]
+  local state = evidence_state(entry)
+  if state == 'unavailable' or state == 'stale' then
+    local known = entry.run and entry.run.state
+    local label = known == 'passed' and ('last pass · ' .. state) or known == 'failed' and ('last fail · ' .. state) or 'tests unavailable'
+    return retro and label:upper() or label
+  end
   return entry and entry.run and M.test_label(entry.run, retro) or ''
 end
 
 -- The newest run's state for the buffer in front (colours the status line part), or nil.
 function M.tests_state()
   local root = current_root()
-  local entry = root and tests.runs[root]
-  return entry and entry.run and entry.run.state or nil
+  return evidence_state(root and tests.runs[root])
 end
 
 function M.status()

@@ -3554,7 +3554,8 @@ require("lualine").setup({
         color = function()
           local ok, work = pcall(require, "desk.work_events")
           local state = ok and work.tests_state()
-          return { fg = state == "passed" and P.green or state == "failed" and P.red or state == "running" and P.yellow or P.comment }
+          local pending = state == "running" or state == "stale" or state == "unavailable"
+          return { fg = state == "passed" and P.green or state == "failed" and P.red or pending and P.yellow or P.comment }
         end,
       },
       -- the other Claudes (desk.claude): reviewing/following, who needs you, the plan gate, who edited this buffer
@@ -4493,8 +4494,8 @@ vim.api.nvim_set_hl(0, "FoxPlanNote", { fg = P.comment, italic = Paper.enabled }
 vim.api.nvim_set_hl(0, "FoxTreeClaude", { fg = P.bookmark })
 vim.api.nvim_set_hl(0, "FoxTreeClaudeShared", { link = "DiagnosticWarn" })
 pcall(function() require("desk.planmarks").setup() end)
--- ALT+h/j/k/l from the desktop asks this Neovim first: its split that way, else tmux's pane, else the window that way
--- (shared/nvim_lua/desk/nav.lua, shared/bin/desk-nav). Neovim maps no ALT key for it.
+-- desk-nav can ask for a split over the editor's socket. Alt+h/j/k/l focuses desktop windows directly;
+-- Ctrl+h/j/k/l moves between the editor's splits.
 pcall(function() require("desk.nav").setup() end)
 -- Every "choose one" question (vim.ui.select: API credits, next steps, debug, …) as the desk menu: j/k, Enter, / filter,
 -- Esc — instead of Neovim's numbered list.
