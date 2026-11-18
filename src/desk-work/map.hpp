@@ -398,7 +398,12 @@ J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
                 const auto refusal = pick(opts["--to"], "To: ", b);
                 if (!refusal.is_null()) return refusal;
             }
-            out = desk_map::trace(g, static_cast<size_t>(a), std::clamp(map_number(opts["--depth"], 16), 1, 16), b);
+            long c = -1;
+            if (!opts["--start"].empty()) {
+                const auto refusal = pick(opts["--start"], "Start: ", c);
+                if (!refusal.is_null()) return refusal;
+            }
+            out = desk_map::trace(g, static_cast<size_t>(a), std::clamp(map_number(opts["--depth"], 16), 1, 16), b, c);
         } else
             out = desk_map::walk(g, static_cast<size_t>(a), std::max(1, map_number(opts["--depth"], 3)), q == "callers",
                                  static_cast<size_t>(std::clamp(map_number(opts["--cap"], 300), 1, 3000)));

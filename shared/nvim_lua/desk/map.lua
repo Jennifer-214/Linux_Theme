@@ -1002,6 +1002,10 @@ function M.trace_page(answer, folds)
     sections[#sections + 1] = { parts = { { (focus and focus.label or '?') .. ' does not reach ' .. answer.to:gsub('^.*::', '') .. ' within '
       .. (answer.depth or '?') .. ' calls' } }, group = 'DeskMapDim' }
   end
+  if answer.start and answer.start_reached == false then
+    sections[#sections + 1] = { parts = { { answer.start:gsub('^.*::', '') .. ' does not lead to ' .. (focus and focus.label or '?') .. ' within '
+      .. (answer.depth or '?') .. ' calls' } }, group = 'DeskMapDim' }
+  end
   for k, st in ipairs(steps) do
     local body = {}
     local size = st.lines and (st.lines .. (st.lines == 1 and ' line' or ' lines')) or nil
@@ -1647,15 +1651,24 @@ local function on_trace(view)
   local top = view and view.stack and view.stack[#view.stack]
   return top and top.answer and top.answer.q == 'trace' and top.answer or nil
 end
-local function trace_to(view, ctx)
+-- e (to) and S (from): the same trace re-asked with a chosen end or start, the other one kept.
+local function trace_end(view, ctx, flag, prompt)
   local answer = on_trace(view)
   if not answer then return tell('Open a trace first (`t` on a function).') end
-  local to = ctx and type(ctx.text) == 'string' and vim.trim(ctx.text) ~= '' and vim.trim(ctx.text) or nil
-  local function go(name) query(view, { '--q', 'trace', '--from', answer.focus, '--to', name }) end
-  if to then return go(to) end
+  local name = ctx and type(ctx.text) == 'string' and vim.trim(ctx.text) ~= '' and vim.trim(ctx.text) or nil
+  local function go(chosen)
+    local args = { '--q', 'trace', '--from', answer.focus }
+    if flag ~= '--to' and answer.to then vim.list_extend(args, { '--to', answer.to }) end
+    if flag ~= '--start' and answer.start then vim.list_extend(args, { '--start', answer.start }) end
+    vim.list_extend(args, { flag, chosen })
+    query(view, args)
+  end
+  if name then return go(name) end
   if view.out then return end
-  ask('Trace to: ', '', go)
+  ask(prompt, '', go)
 end
+local function trace_to(view, ctx) trace_end(view, ctx, '--to', 'Trace to: ') end
+local function trace_start(view, ctx) trace_end(view, ctx, '--start', 'Trace from: ') end
 
 -- gs: the function in symdeps' card (C and C++), as gs in the call graph: its code, the cursor on its NAME, then the
 -- card. On the line's first text (`int norm(…)`) symdeps would read the return type.
@@ -1983,6 +1996,8 @@ local ROWS = actions.add({
     trace_from, needs_function, THERE),
   row('trace-to', 'e', 'Trace to a chosen function', 'On a trace: down to the function you name instead of where the chain ends',
     trace_to, needs_trace, { remote = true, input = { prompt = 'Trace to: ' } }),
+  row('trace-from', 'S', 'Trace from a chosen start', 'On a trace: up from the function you name (a thread body, the live path) instead of the farthest start',
+    trace_start, needs_trace, { remote = true, input = { prompt = 'Trace from: ' } }),
   row('symdeps', 'gs', 'This function in symdeps', "The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph",
     in_symdeps, needs_c_function, THERE),
   row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_function,

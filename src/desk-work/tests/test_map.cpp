@@ -292,6 +292,11 @@ int main(int, char** argv) {
         CHECK(ht["calls"].back()["kind"] == "handoff" && ht["calls"].back()["label"] == "ring: push :3 → pop :41",
               "… said as a handoff, with what it went through");
         CHECK(desk_map::paths(hg, hg.at.at("entry"), hg.at.at("consumer"), 16, 5)["paths"].size() == 1, "… and the map's ways go through it");
+        const auto from_entry = desk_map::trace(g, g.at.at("F"), 16, -1, static_cast<long>(g.at.at("entry")));
+        CHECK(lane(from_entry) == std::vector<std::string>({"entry", "a", "F", "b", "c", "end"}) && from_entry["start_reached"] == true,
+              "--start: up from the start she chose (entry, not the farther entry2)");
+        const auto from_x = desk_map::trace(g, g.at.at("F"), 16, -1, static_cast<long>(g.at.at("x")));
+        CHECK(lane(from_x).front() == "F" && from_x["start_reached"] == false, "… and says so when it does not lead to the function");
         CHECK(lane(desk_map::trace(g, g.at.at("F"), 1)) == std::vector<std::string>({"s", "F", "x"}),
               "depth bounds each way; within it a real start and end win (s and x) over a and b, which go on");
     }

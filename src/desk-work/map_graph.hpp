@@ -690,7 +690,7 @@ inline J walk(const Graph& g, size_t start, int depth, bool backwards, size_t ca
 // nothing more in the map), or to `to` by the shortest way. Each step: its node (with its signature when the reader
 // gave one), and the call into the next (its kind, line and arguments); off the lane, its other callers above and
 // callees below, up to 8 named and counted. A cycle never loops: each function is on the lane once.
-inline J trace(const Graph& g, size_t focus, int depth, long to = -1) {
+inline J trace(const Graph& g, size_t focus, int depth, long to = -1, long start = -1) {
     const auto farthest = [&](bool backwards, std::vector<long>& prev) {
         std::vector<int> dist(g.nodes.size(), -1);
         std::deque<size_t> queue{focus};
@@ -717,7 +717,30 @@ inline J trace(const Graph& g, size_t focus, int depth, long to = -1) {
     };
     std::vector<long> up_prev(g.nodes.size(), -1), down_prev(g.nodes.size(), -1);
     std::vector<size_t> lane;
-    for (long v = static_cast<long>(farthest(true, up_prev)); v >= 0; v = up_prev[static_cast<size_t>(v)]) lane.push_back(static_cast<size_t>(v));
+    // Up: from a chosen start, the shortest way down from it to the function (found walking its callers); else the
+    // farthest start.
+    size_t top = focus;
+    bool start_reached = true;
+    if (start >= 0) {
+        std::vector<int> dist(g.nodes.size(), -1);
+        std::deque<size_t> queue{focus};
+        dist[focus] = 0;
+        while (!queue.empty() && dist[static_cast<size_t>(start)] < 0) {
+            const auto v = queue.front();
+            queue.pop_front();
+            if (dist[v] >= depth) continue;
+            for (const auto& [w, mask] : g.in[v]) {
+                (void)mask;
+                if (dist[w] >= 0) continue;
+                dist[w] = dist[v] + 1;
+                up_prev[w] = static_cast<long>(v);
+                queue.push_back(w);
+            }
+        }
+        start_reached = dist[static_cast<size_t>(start)] >= 0;
+        if (start_reached) top = static_cast<size_t>(start);
+    } else top = farthest(true, up_prev);
+    for (long v = static_cast<long>(top); v >= 0; v = up_prev[static_cast<size_t>(v)]) lane.push_back(static_cast<size_t>(v));
     std::vector<size_t> down;
     size_t end = focus;
     if (to >= 0) {
@@ -788,6 +811,7 @@ inline J trace(const Graph& g, size_t focus, int depth, long to = -1) {
     }
     J out{{"ok", true}, {"q", "trace"}, {"focus", text(g.nodes[focus], "id")}, {"depth", depth}, {"steps", steps}, {"calls", calls}};
     if (to >= 0) { out["to"] = text(g.nodes[static_cast<size_t>(to)], "id"); out["reached"] = end == static_cast<size_t>(to); }
+    if (start >= 0) { out["start"] = text(g.nodes[static_cast<size_t>(start)], "id"); out["start_reached"] = start_reached; }
     return out;
 }
 

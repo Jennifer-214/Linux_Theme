@@ -283,6 +283,8 @@ ok(line_with(traced_retro.lines, "║     IN  CONST REF  const Tick &  t") and l
   and line_with(traced_retro.lines, "32 LINES"), "retro: the words in capitals, the code as typed")
 local unreached = Map.layout(Map.trace_page(vim.tbl_extend("force", trace_answer, { to = "e.cpp::flush", reached = false })), 90, false)
 ok(line_with(unreached.lines, "tick does not reach flush within 16 calls"), "e to a function it does not reach: says so")
+local unled = Map.layout(Map.trace_page(vim.tbl_extend("force", trace_answer, { start = "e.cpp::idle", start_reached = false })), 90, false)
+ok(line_with(unled.lines, "idle does not lead to tick within 16 calls"), "S from a function that does not lead there: says so")
 -- A busy function (the trader's draw loop has 55 other callees) and a long call stay within the page.
 local busy = vim.deepcopy(trace_answer)
 busy.steps[2].callees, busy.steps[2].more_callees = {}, 30
@@ -307,7 +309,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -619,7 +621,14 @@ do
   press("e")
   ok(vim.wait(1000, function() return #traced_args == 2 and #view.stack == depth_before + 2 end), "e: asked again, its answer a page of its own")
   ok(traced_args[2] and traced_args[2]:find("--from e.cpp::tick --to submit", 1, true), "… from the same function, down to the one named: " .. tostring(traced_args[2]))
-  press("<BS>"); press("<BS>")
+  -- S: the same trace up from a start she names, the end she chose kept.
+  trace_answer.to = "submit"
+  vim.ui.input = function(opts, done) eq(opts.prompt, "Trace from: ", "S asks where from"); done("hot") end
+  press("S")
+  ok(vim.wait(1000, function() return #traced_args == 3 and #view.stack == depth_before + 3 end), "S: asked again, a page of its own")
+  ok(traced_args[3] and traced_args[3]:find("--from e.cpp::tick --to submit --start hot", 1, true), "… from the same function, the end kept, from the start named: " .. tostring(traced_args[3]))
+  trace_answer.to = nil
+  press("<BS>"); press("<BS>"); press("<BS>")
   ok(vim.wait(1000, function() return #view.stack == depth_before end), "Backspace goes back off the traces")
   Map.desk_work, vim.ui.input = fake_before, real_input
 end
@@ -782,7 +791,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.trace", "map.trace-to", "map.up" },
+eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
   "the pop-out can show more and retains its existing navigation keys")
 local views_row = A.get("popout.view.map")
 eq(views_row and { views_row.group, views_row.name, views_row.remote }, { "Views", "Pop out the project map", true },

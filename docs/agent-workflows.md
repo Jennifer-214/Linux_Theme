@@ -470,7 +470,9 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   starts and down its callees to where it ends (at most 16 calls each way), each step with its parameters (in, or
   inout where the callee can change the caller's value; by value, `const&`, `&`, `*`, `&&`, a smart pointer) and
   between steps the call's line and each argument → the parameter it lands in; other callers and callees are listed
-  by name, Enter goes to one. `e` on a trace goes down to a function you name instead. From code, `Space c p` traces
+  by name, Enter goes to one. `e` on a trace goes down to a function you name instead, `S` up from one (a thread body: the live
+  path rather than the farthest start). Each step is a card: what it returns, how many lines, and folds for its
+  parameters (open) and its other callers and callees (Enter on a fold's header opens or closes it). From code, `Space c p` traces
   through the function at the cursor (in the pop-out's map when it shows one). C and C++ have signatures; other
   languages show the lane. `r` reads the page again where it is, as in a
   call graph: desk-work's status and the level shown, a query's answer asked again (`R` rebuilds the map). `c` opens
