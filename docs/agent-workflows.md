@@ -466,13 +466,14 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   20), `m` a part of the checkout from a menu (`/` filters it by name). `r` reads the page again where it is, as in a
   call graph: desk-work's status and the level shown, a query's answer asked again (`R` rebuilds the map). `c` opens
   the call graph centred on the function, as `c` centres a graph: a graph tab here, the call graph in the pop-out. The box
-  under the cursor is the default answer to the prompt. On caller and reach pages, `+` and `-` change the depth and
-  Backspace returns to the previous page. The gauge marks the current zoom or the selected call level. A call that
-  is part of recursion reads "in a cycle".
+  under the cursor is the default answer to the prompt. On caller and reach pages, `+` reads one more level and `-`
+  takes one off; at one level `-` zooms out, as Backspace does, to the previous page. The gauge marks the current
+  zoom or the selected call level. A call that is part of recursion reads "in a cycle".
 - **In the pop-out**: `o` in the map's tab moves it to the pop-out on the other screen, at the level it was on (Space
   Space › "Pop out the project map" opens this checkout's from anywhere; in the pop-out's own menu it is the only map
   row, so a map asked for there opens there). There it is the same map: `Enter` zooms in,
-  or goes to a function in the editor while the keyboard stays in the pop-out. `-` zooms out or reduces call depth.
+  or goes to a function in the editor while the keyboard stays in the pop-out. `-` takes a level off a callers or
+  reach page of more than one, and otherwise zooms out.
   `D` and `U` ask about the
   selected function, `c` shows its call graph there (`Ctrl+o` comes back to the map), `P` asks only where to; `r` reads
   it again, `R` rebuilds. `Ctrl+o` and Backspace go back through its zooms, answers and
