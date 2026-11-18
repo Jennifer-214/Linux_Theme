@@ -144,6 +144,12 @@ eq({ zoom.lines[3]:sub(1, #" ████ DIR"), zoom.lines[4]:sub(1, #"██�
   "retro lights the current zoom level's plane, a cell wider")
 ok(zoom.lines[1]:find(" ▓▓▓  ALL", 1, true) and zoom.lines[5]:find(" ▓▓▓  SRC", 1, true) and zoom.lines[7]:find(" ▒▒▒  CLS", 1, true),
   "the other levels fade with their distance from it:\n" .. table.concat(zoom.lines, "\n"))
+-- The parts page has both stacks in one gutter: the zoom levels at the top, the layers below. The axis joins only the
+-- layers' planes (seen in a VM, 2026-11-18: it ran from ALL down through every layer). A long header leaves gap lines.
+local gapped = Map.layout(vim.tbl_extend("force", Map.level_modules(modules), { zoom = 1,
+  header = { { "A" }, { "B" }, { "C" }, { "D" }, { "E" }, { "F" }, { "G" }, { "H" }, { "I" }, { "J" } } }), 70, true)
+ok(not gapped.lines[9]:match("^  │") and not gapped.lines[10]:match("^  │"),
+  "no axis between the zoom levels and the first layer:\n" .. table.concat(gapped.lines, "\n", 1, 14))
 ok(vim.iter(zoom.marks):any(function(m) return vim.deep_equal(m, { 3, 0, #" ████", "DeskMapFocus", 1 }) end)
   and vim.iter(zoom.marks):any(function(m) return vim.deep_equal(m, { 4, 0, #"████ ", "DeskMapFocus", 1 }) end),
   "the active zoom bar has the focus colour")
