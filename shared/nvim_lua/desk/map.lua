@@ -87,6 +87,85 @@ local function read_file(path, limit)
   return text
 end
 
+-- ─── signatures (C and C++): what a function takes and gives, for the trace (plans/2026-11-18-function-trace.md) ───
+-- The declarators around a name, outermost first ('*' with const when the pointer itself is const, '&', '&&', '[]'),
+-- and the name; or, reaching a function's declarator, the marks so far (its return's) and that declarator.
+local NAME_NODES = { identifier = true, field_identifier = true, qualified_identifier = true, destructor_name = true,
+  operator_name = true, type_identifier = true }
+local function has_const(node, src)
+  for child in node:iter_children() do
+    if child:type() == 'type_qualifier' and one_line(text_of(child, src)) == 'const' then return true end
+  end
+  return false
+end
+local function declarators(decl, src)
+  local marks, d = {}, decl
+  for _ = 1, 12 do
+    if not d then return marks end
+    local t = d:type()
+    if NAME_NODES[t] then return marks, one_line(text_of(d, src)) end
+    if t == 'function_declarator' then return marks, nil, d end
+    if t:find('pointer_declarator', 1, true) then marks[#marks + 1] = { '*', const = has_const(d, src) }
+    elseif t:find('reference_declarator', 1, true) then marks[#marks + 1] = { one_line(text_of(d, src)):match('^&&') and '&&' or '&' }
+    elseif t:find('array_declarator', 1, true) then marks[#marks + 1] = { '[]' } end
+    local inner = d:field('declarator')[1]
+    if not inner then
+      for child in d:iter_children() do if child:named() and child:type() ~= 'type_qualifier' then inner = child end end
+    end
+    d = inner
+  end
+  return marks
+end
+local function written(const, type_node, marks, src)
+  local base = (const and 'const ' or '') .. (type_node and one_line(text_of(type_node, src)) or '')
+  local tail = table.concat(vim.tbl_map(function(m) return m[1] .. (m.const and ' const' or '') end, marks or {}), '')
+  return ((tail ~= '' and (base .. ' ' .. tail) or base)):sub(1, 120)
+end
+-- How a parameter is passed: the declarator nearest its name applies to it (`int *& p` is a reference to a pointer).
+-- in: the callee cannot write the caller's value through it; inout: a non-const reference, pointer or array, it can.
+function M.passing(const, type_text, marks)
+  local m = marks[#marks] and marks[#marks][1]
+  local pass
+  if m == '&&' then pass = 'rvalue'
+  elseif m == '&' then pass = const and 'const ref' or 'ref'
+  elseif m == '*' then pass = const and 'const pointer' or 'pointer'
+  elseif m == '[]' then pass = const and 'const array' or 'array'
+  elseif tostring(type_text):find('_ptr<', 1, true) then pass = 'smart'
+  else pass = 'value' end
+  return pass, (pass == 'ref' or pass == 'pointer' or pass == 'array') and 'inout' or 'in'
+end
+-- A C or C++ function node's parameters (at most 16: { name, type as written, pass, dir }) and its return type (nil for
+-- a constructor or destructor). nil when no function declarator is found.
+function M.signature(node, src)
+  local marks, _, fn = declarators(node:field('declarator')[1], src)
+  if not fn then return nil end
+  local type_node = node:field('type')[1]
+  local params, list = {}, fn:field('parameters')[1]
+  for child in (list and list:iter_children() or function() end) do
+    local t = child:named() and child:type() or ''
+    if t:find('parameter_declaration', 1, true) and #params < 16 then
+      local const, ty = has_const(child, src), child:field('type')[1]
+      local pmarks, name = declarators(child:field('declarator')[1], src)
+      local type_text = ty and one_line(text_of(ty, src)) or ''
+      if not (type_text == 'void' and not name and #pmarks == 0) then
+        local pass, dir = M.passing(const, type_text, pmarks)
+        params[#params + 1] = { name = (name or ''):sub(1, 64), type = written(const, ty, pmarks, src), pass = pass, dir = dir }
+      end
+    elseif (t == 'variadic_parameter' or (not child:named() and child:type() == '...')) and #params < 16 then
+      params[#params + 1] = { name = '...', type = '...', pass = 'value', dir = 'in' }
+    end
+  end
+  return { params = params, returns = type_node and written(has_const(node, src), type_node, marks, src) or nil }
+end
+-- A call's arguments as written (at most 12, each on one line, at most 80 characters).
+local function call_args(node, src)
+  local list, out = node:field('arguments')[1], {}
+  for child in (list and list:iter_children() or function() end) do
+    if child:named() and not child:type():find('comment', 1, true) and #out < 12 then out[#out + 1] = one_line(text_of(child, src)):sub(1, 80) end
+  end
+  return out
+end
+
 -- request: { root, files = { rel… }, limits = { nodes, edges } }. Returns the map's graph shape plus spans (each
 -- unit's first and last line, for "what a commit touched"), notes and counts.
 function M.syntax_graph(request)
@@ -136,6 +215,10 @@ function M.syntax_graph(request)
           units[#units + 1] = { id = id, label = label, short = name:match('([%w_~]+)$') or name, file = rel, line = first + 1,
                                 kind = kind, owner = owner, owner_label = owner and units[owner].label or '',
                                 family = FAMILY[lang] or lang, folder = rel:match('^(.*)/') or '' }
+          if kind == 'function' and (FAMILY[lang] or lang) == 'c' then
+            local fine, sig = pcall(M.signature, node, src)
+            if fine and sig then units[#units].sig = sig end
+          end
           spans[id] = { first + 1, last + 1 }
           stats[kind == 'type' and 'types' or 'functions'] = stats[kind == 'type' and 'types' or 'functions'] + 1
           owner = #units
@@ -149,7 +232,11 @@ function M.syntax_graph(request)
       end
       if CALLS[t] and owner then
         local full, short = callee(node:field(CALLS[t])[1], src)
-        if short then calls[#calls + 1] = { from = owner, full = full, short = short }; stats.calls = stats.calls + 1 end
+        if short then
+          local fine, args = pcall(call_args, node, src)
+          calls[#calls + 1] = { from = owner, full = full, short = short, line = node:start() + 1, args = fine and args or nil }
+          stats.calls = stats.calls + 1
+        end
       end
       local children = {}
       for child in node:iter_children() do if child:named() then children[#children + 1] = child end end
@@ -166,6 +253,7 @@ function M.syntax_graph(request)
     by_short[u.short] = by_short[u.short] or {}
     table.insert(by_short[u.short], i)
     nodes[i] = { id = u.id, label = u.label, file = u.file, line = u.line, kind = u.kind }
+    if u.sig then nodes[i].params, nodes[i].returns = u.sig.params, u.sig.returns end
     if u.owner and units[u.owner].kind == 'type' and u.kind == 'function' then
       edges[#edges + 1] = { from = units[u.owner].id, to = u.id, kind = 'contains' }
     end
@@ -203,7 +291,8 @@ function M.syntax_graph(request)
             if complete then complete, why = false, 'stopped at ' .. max_edges .. ' calls' end
           else
             seen[key] = true
-            edges[#edges + 1] = { from = from.id, to = units[pick[1]].id, kind = 'call-by-name' }
+            -- The first call between the two: its line and arguments, what the trace shows flowing in.
+            edges[#edges + 1] = { from = from.id, to = units[pick[1]].id, kind = 'call-by-name', line = c.line, args = c.args }
             stats.edges = stats.edges + 1
           end
         end

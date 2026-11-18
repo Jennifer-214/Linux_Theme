@@ -123,9 +123,11 @@ class Map(unittest.TestCase):
         labels = {n["label"] for n in graph["nodes"]}
         self.assertTrue({"M.alpha", "M.beta", "helper", "leaf", "middle", "main"} <= labels, labels)
         self.assertEqual(graph["version"], 1)
+        # A C or C++ function also has its signature (params, returns) and a call its line and arguments: the trace's.
         for node in graph["nodes"]:
-            self.assertEqual(set(node) - {"detail"}, {"id", "label", "file", "line", "kind"})
-        self.assertTrue(all(set(e) == {"from", "to", "kind"} for e in graph["edges"]))
+            self.assertEqual(set(node) - {"detail", "params", "returns"}, {"id", "label", "file", "line", "kind"})
+        self.assertTrue(all(set(e) - {"line", "args"} == {"from", "to", "kind"} for e in graph["edges"]))
+        self.assertTrue(any("params" in n for n in graph["nodes"] if n["file"].endswith(".c")), "a C function has its parameters")
 
         reach = self.query("--q", "reach", "--from", "M.alpha", "--depth", "2")
         self.assertEqual(reach["from"]["label"], "M.alpha")

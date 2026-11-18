@@ -401,13 +401,36 @@ inline J clean_graph(const J& raw) {
             if (!file.empty() && file[0] != '/' && file.find("..") == std::string::npos && file.find('\n') == std::string::npos) node["file"] = file;
             if (number(n, "line") > 0) node["line"] = number(n, "line");
             if (!text(n, "detail").empty()) node["detail"] = text(n, "detail").substr(0, 200);
+            // A function's signature, for the trace: its return type and at most 16 parameters, each { name, type as
+            // written, pass, dir } with pass and dir from closed sets (the syntax reader's desk.map.passing).
+            if (!text(n, "returns").empty()) node["returns"] = text(n, "returns").substr(0, 120);
+            if (n.contains("params") && n["params"].is_array()) {
+                static const std::set<std::string> passes{"value", "ref", "const ref", "rvalue", "pointer", "const pointer",
+                                                           "array", "const array", "smart"};
+                J params = J::array();
+                for (const auto& p : n["params"]) {
+                    if (params.size() >= 16) break;
+                    if (!p.is_object() || !passes.count(text(p, "pass")) || (text(p, "dir") != "in" && text(p, "dir") != "inout")) continue;
+                    params.push_back(J{{"name", text(p, "name").substr(0, 64)}, {"type", text(p, "type").substr(0, 120)},
+                                       {"pass", text(p, "pass")}, {"dir", text(p, "dir")}});
+                }
+                node["params"] = params;
+            }
             nodes.push_back(node);
         }
     }
     if (raw.is_object() && raw.contains("edges") && raw["edges"].is_array())
         for (const auto& e : raw["edges"]) {
             if (!e.is_object() || !ids.count(text(e, "from")) || !ids.count(text(e, "to")) || text(e, "kind").empty()) continue;
-            edges.push_back(J{{"from", text(e, "from")}, {"to", text(e, "to")}, {"kind", text(e, "kind").substr(0, 32)}});
+            J edge{{"from", text(e, "from")}, {"to", text(e, "to")}, {"kind", text(e, "kind").substr(0, 32)}};
+            // A call's line and its arguments as written (at most 12, each at most 80 characters): what flows in.
+            if (number(e, "line") > 0) edge["line"] = number(e, "line");
+            if (e.contains("args") && e["args"].is_array()) {
+                J args = J::array();
+                for (const auto& a : e["args"]) if (a.is_string() && args.size() < 12) args.push_back(a.get<std::string>().substr(0, 80));
+                edge["args"] = args;
+            }
+            edges.push_back(edge);
         }
     if (raw.is_object() && raw.contains("spans") && raw["spans"].is_object())
         for (const auto& [id, span] : raw["spans"].items())

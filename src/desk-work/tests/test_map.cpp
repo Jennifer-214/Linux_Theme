@@ -225,6 +225,32 @@ int main(int, char** argv) {
     CHECK(text.rfind("digraph", 0) == 0 && text.find("\"m\" -> \"n\" [label=\"2\"]") != std::string::npos, "DOT at the module level");
     CHECK(desk_map::dot(g, "functions", "n").find("[style=dotted, arrowhead=none]") != std::string::npos, "DOT at the function level");
 
+    // ─── the trace's facts: a function's signature and a call's arguments, kept bounded through cleaning and merging ───
+    {
+        J raw = J::parse(R"({"nodes": [
+            {"id": "a.cpp::f", "label": "f", "kind": "function", "file": "a.cpp", "line": 3, "returns": "const Book *",
+             "params": [{"name": "tick", "type": "const Tick &", "pass": "const ref", "dir": "in"},
+                        {"name": "out", "type": "Order *", "pass": "pointer", "dir": "inout"},
+                        {"name": "bad", "type": "X", "pass": "teleported", "dir": "in"},
+                        {"name": "worse", "type": "X", "pass": "value", "dir": "sideways"}, 7]},
+            {"id": "a.cpp::g", "label": "g", "kind": "function", "file": "a.cpp", "line": 9}],
+          "edges": [{"from": "a.cpp::f", "to": "a.cpp::g", "kind": "call-by-name", "line": 5, "args": ["tick", 3, "&o"]}]})");
+        for (int i = 0; i < 20; ++i) raw["nodes"][0]["params"].push_back(J{{"name", "p"}, {"type", "int"}, {"pass", "value"}, {"dir", "in"}});
+        raw["nodes"][0]["params"][0]["type"] = std::string(500, 'T');
+        const auto clean = desk_map::clean_graph(raw);
+        const auto& f = clean["nodes"][0];
+        CHECK(f["returns"] == "const Book *" && f["params"].size() == 16, "a signature is kept: its return, at most 16 parameters");
+        CHECK(f["params"][1] == J({{"name", "out"}, {"type", "Order *"}, {"pass", "pointer"}, {"dir", "inout"}}),
+              "… each { name, type, pass, dir } as the reader gave it");
+        CHECK(f["params"][0]["type"].get<std::string>().size() == 120, "… a type cut to 120 characters");
+        CHECK(std::none_of(f["params"].begin(), f["params"].end(), [](const J& p) { return p["name"] == "bad" || p["name"] == "worse"; }),
+              "… a pass or dir outside their closed sets is dropped, not trusted");
+        CHECK(!clean["nodes"][1].contains("params"), "a node without them gets none");
+        const auto& call = clean["edges"][0];
+        CHECK(call["line"] == 5 && call["args"] == J({"tick", "&o"}), "a call keeps its line and its string arguments");
+        const auto merged = desk_map::merge(clean, desk_map::clean_graph(J::parse(R"({"nodes": [], "edges": []})")));
+        CHECK(merged["nodes"][0]["params"].size() == 16 && merged["edges"][0]["args"] == J({"tick", "&o"}), "… and the merge keeps both");
+    }
     std::printf("test_map: %d passed%s\n", passed, failed ? (", " + std::to_string(failed) + " failed").c_str() : "");
     return failed ? 1 : 0;
 }

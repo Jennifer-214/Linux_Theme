@@ -88,6 +88,24 @@ local points = 0
 for _, n in ipairs(graph.nodes) do if n.label == "point" then points = points + 1 end end
 eq(points, 1, "a struct named in a declaration is not a second struct")
 ok(edge("norm", "square") and edge("find", "norm"), "C calls by name")
+-- What a function takes and gives, for the trace: each parameter as written, how it is passed, which way data can go.
+eq(by_label["norm"].params, { { name = "p", type = "struct point *", pass = "pointer", dir = "inout" } }, "C: a pointer parameter, which the callee may write through")
+eq({ by_label["find"].returns, #by_label["find"].params, by_label["find"].params[2].pass }, { "int *", 2, "value" }, "… a pointer return, an int by value")
+local function call_of(from, to)
+  for _, e in ipairs(graph.edges) do if e.from:match("::(.*)$") == from and e.to:match("::(.*)$") == to then return e end end
+end
+eq({ call_of("find", "norm").line, call_of("find", "norm").args }, { 5, { "0" } }, "a call keeps its line and its arguments as written")
+local function M_passing_cases()
+  local out = {}
+  for _, c in ipairs({ { true, "T", { { "&" } } }, { false, "T", { { "&" } } }, { true, "T", { { "*" } } }, { false, "T", { { "*" } } },
+                       { false, "T", { { "&&" } } }, { false, "int", { { "*" }, { "&" } } }, { false, "std::unique_ptr<T>", {} }, { false, "int", {} } }) do
+    local pass, dir = Map.passing(c[1], c[2], c[3])
+    out[#out + 1] = pass .. "/" .. dir
+  end
+  return out
+end
+eq(M_passing_cases(), { "const ref/in", "ref/inout", "const pointer/in", "pointer/inout", "rvalue/in", "ref/inout", "smart/in", "value/in" },
+  "passing: const&, &, const*, *, &&, *& (a reference to a pointer: the mark nearest the name), unique_ptr, by value")
 
 if has_parser("python") then
   ok(by_label["Store"] and by_label["Store"].kind == "type" and by_label["Store.save"] and by_label["write"], "Python: a class, its methods, a function")
@@ -99,6 +117,10 @@ if has_parser("cpp") then
   ok(by_label["fox::Queue"] and by_label["fox::Queue::push"] and by_label["fox::Queue::size"] and by_label["fox::run"], "C++: names qualified by namespace and class, in and out of the class")
   ok(edge("fox::Queue::push", "fox::Queue::grow") and edge("fox::run", "fox::Queue::push") and edge("fox::run", "fox::Queue::size"), "C++ calls by name")
   ok(not edge("fox::Queue::size", "fox::Queue::size"), "items.size() inside size() is another object's size, not recursion")
+  eq({ by_label["fox::run"].returns, by_label["fox::run"].params }, { "int", { { name = "q", type = "Queue &", pass = "ref", dir = "inout" } } },
+    "C++: a reference parameter the callee may change")
+  eq(by_label["fox::Queue::push"].params, { { name = "x", type = "int", pass = "value", dir = "in" } }, "… a method's value parameter")
+  eq(call_of("fox::run", "fox::Queue::push").args, { "1" }, "… and what it is called with")
 else skipped[#skipped + 1] = "cpp (no parser)" end
 
 -- The same headless, as desk-work runs it: a request file in, the answer written to a file.
