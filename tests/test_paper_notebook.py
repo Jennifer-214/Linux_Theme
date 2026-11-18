@@ -427,13 +427,16 @@ class PaperNotebook(unittest.TestCase):
             zoxide=bins/'zoxide';zoxide.write_text('#!/bin/sh\nexit 0\n');zoxide.chmod(0o755)
             env=sealed_env.environment(base,HOME=base,XDG_DATA_HOME=base/'data',PATH=str(bins)+':/usr/bin:/bin',FOX_SESH_BELL='b8336a')
             self.addCleanup(sealed_env.stop,env)
-            for enabled in (False,True):
-                result=subprocess.run(['/bin/bash',str(ROOT/'shared/bin/tmux-sessionizer'),'--list'],env=env|{'TEST_BELL':'1' if enabled else '0'},text=True,capture_output=True,timeout=5)
-                self.assertEqual(result.returncode,0,result.stderr)
-                rows=[row.split('\t') for row in result.stdout.splitlines()]
-                self.assertEqual([row[-1] for row in rows],['active','other'])
-                self.assertEqual('\x1b[38;2;184;51;106m●' in rows[1][1],enabled)
-                self.assertNotIn('\x1b[38;2;184;51;106m●',rows[0][1])
+            # The style named, not inherited: tmux sets FOX_TMUX_STYLE in her session, and retro's bell is • (code page 437).
+            for style,bell in (('paper','●'),('retro','•')):
+                for enabled in (False,True):
+                    result=subprocess.run(['/bin/bash',str(ROOT/'shared/bin/tmux-sessionizer'),'--list'],
+                                          env=env|{'TEST_BELL':'1' if enabled else '0','FOX_TMUX_STYLE':style},text=True,capture_output=True,timeout=5)
+                    self.assertEqual(result.returncode,0,result.stderr)
+                    rows=[row.split('\t') for row in result.stdout.splitlines()]
+                    self.assertEqual([row[-1] for row in rows],['active','other'])
+                    self.assertEqual('\x1b[38;2;184;51;106m'+bell in rows[1][1],enabled,f'{style}: the bell on the other session')
+                    self.assertNotIn('\x1b[38;2;184;51;106m'+bell,rows[0][1])
 
     @unittest.skipUnless(shutil.which('tmux'), 'tmux is not installed')
     def test_tmux_bell_dot_uses_existing_window_flag(self):
