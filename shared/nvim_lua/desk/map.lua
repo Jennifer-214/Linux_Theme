@@ -2560,6 +2560,52 @@ local function needs_reader(ctx)
 end
 -- In the pop-out a key is about the box selected there: Enter needs one, a question to the map a function.
 local function needs_selection(ctx) return not (ctx.view and not ctx.item) or 'nothing is selected' end
+-- A trace as a short note to hand to another person (y on a trace): the question, the checkout's revision, the steps
+-- with their file:line, the handoffs it relies on (inferred or hers), the field followed, and her sentence. Pure.
+function M.investigation_md(answer, revision, sentence, field)
+  local steps, calls = answer.steps or {}, answer.calls or {}
+  local focus
+  for _, st in ipairs(steps) do if st.id == answer.focus then focus = st end end
+  local out = { '## How ' .. tostring(focus and focus.label or '?') .. ' is reached, and where it leads', '' }
+  if #steps > 1 then
+    out[#out + 1] = ('A possible path from `%s` (%s) to `%s` (%s), %d functions, at %s.'):format(steps[1].label,
+      answer.start and 'chosen' or 'the farthest start the map found', steps[#steps].label, answer.to and 'chosen' or 'where the calls end',
+      #steps, revision and ('`' .. revision .. '`') or 'an unknown revision')
+    out[#out + 1] = ''
+  end
+  for k, st in ipairs(steps) do
+    local at = st.file and (st.file .. (st.line and (':' .. st.line) or '')) or 'no source'
+    out[#out + 1] = ('%d. `%s` — %s%s'):format(k, st.label, at, st.id == answer.focus and ' (the function asked about)' or '')
+    local c = calls[k]
+    if c and c.kind == 'handoff' then
+      out[#out + 1] = ('   - hands off through %s (%s)'):format(c.label or 'a handoff', c.by_hand and 'added by hand' or 'inferred from the code')
+    elseif c and c.kind == 'none' then
+      out[#out + 1] = '   - no call to the next step: the route came back through a cycle'
+    end
+  end
+  if field then out[#out + 1] = ''; out[#out + 1] = ('Followed: `%s.%s` (matched by name on this route).'):format(field.type, field.name) end
+  if sentence and vim.trim(sentence) ~= '' then out[#out + 1] = ''; out[#out + 1] = vim.trim(sentence) end
+  return table.concat(out, '\n') .. '\n'
+end
+local function sh_ok(root) return type(root) == 'string' and root ~= '' and vim.fn.executable('git') == 1 end
+local function copy_investigation(view, ctx)
+  local top = view.stack[#view.stack]
+  if not (top and top.answer and top.answer.q == 'trace') then return tell('Open a trace first (`t` on a function).') end
+  local out = {}
+  local revision = sh_ok(view.root) and vim.trim(vim.fn.system({ 'git', '-C', view.root, 'rev-parse', '--short', 'HEAD' })) or nil
+  if vim.v.shell_error ~= 0 then revision = nil end
+  local function go(sentence)
+    local md = M.investigation_md(top.answer, revision, sentence, top.field)
+    vim.fn.setreg('"', md)
+    if vim.fn.has('clipboard') == 1 then pcall(vim.fn.setreg, '+', md) end
+    tell('The investigation is copied as Markdown (' .. #vim.split(md, '\n') - 1 .. ' lines).')
+  end
+  local said = ctx and type(ctx.text) == 'string' and ctx.text or nil
+  if said then return go(said) end
+  if view.out then return go('') end
+  vim.ui.input({ prompt = 'A sentence to add (optional): ' }, function(text) if text ~= nil then go(text) end end)
+end
+
 -- A field of a step chosen (Enter on it): her three ways to follow it.
 function M.follow_field(view, t, origin)
   local top = view.stack[#view.stack]
@@ -2755,6 +2801,9 @@ local ROWS = actions.add({
   row('handoff-add', 'a', 'Add a handoff from this step',
     'On a trace: this function hands its data on to the one you name (a queue or a callback the map missed), so the trace goes on through it',
     add_handoff, needs_trace_step, { remote = true, input = { prompt = 'Hands off to: ' } }),
+  row('copy', 'y', 'Copy this investigation as Markdown',
+    'On a trace: its question, the checkout\'s revision, each step with its file:line, the handoffs it relies on and a sentence of yours, as Markdown for a review, an issue or the notebook',
+    copy_investigation, needs_trace, THERE),
   row('symdeps', 'gs', 'This function in symdeps', "The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph",
     in_symdeps, needs_c_function, ON_IT),
   row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_function,

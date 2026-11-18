@@ -362,6 +362,7 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `S` in the map | On a trace: up from the function you name (a thread body, the live path) instead of the farthest start |
 | `x` in the map | On a trace, on a `══[ handoff ]══`: the map inferred it wrongly, so it is dropped (one you added is forgotten). Kept by desk-work outside the checkout, in `~/.config/foxml/desk.d/` |
 | `a` in the map | On a trace: this function hands its data on to the one you name (a queue or a callback the map missed), so the trace goes on through it |
+| `y` in the map | On a trace: its question, the checkout's revision, each step with its file:line, the handoffs it relies on and a sentence of yours, as Markdown for a review, an issue or the notebook |
 | `gs` in the map | The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph |
 | `P` in the map | Every way from one function to another, shortest first |
 | `m` in the map | Show the boxes and calls left out of this page |

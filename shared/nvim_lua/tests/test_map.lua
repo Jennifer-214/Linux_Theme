@@ -488,6 +488,18 @@ do
   local row, l = line_with(page.lines, "publish  a.cpp:9  3 calls")
   eq(row and Map.item_at(page, row, l:find("publish", 1, true)).target.node.id, "a.cpp::publish", "… each a function to open")
 end
+do
+  -- y on a trace: the investigation as Markdown, for another person.
+  local routed = vim.tbl_extend("force", vim.deepcopy(trace_answer), { to = "e.cpp::submit" })
+  routed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick ring", by_hand = false }
+  local md = Map.investigation_md(routed, "abc1234", "The live caller checks it; replay drops it.", { type = "Tick", name = "px" })
+  eq(vim.split(md, "\n"), {
+    "## How tick is reached, and where it leads", "",
+    "A possible path from `hot` (the farthest start the map found) to `submit` (chosen), 3 functions, at `abc1234`.", "",
+    "1. `hot` — e.cpp:12", "2. `tick` — e.cpp:11 (the function asked about)", "   - hands off through tick ring (inferred from the code)", "3. `submit` — e.cpp:10", "",
+    "Followed: `Tick.px` (matched by name on this route).", "", "The live caller checks it; replay drops it.", "" },
+    "the question, the revision, each step with its place, the handoff relied on and how it was found, the field, her sentence")
+end
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11, to_line = 20 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)
@@ -511,7 +523,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "y", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -969,6 +981,13 @@ do
     ok(vim.wait(1000, function() return api.nvim_win_get_cursor(0)[1] == 30 end), "who writes it: symdeps' write sites, the one chosen opened")
     package.loaded["fox-symdeps"], package.loaded["fox-symdeps.writers"] = nil, nil
     api.nvim_set_current_win(view.win)
+    -- y: the investigation copied, her sentence in it.
+    vim.fn.setreg('"', "")
+    vim.ui.input = function(opts, done) eq(opts.prompt, "A sentence to add (optional): ", "y asks for her sentence"); done("Checked the live path.") end
+    press("y")
+    local copied = vim.fn.getreg('"')
+    ok(copied:find("## How tick is reached", 1, true) and copied:find("Checked the live path.", 1, true) and copied:find("e.cpp:11 (the function asked about)", 1, true),
+      "y: the investigation copied as Markdown: " .. copied:sub(1, 200))
     vim.ui.select = real_select
     vim.notify, vim.ui.input, Map.desk_work = real_notify, real_input, inner
     trace_answer.calls[2] = saved_call
@@ -1233,7 +1252,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.expand", "map.handoff-add", "map.handoff-drop", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
+eq(remote_ids, { "map.callers", "map.centre", "map.copy", "map.down", "map.expand", "map.handoff-add", "map.handoff-drop", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
   "the pop-out can show more and retains its existing navigation keys")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do
