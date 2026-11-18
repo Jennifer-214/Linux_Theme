@@ -48,9 +48,9 @@ end
 
 P.kind({ name = 'symdeps', title = "symdeps' board", menu = "Pop out symdeps' board", surface = 'symdeps',
   about = "symdeps' board, its cards at the pop-out's width", render = render,
-  -- What fox-symdeps' ctx_for gives (its popout.lua M.ctx_for: { win, origin, sel }): no surface of its own; the pop-out's
-  -- editor side puts the kind's on it (2026-11-17: with this stand-in naming it, its keys were tested where the real
-  -- plugin's did nothing).
+  -- What fox-symdeps' ctx_for gives (its popout.lua M.ctx_for: { win, origin, sel }): no surface of its own; the
+  -- pop-out's editor side puts the kind's on it (2026-11-17: with this stand-in naming it, its keys were tested where
+  -- the real plugin's did nothing).
   ctx_for = function(_, ref) return { sel = ref } end,
   open = function(view) T.live = view end,
   attach = function(view) if T.live == view then T.attached = view.id end end,

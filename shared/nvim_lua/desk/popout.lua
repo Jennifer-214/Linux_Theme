@@ -1453,9 +1453,9 @@ end
 local function from_pop(msg) return pops[msg.pop or 1] end
 
 -- The pop-out, view, generation and item an ask names, as a ctx for the action registry: its kind's ctx_for (what that
--- surface's rows read) on the view's surface (the kind's, where ctx_for names none), with ctx.pop (the pop-out's id), ctx.view, ctx.item (the item's
--- ref), ctx.index, ctx.remote and the window's own surface (ctx.also). A view drawn again since refuses: its items are
--- not the ones the pop-out saw.
+-- surface's rows read) on the view's surface (the kind's, where ctx_for names none), with ctx.pop (the pop-out's id),
+-- ctx.view, ctx.item (the item's ref), ctx.index, ctx.remote and the window's own surface (ctx.also). A view drawn
+-- again since refuses: its items are not the ones the pop-out saw.
 local function remote_ctx(msg)
   if exiting() then return nil, 'this editor is closing' end
   local p = from_pop(msg)
@@ -2345,7 +2345,9 @@ local function bind_standins(view, described)
   end
   if type(described) ~= 'table' or not api.nvim_buf_is_valid(view.buf) then return end
   local surface, held = view.standin, false
-  for _, d in ipairs(described) do held = held or (type(d) == 'table' and type(d.on) == 'table' and vim.tbl_contains(d.on, surface)) end
+  for _, d in ipairs(described) do
+    held = held or (type(d) == 'table' and type(d.on) == 'table' and vim.tbl_contains(d.on, surface))
+  end
   if not held then return end
   view.standin = nil
   view.rows = actions.popout_rows(surface, described)

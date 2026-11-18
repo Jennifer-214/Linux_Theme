@@ -741,8 +741,9 @@ eq(pop("return { vim.fn.maparg('w', 'n'), vim.fn.maparg('z', 'n'), vim.fn.maparg
   "… not its drawn row (that needs its module) nor the editor's own, and f stays the pop-out's")
 eq(state().keyline, ' c compare ', '… its key line names its keys')
 -- h and l as on the board in the editor (her ask, 2026-11-17: "l and h dont open and close stuff either in the symdeps
--- popout, it should basically mirror functionality of how it functions in the editor"): fold and open, with <Left> and l
--- the second keys of fold and open; j and k stay the pop-out's own row moves, though the editor's board has a row on j.
+-- popout, it should basically mirror functionality of how it functions in the editor"): fold and open, with <Left>
+-- and l the second keys of fold and open; j and k stay the pop-out's own row moves, though the editor's board has a row
+-- on j.
 eq(pop("local out = {}; for _, k in ipairs({ 'l', 'h', '<Left>', 'j', 'k' }) do out[#out + 1] = vim.fn.maparg(k, 'n', false, true).desc or '' end; return out"),
   { 'Open the card', 'Fold the card', 'Fold the card', '', '' }, '… l opens and h folds there, as in the editor; j and k stay its row moves')
 local described = door({ version = 1, type = 'describe', view = 'symdeps', gen = state().gen, item = state().index, deadline = later(5000) })

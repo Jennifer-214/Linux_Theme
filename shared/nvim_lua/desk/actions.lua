@@ -530,8 +530,8 @@ end
 
 -- A row of the editor's as describe gave it (plain data), standing in for it in a pop-out that cannot load its
 -- surface's module: the same id, key, name, words and input, in a menu and a key list as there (menu, doc), on
--- `surface`, remote (the pop-out's press sends it to the editor). nil when it is not a keyed remote row of that surface,
--- or this registry has the row itself.
+-- `surface`, remote (the pop-out's press sends it to the editor). nil when it is not a keyed remote row of that
+-- surface, or this registry has the row itself.
 local function standin(d, surface)
   if type(d) ~= 'table' or type(d.id) ~= 'string' or not d.id:match('^[%w_-]+%.[%w_.-]+$') or by_id[d.id] then return nil end
   if type(d.key) ~= 'string' or d.key == '' or #d.key > 32 or type(d.name) ~= 'string' or d.name == '' then return nil end
