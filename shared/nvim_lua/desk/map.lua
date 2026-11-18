@@ -1171,9 +1171,14 @@ function M.byte_map(rec, touched, retro, cap)
 end
 -- A list on a card's line, a part per name ("px · ts · seq"), its first part marked to wrap under (a card wraps such a
 -- line between the names instead of cutting it).
-local function listed(names, group)
+-- item(n): a name's hit (a field of a step's parameter: Enter follows it), or nil.
+local function listed(names, group, item, lit)
   local parts = {}
-  for i, n in ipairs(names) do parts[#parts + 1] = { n .. (i < #names and ' · ' or ''), nil, nil, group, hang = i == 1 } end
+  for i, n in ipairs(names) do
+    local hit = item and item(n) or nil
+    local mark = lit and lit(n) and (lit(n) .. ' ') or ''
+    parts[#parts + 1] = { mark .. n .. (i < #names and ' · ' or ''), hit, nil, (mark ~= '' and 'DeskMapFocus') or group, hang = i == 1 }
+  end
   return parts
 end
 -- A layout's shape, to tell a template's versions apart: the same size and members are one layout.
@@ -1267,13 +1272,29 @@ function M.false_sharing(steps, calls, layouts)
   return out
 end
 -- layouts: symdeps' census of a step's file, by file: { records } | { pending = true } | { error = why }.
-function M.trace_page(answer, folds, layouts)
+-- field: { type, name } a field followed on this route (her pick: Enter on it, "highlight on this route").
+function M.trace_page(answer, folds, layouts, field)
   folds, layouts = folds or {}, layouts or {}
   local retro = M.retro()
   -- code page 437 has no ▸ ▾ …: DOS's tree marks in retro
   local open_mark, closed_mark, ellipsis = retro and '- ' or '▾ ', retro and '+ ' or '▸ ', retro and '..' or '…'
   local steps, calls = answer.steps or {}, answer.calls or {}
   local sharing = M.false_sharing(steps, calls, layouts)
+  local mark = M.retro() and '♦' or '◆'
+  -- A field of a step's parameter, a hit: Enter follows it (its declaration, who writes it, on this route).
+  local st_now
+  local function field_hit(prm)
+    local t = base_type(prm.type)
+    return function(path)
+      local head = path:match('^[^.]+')
+      return { name = (t or '?') .. '.' .. head, key = 'field:' .. tostring(st_now and st_now.id) .. ':' .. prm.name .. ':' .. head,
+        target = { kind = 'field', type = t, field = head, param = prm.name, step = st_now } }
+    end
+  end
+  local function field_lit(prm)
+    local t = base_type(prm.type)
+    return function(path) return field and t == field.type and path:match('^[^.]+') == field.name and mark or nil end
+  end
   local focus
   for _, st in ipairs(steps) do if st.id == answer.focus then focus = st end end
   local sections = { { head = 'trace through ' .. code(focus and focus.label) .. ' · ' .. #steps .. (#steps == 1 and ' function' or ' functions') } }
@@ -1289,7 +1310,24 @@ function M.trace_page(answer, folds, layouts)
     sections[#sections + 1] = { parts = { { answer.start:gsub('^.*::', '') .. ' does not lead to ' .. (focus and focus.label or '?') .. ' within '
       .. (answer.depth or '?') .. ' calls' } }, group = 'DeskMapDim' }
   end
+  if field then
+    -- The field followed on this route: who writes it, who reads it (matched by name within its struct: the trace knows
+    -- the fields' names, not which object each step holds).
+    local wrote, read = {}, {}
+    for _, st in ipairs(steps) do
+      for _, prm in ipairs(st.params or {}) do
+        if base_type(prm.type) == field.type then
+          for _, path in ipairs(prm.writes or {}) do if path:match('^[^.]+') == field.name and not vim.tbl_contains(wrote, st.label) then wrote[#wrote + 1] = st.label end end
+          for _, path in ipairs(prm.reads or {}) do if path:match('^[^.]+') == field.name and not vim.tbl_contains(read, st.label) then read[#read + 1] = st.label end end
+        end
+      end
+    end
+    sections[#sections + 1] = { block = { { { mark .. ' ' .. field.type .. '.' .. field.name, nil, nil, 'DeskMapFocus' },
+      { ' on this route: written by ' .. (#wrote > 0 and table.concat(wrote, ', ') or 'none') .. ' · read by ' .. (#read > 0 and table.concat(read, ', ') or 'none')
+        .. ' (by name, within ' .. field.type .. ')', nil, true, 'DeskMapDim' } } } }
+  end
   for k, st in ipairs(steps) do
+    st_now = st
     local body = {}
     local size = st.lines and (st.lines .. (st.lines == 1 and ' line' or ' lines')) or nil
     local first = {}
@@ -1332,11 +1370,11 @@ function M.trace_page(answer, folds, layouts)
       for _, prm in ipairs(used) do
         local name = prm.name .. string.rep(' ', wname - vim.fn.strdisplaywidth(prm.name))
         if #(prm.reads or {}) > 0 then
-          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  reads   ', nil, true, 'DeskMapDim' } }, listed(prm.reads))
+          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  reads   ', nil, true, 'DeskMapDim' } }, listed(prm.reads, nil, field_hit(prm), field_lit(prm)))
           name = string.rep(' ', wname)
         end
         if #(prm.writes or {}) > 0 then
-          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  writes  ', nil, true, 'DeskMapDim' } }, listed(prm.writes, 'DeskMapFocus'))
+          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  writes  ', nil, true, 'DeskMapDim' } }, listed(prm.writes, 'DeskMapFocus', field_hit(prm), field_lit(prm)))
         end
       end
       return rows
@@ -1467,7 +1505,7 @@ function M.trace_page(answer, folds, layouts)
 end
 
 function M.level_query(answer, all, level)
-  if answer.q == 'trace' then return M.trace_page(answer, level and level.folds, level and level.layouts) end
+  if answer.q == 'trace' then return M.trace_page(answer, level and level.folds, level and level.layouts, level and level.field) end
   local sections = {}
   if answer.q == 'paths' then
     local by = node_index(answer)
@@ -1990,6 +2028,10 @@ local function enter(view, ctx)
       if picked and view.stack[#view.stack] == picked then table.remove(view.stack); load(view) end
       for _, place in ipairs(places) do if place.id == id then jump(view, place, origin) end end
     end)
+  elseif t.kind == 'field' then
+    ctx = ctx or {}
+    ctx.stayed = true
+    M.follow_field(view, t, ctx.origin)
   elseif t.kind == 'pick' then
     -- A name chosen on the pick page: the question asked again with its id, in the page's place.
     local top = view.stack[#view.stack]
@@ -2494,6 +2536,63 @@ local function needs_reader(ctx)
 end
 -- In the pop-out a key is about the box selected there: Enter needs one, a question to the map a function.
 local function needs_selection(ctx) return not (ctx.view and not ctx.item) or 'nothing is selected' end
+-- A field of a step chosen (Enter on it): her three ways to follow it.
+function M.follow_field(view, t, origin)
+  local top = view.stack[#view.stack]
+  local function at_use()
+    -- the field's first use in the step's code (`t.px`, `t->px`), where the language server can be asked about it
+    local st = t.step
+    if not (st and st.file and st.line) then return nil end
+    local path = view.root .. '/' .. st.file
+    local lines = vim.fn.readfile(path)
+    for l = st.line, math.min(#lines, st.line + math.max(1, st.lines or 200) - 1) do
+      local col = lines[l]:find('[%.>]' .. vim.pesc(t.field) .. '%f[^%w_]')
+      if col then return { file = st.file, line = l, col = col } end
+    end
+  end
+  local choices = {
+    { id = 'route', label = 'highlight it on this route' },
+    { id = 'decl', label = 'show its declaration (the language server)' },
+    { id = 'writers', label = 'show who writes it (symdeps)' },
+  }
+  choose(view, { message = t.type .. '.' .. t.field .. ': follow it how?', candidates = choices }, function(id, picked)
+    if picked and view.stack[#view.stack] == picked then table.remove(view.stack) end
+    if id == 'route' then
+      top.field = { type = t.type, name = t.field }
+      return load(view)
+    end
+    load(view)
+    local use = at_use()
+    if not use then return tell('No use of ' .. t.field .. ' found in ' .. tostring(t.step and t.step.label) .. "'s code.") end
+    if not jump(view, { file = use.file, line = use.line, label = t.field }, origin) then return end
+    pcall(api.nvim_win_set_cursor, 0, { use.line, use.col })
+    local buf = api.nvim_get_current_buf()
+    if id == 'decl' then
+      if #vim.lsp.get_clients({ bufnr = buf }) == 0 then return tell('Requires a language server attached to ' .. use.file .. '.') end
+      return vim.lsp.buf.definition()
+    end
+    local has, writers = pcall(require, 'fox-symdeps.writers')
+    if not (actions.symdeps() and has and type(writers) == 'table' and type(writers.for_symbol) == 'function') then
+      return tell('Requires symdeps (an optional plugin for C and C++).')
+    end
+    writers.for_symbol({ bufnr = buf, line = use.line, col = use.col }, function(got, state)
+      vim.schedule(function()
+        if not got then return tell(state == 'no_client' and 'symdeps needs the language server attached; try again in a moment.' or ('No writes of ' .. t.field .. ' found.')) end
+        local places = {}
+        for i, site in ipairs(got.sites or {}) do
+          local rel = vim.fs.relpath and vim.fs.relpath(view.root, site.file) or site.file
+          places[#places + 1] = { id = tostring(i), label = tostring(site.scope) .. ' writes ' .. t.field, file = rel or site.file, line = site.line }
+        end
+        if #places == 0 then return tell('Nothing writes ' .. t.field .. ' (' .. (got.reads or 0) .. ' reads).') end
+        choose(view, { message = #places .. ' writes of ' .. t.type .. '.' .. t.field .. ':', candidates = places }, function(pid, p2)
+          if p2 and view.stack[#view.stack] == p2 then table.remove(view.stack); load(view) end
+          for _, place in ipairs(places) do if place.id == pid then jump(view, place, origin) end end
+        end)
+      end)
+    end)
+  end)
+end
+
 local function needs_function(ctx)
   local why = needs_map(ctx)
   if why ~= true or not ctx.view then return why end
@@ -2779,6 +2878,8 @@ function M.strip_text(item, G)
   elseif t.kind == 'handoff' then
     return { G.said('handoff ') .. tostring(item.name) .. G.said(t.by_hand and ' — added by you' or ' — inferred from the code'),
       typed('in') .. ' ' .. G.said('opens its producer or consumer') .. ' · ' .. typed('handoff-drop') .. ' ' .. G.said(t.by_hand and 'forgets it' or 'drops it (it is wrong)') }
+  elseif t.kind == 'field' then
+    return { tostring(item.name), typed('in') .. ' ' .. G.said('follows it: its declaration, who writes it, or on this route') }
   elseif t.kind == 'call' then
     local n = #(t.sites or {})
     return { tostring(t.caller) .. ' → ' .. tostring(t.callee) .. G.said(n > 1 and (' — ' .. n .. ' calls') or ''),

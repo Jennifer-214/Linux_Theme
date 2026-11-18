@@ -908,6 +908,46 @@ do
     eq(offered, { "where it is handed over: tick  e.cpp:11", "where it is taken: submit  e.cpp:20" }, "Enter on a handoff: its producer and its consumer")
     ok(vim.wait(1000, function() return vim.endswith(api.nvim_buf_get_name(0), "/e.cpp") and api.nvim_win_get_cursor(0)[1] == 20 end), "… the consumer opened at the pop")
     api.nvim_set_current_win(view.win)
+    -- A field in a step's uses: Enter follows it — on this route, its declaration, who writes it.
+    local code_lines = vim.fn.readfile(view.root .. "/e.cpp")
+    code_lines[15] = "  return t.px > 0;"
+    vim.fn.writefile(code_lines, view.root .. "/e.cpp")
+    for _, b in ipairs(api.nvim_list_bufs()) do if vim.endswith(api.nvim_buf_get_name(b), "/e.cpp") then pcall(vim.cmd, "checktime " .. b) end end
+    local choice_of
+    vim.ui.select = function(items, opts, done)
+      offered = vim.tbl_map(opts.format_item, items)
+      for _, it in ipairs(items) do if it.id == choice_of then return done(it) end end
+      done(items[1])
+    end
+    local function on_px()
+      local r, l = line_with(view.drawn.lines, "reads   px")
+      if not r then r, l = line_with(view.drawn.lines, "reads   ◆ px") end
+      api.nvim_win_set_cursor(view.win, { r, (l:find("px", l:find("reads", 1, true), true)) - 1 })
+    end
+    on_px()
+    choice_of = "route"
+    press("<CR>")
+    eq(offered and #offered, 3, "Enter on a field: three ways to follow it")
+    ok(vim.wait(1000, function() return line_with(view.drawn.lines, "◆ Tick.px") and line_with(view.drawn.lines, "on this route: written by none · read by tick (by name, within Tick)") end),
+      "on this route: the field marked, who writes and reads it said (by name): " .. table.concat(view.drawn.lines, "\n"):sub(1, 400))
+    ok(line_with(view.drawn.lines, "reads   ◆ px"), "… and marked where each step reads or writes it")
+    said = {}
+    on_px()
+    choice_of = "decl"
+    press("<CR>")
+    ok(vim.wait(1000, function() return vim.endswith(api.nvim_buf_get_name(0), "/e.cpp") and api.nvim_win_get_cursor(0)[1] == 15 end), "its declaration: the field's use in the step's code first")
+    ok(vim.iter(said):any(function(m) return m:find("Requires a language server", 1, true) ~= nil end), "… and without a language server, says so")
+    api.nvim_set_current_win(view.win)
+    package.loaded["fox-symdeps"] = {}
+    package.loaded["fox-symdeps.writers"] = { for_symbol = function(ctx2, cb)
+      cb({ sites = { { file = view.root .. "/e.cpp", line = 30, scope = "feed" } }, reads = 2 }, "ok")
+    end }
+    on_px()
+    choice_of = "writers"
+    press("<CR>")
+    ok(vim.wait(1000, function() return api.nvim_win_get_cursor(0)[1] == 30 end), "who writes it: symdeps' write sites, the one chosen opened")
+    package.loaded["fox-symdeps"], package.loaded["fox-symdeps.writers"] = nil, nil
+    api.nvim_set_current_win(view.win)
     vim.ui.select = real_select
     vim.notify, vim.ui.input, Map.desk_work = real_notify, real_input, inner
     trace_answer.calls[2] = saved_call
