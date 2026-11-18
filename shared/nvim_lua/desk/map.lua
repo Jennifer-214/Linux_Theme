@@ -1024,6 +1024,11 @@ local PASS_WORD = { value = 'value', ['const ref'] = 'const ref', ref = 'ref', r
   ['const pointer'] = 'const ptr', array = 'array', ['const array'] = 'const array', smart = 'smart ptr' }
 -- folds: the page's open and closed folds by step and fold ("<id>|params"); a fold not named is as FOLDS_OPEN says.
 local FOLDS_OPEN = { params = true, uses = false, layout = false, callers = false, callees = false }
+-- ▲ and ▼ on a card: Enter opens the map's callers (everything above it) or reach (everything below) page from that
+-- step, in layers as the call graph has them (+ and - add and take off a level), Backspace back to the trace.
+local function walk_item(st, q, count)
+  return { name = (q == 'callers' and '▲ ' or '▼ ') .. count, target = { kind = 'walk', q = q, node = st }, key = 'walk:' .. q .. ':' .. st.id }
+end
 local function fold_item(id, name, open, count)
   return { name = name, target = { kind = 'fold', fold = id .. '|' .. name }, key = 'fold:' .. id .. '|' .. name, open = open, count = count }
 end
@@ -1041,7 +1046,8 @@ function M.trace_page(answer, folds, layouts)
   for _, st in ipairs(steps) do if st.id == answer.focus then focus = st end end
   local sections = { { head = 'trace through ' .. code(focus and focus.label) .. ' · ' .. #steps .. (#steps == 1 and ' function' or ' functions') } }
   if focus and focus.before then
-    sections[#sections + 1] = { block = { { { '▲ ' .. focus.before .. ' before · ▼ ' .. (focus.after or 0) .. ' after it in the map', nil, true } } }, group = 'DeskMapDim' }
+    sections[#sections + 1] = { block = { { { '▲ ' .. focus.before, walk_item(focus, 'callers', focus.before) }, { ' before · ', nil, true },
+      { '▼ ' .. (focus.after or 0), walk_item(focus, 'reach', focus.after or 0) }, { ' after it in the map', nil, true } } }, group = 'DeskMapDim' }
   end
   if answer.to and answer.reached == false then
     sections[#sections + 1] = { parts = { { (focus and focus.label or '?') .. ' does not reach ' .. answer.to:gsub('^.*::', '') .. ' within '
@@ -1057,7 +1063,12 @@ function M.trace_page(answer, folds, layouts)
     local first = {}
     if st.returns then first[#first + 1] = { '→ ' .. st.returns } end
     if size then first[#first + 1] = { (#first > 0 and ' · ' or '') .. size, nil, true, 'DeskMapDim' } end
-    if st.before then first[#first + 1] = { (#first > 0 and ' · ' or '') .. '▲ ' .. st.before .. ' ▼ ' .. (st.after or 0), nil, nil, 'DeskMapDim' } end
+    if st.before then
+      if #first > 0 then first[#first + 1] = { ' · ', nil, nil, 'DeskMapDim' } end
+      first[#first + 1] = { '▲ ' .. st.before, walk_item(st, 'callers', st.before) }
+      first[#first + 1] = { ' ' }
+      first[#first + 1] = { '▼ ' .. (st.after or 0), walk_item(st, 'reach', st.after or 0) }
+    end
     if #first > 0 then body[#body + 1] = first end
     local function fold(name, title, count, rows)
       if count == 0 then return end
@@ -1613,6 +1624,7 @@ end
 -- The box a key is about: in the pop-out the one selected there (ctx.item), here the one under the cursor.
 local function about_item(view, ctx) if view.out then return ctx and ctx.item end; return here(view) end
 
+local query   -- defined below (a page asked of desk-work); Enter on a trace's ▲ and ▼ asks one
 local function enter(view, ctx)
   local item = about_item(view, ctx)
   local t = item and item.target
@@ -1623,6 +1635,9 @@ local function enter(view, ctx)
   elseif t.kind == 'file' then push(view, { kind = 'functions', module = t.module, file = t.file }, item.key)
   elseif t.kind == 'class' then push(view, { kind = 'class', module = t.module, file = t.file, id = t.id, name = item.name, node = t.node }, item.key)
   elseif t.kind == 'node' then jump(view, t.node, ctx and ctx.origin)
+  elseif t.kind == 'walk' then
+    -- The map's callers or reach page from that step (3 levels; + and - change it), a page of its own.
+    query(view, { '--q', t.q, '--from', t.node.id, '--depth', '3' }, item.key)
   elseif t.kind == 'fold' then
     -- A trace's fold: open or closed, kept with the page, the cursor (the pop-out's selection) staying on its header.
     local top = view.stack[#view.stack]
@@ -1670,7 +1685,7 @@ end
 -- asks which one, then asks desk-work again with its id (in the pop-out the reason is said instead: what she names
 -- there is asked once). from: the box it was asked from, in the pop-out. again: r on that answer's page: the new
 -- answer replaces it.
-local function query(view, args, from, again)
+query = function(view, args, from, again)
   local full = { 'map', 'query', '--root', view.root }
   vim.list_extend(full, args)
   view.asked = (view.asked or 0) + 1

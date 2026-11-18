@@ -269,6 +269,10 @@ ok(line_with(traced.lines, "trace through `tick` · 3 functions") or line_with(t
 ok(line_with(traced.lines, "╔═ tick ") and line_with(traced.lines, " e.cpp:11 ═╗"), "a card per step: the function it goes through double, its name and place in the top border")
 ok(line_with(traced.lines, "║ → bool · 32 lines · ▲ 41 ▼ 23"), "… what it returns, how big it is, how many come before and after it")
 ok(line_with(traced.lines, "▲ 41 before · ▼ 23 after it in the map"), "the function it goes through: before and after, under the heading")
+local up_row, up_line = line_with(traced.lines, "▲ 41 ▼ 23")
+eq(up_row and Map.item_at(traced, up_row, up_line:find("▲ 41", 1, true)).target, { kind = "walk", q = "callers", node = trace_answer.steps[2] },
+  "▲ on a card: Enter opens what comes before it")
+eq(up_row and Map.item_at(traced, up_row, up_line:find("▼ 23", 1, true)).target.q, "reach", "… ▼ what comes after it")
 ok(line_with(traced.lines, "║ ▾ uses (1)") and line_with(traced.lines, "║     t  reads   px · ts") and line_with(traced.lines, "║        writes  seq"),
   "what it reads and writes of each parameter, open on the function it goes through")
 ok(line_with(traced.lines, "║ ▸ layout (1)"), "… and its layout, folded until asked")
@@ -657,6 +661,21 @@ do
   press("e")
   ok(vim.wait(1000, function() return #traced_args == 2 and #view.stack == depth_before + 2 end), "e: asked again, its answer a page of its own")
   ok(traced_args[2] and traced_args[2]:find("--from e.cpp::tick --to submit", 1, true), "… from the same function, down to the one named: " .. tostring(traced_args[2]))
+  -- Enter on ▲: the callers page from that step, three levels, a page of its own (Backspace back).
+  local walked
+  local fake_trace = Map.desk_work
+  Map.desk_work = function(args, done)
+    if args[2] == "query" and args[6] == "callers" then walked = table.concat(args, " ") end
+    return fake_trace(args, done)
+  end
+  local up_row2, up_line2 = line_with(view.drawn.lines, "▲ 41 ▼ 23")
+  api.nvim_win_set_cursor(view.win, { up_row2, (up_line2:find("▲ 41", 1, true)) })
+  press("<CR>")
+  ok(vim.wait(1000, function() return walked ~= nil end), "Enter on ▲: the callers page asked")
+  ok(walked and walked:find("--q callers --from e.cpp::tick --depth 3", 1, true), "… from that step, three levels: " .. tostring(walked))
+  Map.desk_work = fake_trace
+  vim.wait(200, function() return false end)
+  if #view.stack > depth_before + 2 then press("<BS>") end
   -- S: the same trace up from a start she names, the end she chose kept.
   trace_answer.to = "submit"
   vim.ui.input = function(opts, done) eq(opts.prompt, "Trace from: ", "S asks where from"); done("hot") end
