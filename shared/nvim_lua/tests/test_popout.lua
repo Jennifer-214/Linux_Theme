@@ -713,12 +713,29 @@ host("require('tests.popout_board')")
 eq(host([[local A = require('desk.actions'); local r = A.get('popout.view.symdeps')
   return { r.name, A.available(r, A.context()), #vim.tbl_filter(function(x) return x.id == 'popout.view.symdeps' end, A.rows()) }]]),
   { "Pop out symdeps' board", true, 1 }, "its kind registers: the row is its kind's, still one, and it can open")
+-- The editor's first answer holds none of the board's rows (as when they were not there yet): the pop-out asks again
+-- with the next drawing (2026-11-17: it asked once, and kept the window's own keys only).
+host([[local A = require('desk.actions')
+  local real = A.describe
+  _G.board_test.real_describe, _G.board_test.hide, _G.board_test.asked = real, true, {}
+  A.describe = function(ctx)
+    local rows = real(ctx)
+    if ctx.view and ctx.view.kind == 'symdeps' then
+      if _G.board_test.hide then rows = vim.tbl_filter(function(r) return not r.id:match('^symdeps%.') end, rows) end
+      table.insert(_G.board_test.asked, #vim.tbl_filter(function(r) return r.id:match('^symdeps%.') ~= nil end, rows))
+    end
+    return rows
+  end]])
 host("local A = require('desk.actions'); A.get('popout.view.symdeps').run(A.context())")
 ok(wait(3000, function() return state().kind == 'symdeps' and state().selected == 'Order' end), "symdeps' board comes to the pop-out")
 eq(pop("local A = require('desk.actions'); return { package.loaded['tests.popout_board'] == nil, A.SURFACES.symdeps == nil, A.get('symdeps.compare') == nil }"),
   { true, true, true }, '… which has neither its module, nor its surface, nor its rows')
+ok(wait(3000, function() return #host('return _G.board_test.asked') >= 1 end), "… it asks the editor for the board's keys")
+eq(host('return _G.board_test.asked[1]'), 0, '… and the first answer holds none of them')
+host("_G.board_test.hide = nil; local P = require('desk.popout'); P.redraw(P.host.views.symdeps)")
 ok(wait(3000, function() return pop("return vim.fn.maparg('c', 'n', false, true).desc") == 'Compare the card' end),
-  "… its keys bound from the editor's describe")
+  "… asked again with the next drawing: its keys bound from the editor's describe")
+host("require('desk.actions').describe = _G.board_test.real_describe")
 eq(pop("return { vim.fn.maparg('w', 'n'), vim.fn.maparg('z', 'n'), vim.fn.maparg('f', 'n', false, true).desc, vim.fn.maparg('n', 'n', false, true).desc }"),
   { '', '', 'Go to it, in the editor', 'Note on the card' },
   "… not its drawn row (that needs its module) nor the editor's own, and f stays the pop-out's")

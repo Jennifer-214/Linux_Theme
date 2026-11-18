@@ -2331,7 +2331,9 @@ end
 
 -- The keys of a view whose surface this window cannot load (view.standin): that surface's remote rows as the editor
 -- describes them, bound as stand-ins that run there (actions.popout_rows). Asked once it is drawn, and again with each
--- drawing until the editor answers (busy, or the view drawn again meanwhile); Space Space's answer binds them too.
+-- drawing until the editor answers with rows of that surface (busy, the view drawn again meanwhile, or none of its rows
+-- in the answer: they were not there yet, or the editor could not tell what was selected); Space Space's answer binds
+-- them too.
 local function bind_standins(view, described)
   if not view.standin or view.binding or C.views[view.id] ~= view then return end
   if not described then
@@ -2342,7 +2344,9 @@ local function bind_standins(view, described)
     described = answer.rows
   end
   if type(described) ~= 'table' or not api.nvim_buf_is_valid(view.buf) then return end
-  local surface = view.standin
+  local surface, held = view.standin, false
+  for _, d in ipairs(described) do held = held or (type(d) == 'table' and type(d.on) == 'table' and vim.tbl_contains(d.on, surface)) end
+  if not held then return end
   view.standin = nil
   view.rows = actions.popout_rows(surface, described)
   bind(view, surface)
