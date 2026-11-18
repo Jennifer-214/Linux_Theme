@@ -780,6 +780,7 @@ ok(keys:find('Enter%s+Open the card') and keys:find('c%s+Compare the card') and 
   and not keys:find('Wider sections', 1, true), "… its stand-ins and the window's own:\n" .. keys)
 eq({ select(2, keys:gsub('Open the card', '')), select(2, keys:gsub('Fold the card', '')) }, { 1, 1 },
   '… open and fold once each: their second keys are in no key list')
+eq(select(2, keys:lower():gsub('── pop%-out ──', '')), 1, "… the window's own keys under one heading:\n" .. keys)
 press('q')
 ok(wait(2000, function() return state().current_win == state().win end), '… q closes the list')
 -- f: what Enter does there (the board's Enter row, in the editor), then the keyboard to the editor (2026-11-17: on the

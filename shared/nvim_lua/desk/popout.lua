@@ -2905,8 +2905,6 @@ local ROWS = actions.add({
       C.closing = 'closed'
       vim.cmd('qa!')
     end },
-  { id = 'popout.home', group = 'Home', name = 'Home menu', key = '<leader><leader>', on = ON, menu = false,
-    about = 'The home menu for the selected box or row: the views, what the editor can do with it, and this window', run = function() M.client_home() end },
   -- symdeps' two keys in the editor, here: each does what it does there, or says why not (her ask, 2026-11-17: "there
   -- needs to be like some consistency between what works in the popout, and wat works in the actual editor"). symdeps
   -- never loads in a pop-out (init.lua's spec), so its menu key is this window's menu, which has the board's rows.
@@ -2916,6 +2914,8 @@ local ROWS = actions.add({
   { id = 'popout.symdeps-card', group = 'Pop-out', name = "symdeps' card: not here", key = '<leader>dd', on = ON, menu = false,
     about = "symdeps' card key: here it says why not (on symdeps' board, the card is the one drawn; elsewhere symdeps runs in the editor, `Space Tab` away)",
     run = function() say(no_card_here(), WARN) end },
+  { id = 'popout.home', group = 'Home', name = 'Home menu', key = '<leader><leader>', on = ON, menu = false,
+    about = 'The home menu for the selected box or row: the views, what the editor can do with it, and this window', run = function() M.client_home() end },
 })
 for _, row in ipairs(ROWS) do if row.id == 'popout.restore' then RESTORE = row end end
 

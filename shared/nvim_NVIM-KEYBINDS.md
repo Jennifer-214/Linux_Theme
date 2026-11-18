@@ -335,9 +335,9 @@ the keyboard stays in the pop-out; `f` or Shift+Enter puts the keyboard here too
 | `?` in the pop-out | The keys of this view in the pop-out, in a list |
 | `Space Tab` in the pop-out | Put the keyboard in the next pop-out, and from the last one in the editor (with one pop-out: the editor); the same key in the editor comes to the first |
 | `q` in the pop-out | Close this view; closing the last one closes the pop-out, and the keyboard comes back to the editor |
-| `Space Space` in the pop-out | The home menu for the selected box or row: the views, what the editor can do with it, and this window |
 | `Space dm` in the pop-out | symdeps' menu key: here, this window's menu for the view in front, as `Space Space` (on symdeps' board, its rows) |
 | `Space dd` in the pop-out | symdeps' card key: here it says why not (on symdeps' board, the card is the one drawn; elsewhere symdeps runs in the editor, `Space Tab` away) |
+| `Space Space` in the pop-out | The home menu for the selected box or row: the views, what the editor can do with it, and this window |
 <!-- popout-keys:end -->
 
 The project map (desk.map): the whole checkout as boxes, rebuilt only when asked. "In the map" means its tab, one per
