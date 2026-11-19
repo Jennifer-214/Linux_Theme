@@ -512,8 +512,8 @@ eq({ G.target_at(dir .. "/no-such-file.lua", 1) }, { nil, "that file is no longe
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", ">", "m", "r", "q", "gs", "t", "gl", "o" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", ">", "m", "r", "gs", "t", "p", "q", "gl", "o" }, "the panel's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", "I", ">", "m", "r", "q", "gs", "t", "gl", "o" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", "I", ">", "m", "r", "gs", "t", "p", "q", "gl", "o" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do
@@ -942,6 +942,39 @@ do
   eq({ dimmed('Book::insert'), dimmed('Book::apply'), dimmed('Engine::tick'), dimmed('Risk::check'), dimmed('Risk::limit') },
     { true, true, true, false, false }, 'Risk::limit selected: its caller stays lit, the others dim')
   api.nvim_buf_delete(buf, { force = true })
+end
+
+-- ─── I: the possible implementations of a virtual function (Codex's C8) ─────────────────────────────────────
+do
+  local d = vim.fn.tempname()
+  vim.fn.mkdir(d, 'p')
+  vim.fn.writefile({ 'struct Sink { virtual void send(int) = 0; };', 'struct Wire : Sink { void send(int) override; };', 'struct Log : Sink { void send(int) override; };' }, d .. '/sink.hpp')
+  local u = vim.uri_from_fname(d .. '/sink.hpp')
+  local function at(line, ch) return { start = { line = line, character = ch }, ['end'] = { line = line, character = ch + 4 } } end
+  local places = G.implementations({ { uri = u, range = at(1, 26) }, { targetUri = u, targetSelectionRange = at(2, 25), targetRange = at(2, 0) }, { uri = u, range = at(1, 26) } },
+    function(file, line) return vim.fn.readfile(file)[line] end)
+  eq(vim.tbl_map(function(p) return { p.line, p.col, p.label } end, places), {
+    { 2, 26, 'struct Wire : Sink { void send(int) override; }; · sink.hpp:2' },
+    { 3, 25, 'struct Log : Sink { void send(int) override; }; · sink.hpp:3' } },
+    'the server\'s locations and location links, each once, in order, named by their line')
+  -- asked of the server at the box's own place; several offered as possible implementations
+  local real_clients, real_transport, real_select = G.clients, G.transport, vim.ui.select
+  local sent, offered
+  local src = vim.fn.bufadd(d .. '/sink.hpp')
+  vim.fn.bufload(src)
+  G.clients = function() return { { id = 5, name = 'fakeimpl' } } end
+  G.transport = function(_, _, method, params, done)
+    sent = { method, params.textDocument.uri == u, params.position.line }
+    vim.schedule(function() done(nil, { { uri = u, range = at(1, 26) }, { uri = u, range = at(2, 25) } }) end)
+    return function() end
+  end
+  vim.ui.select = function(items, opts, done) offered = { opts.prompt, vim.tbl_map(opts.format_item, items) }; done(nil) end
+  G._implementations({ name = 'Sink::send', raw = { name = 'Sink::send', uri = u, selectionRange = at(0, 27) } }, src)
+  ok(vim.wait(1000, function() return offered ~= nil end), 'I: the server asked, the answer offered')
+  eq(sent, { 'textDocument/implementation', true, 0 }, '… at the box\'s own place')
+  eq(offered and offered[1], 'Possible implementations of Sink::send (one of them runs)', '… as possible implementations, never as calls')
+  G.clients, G.transport, vim.ui.select = real_clients, real_transport, real_select
+  vim.fn.delete(d, 'rf')
 end
 
 -- ─── gl: the graph's functions in a window's location list ───────────────────────────────────────────────────────

@@ -672,6 +672,60 @@ function M.transport(client, buf, method, params, handler)
   return function() pcall(client.cancel_request, client, id) end
 end
 
+--- pure: textDocument/implementation's answer (Location[] or LocationLink[]) as places to offer, each once, sorted:
+--- { file, line (1-based), col, label "name · file:line" } — named by the line's first words when the server names none.
+function M.implementations(result, read_line)
+  local out, seen = {}, {}
+  for _, loc in ipairs(result or {}) do
+    local uri = loc.targetUri or loc.uri
+    local range = loc.targetSelectionRange or loc.targetRange or loc.range
+    if type(uri) == 'string' and range and range.start then
+      local file, line = vim.uri_to_fname(uri), range.start.line + 1
+      local key = file .. ':' .. line
+      if not seen[key] then
+        seen[key] = true
+        local text = vim.trim(read_line and read_line(file, line) or '')
+        out[#out + 1] = { file = file, line = line, col = range.start.character or 0,
+          label = (text ~= '' and text:sub(1, 70) or vim.fn.fnamemodify(file, ':t')) .. ' · ' .. vim.fn.fnamemodify(file, ':t') .. ':' .. line }
+      end
+    end
+  end
+  table.sort(out, function(a, b) return a.file == b.file and a.line < b.line or a.file < b.file end)
+  return out
+end
+local function line_of(file, line)
+  local buf = vim.fn.bufnr(file)
+  if buf > 0 and api.nvim_buf_is_loaded(buf) then return (api.nvim_buf_get_lines(buf, line - 1, line, false)[1]) end
+  local ok, text = pcall(vim.fn.readfile, file, '', line)
+  return ok and text[line] or nil
+end
+
+-- I on a box: the overrides the language server knows for its function (a virtual call), offered as possible
+-- implementations: one of them runs, the graph never says which (Codex's C8). One: opened; several: picked.
+local function implementations(item, source, origin)
+  local client = source and api.nvim_buf_is_valid(source) and M.clients(source)[1]
+  if not client then return tell('Requires a language server attached to this graph\'s code.', vim.log.levels.WARN) end
+  local raw = item.raw or item
+  local range = raw.selectionRange or raw.range
+  if not (raw.uri and range) then return tell(tostring(item.name) .. ' has no place the language server can be asked about.', vim.log.levels.WARN) end
+  M.transport(client, source, 'textDocument/implementation', { textDocument = { uri = raw.uri }, position = range.start }, function(err, result)
+    vim.schedule(function()
+      if err then return tell('The language server could not say: ' .. tostring(err.message or err), vim.log.levels.WARN) end
+      local places = M.implementations(result, line_of)
+      if #places == 0 then return tell('The language server knows no implementation of ' .. tostring(item.name) .. ' (not virtual, or none it has read).') end
+      local function open(p)
+        require('desk.nav').code_target(origin)
+        vim.cmd.edit(vim.fn.fnameescape(p.file))
+        pcall(api.nvim_win_set_cursor, 0, { p.line, p.col })
+      end
+      if #places == 1 then return open(places[1]) end
+      vim.ui.select(places, { prompt = 'Possible implementations of ' .. tostring(item.name) .. ' (one of them runs)', format_item = function(p) return p.label end },
+        function(p) if p then open(p) end end)
+    end)
+  end)
+end
+M._implementations = implementations
+
 -- Waits (bounded) for a server that has a call hierarchy and is not busy indexing; says why it waits meanwhile.
 -- done(client, note) or done(nil, why). Returns a function that stops the wait.
 function M.ready(buf, done, waiting)
@@ -1685,6 +1739,19 @@ local ROWS = actions.add({
     end },
   depth_row(1, 'expand', '+', 'Expand call depth'),
   depth_row(-1, 'collapse', '-', 'Collapse call depth'),
+  { id = 'callgraph.implementations', group = 'Call graph', name = 'Possible implementations of this function', key = 'I', on = BOTH, remote = true,
+    subject = subject,
+    about = 'For a virtual function (an interface\'s): the overrides the language server knows, as possible implementations (one of them runs; the graph cannot say which); one opens, several are offered',
+    available = function(ctx)
+      local item = selected_item(ctx)
+      if not item then return 'no box is selected' end
+      return (item.raw or (item.uri and item.range)) and true or 'this box has no place the language server can be asked about'
+    end,
+    run = function(ctx)
+      local holder = ctx.view or ctx.graph
+      local source = holder and (holder.source or (holder.graph and holder.graph.source))
+      implementations(selected_item(ctx), source, ctx.origin)
+    end },
   -- > on a box at the edge of its side: its own next level alone, its siblings kept (Codex's C2: + reads a whole side)
   { id = 'callgraph.unfold', group = 'Call graph', name = "Unfold this box's next level", key = '>', on = BOTH, remote = true, subject = subject,
     about = "Read the selected box's own callees (or, above the centre, its callers) as the next level, the boxes beside it kept: one branch, where `+` reads the whole level",
