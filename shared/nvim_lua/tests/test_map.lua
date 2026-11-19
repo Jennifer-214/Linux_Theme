@@ -391,6 +391,16 @@ do
   local row, l = line_with(page.lines, "a slower tick")
   eq(row and Map.item_at(page, row, l:find("a slower tick", 1, true)).target, { kind = "commit", sha = "bbbbbbb2cccc" }, "… a commit a way onto the map (what it changed)")
 end
+do
+  -- A function as the binary has it (Codex's #15): its symbol and copies, or why it has none.
+  local function page(level) return table.concat(Map.layout(Map.level_binary(level), 110, false).lines, "\n") end
+  local with = page({ node = { label = "Queue::grow", binary = { symbol = "fox::Queue<int>::grow() [clone .isra.0]", clones = { "fox::Queue<int>::grow() [clone .isra.0] [clone .cold]" } } } })
+  ok(with:find("symbol  fox::Queue<int>::grow() [clone .isra.0]", 1, true) and with:find("copies the compiler made of it · 1", 1, true) and with:find("[clone .cold]", 1, true),
+    "its symbol and the copies folded into it\n" .. with)
+  local inlined = page({ node = { label = "tiny" }, provider = { name = "binary", state = "ok", binary = "/w/build/app" } })
+  ok(inlined:find("No symbol of its own in app: inlined into every caller, or not built into it", 1, true), "none in a binary that was read: why")
+  ok(page({ node = { label = "tiny" }, provider = { name = "binary", state = "not built" } }):find("Requires a built binary", 1, true), "no binary read: what it needs")
+end
 -- The trace page: a box per step (the function itself double), its parameters under it, the call between steps with
 -- each argument → the parameter it lands in, and the other callers and callees, Enter-able.
 local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16,
@@ -742,7 +752,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "gP", "m", "M", "z", "Z", "W", "i", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "gP", "m", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -1567,7 +1577,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.avoid", "map.callers", "map.centre", "map.changes", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.include", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up", "map.why" },
+eq(remote_ids, { "map.avoid", "map.callers", "map.centre", "map.changes", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.in-binary", "map.include", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up", "map.why" },
   "the pop-out can show more and retains its existing navigation keys")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do

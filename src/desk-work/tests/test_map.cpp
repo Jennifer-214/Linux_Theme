@@ -53,6 +53,21 @@ int main(int, char** argv) {
           "a clone folds into its function, even one with no plain copy left");
     CHECK(std::count_if(bin["nodes"].begin(), bin["nodes"].end(), [](const J& n) { return n["label"] == "fox::Queue::grow"; }) == 1,
           "only copies left (.isra.0 and its cold part): still one node");
+    for (const auto& n : bin["nodes"]) if (n["label"] == "fox::Queue::grow") {
+        // what it is in the binary (Codex's #15): its symbol as linked, and the copy folded into it
+        CHECK(n["binary"]["symbol"].get<std::string>().find("grow") != std::string::npos && n["binary"]["clones"].size() == 1
+              && n["binary"]["clones"][0].get<std::string>().find(".cold") != std::string::npos,
+              "grow's node: its hot copy's symbol, its cold part kept as a clone");
+    }
+    {
+        // a source function matched to a binary one takes what it is there
+        J src = J::parse(R"({"nodes": [{"id": "q.cpp::grow", "label": "fox::Queue::grow", "kind": "function", "file": "q.cpp", "line": 3}], "edges": []})");
+        J bn = J::parse(R"({"nodes": [{"id": "bin:fox::Queue::grow", "label": "fox::Queue::grow", "kind": "function", "file": "q.cpp", "line": 3,
+            "binary": {"symbol": "fox::Queue::grow() [clone .isra.0]", "clones": ["fox::Queue::grow() [clone .isra.0] [clone .cold]"]}}], "edges": []})");
+        const auto m = desk_map::merge(src, bn);
+        CHECK(m["nodes"].size() == 1 && m["nodes"][0].contains("binary") && m["nodes"][0]["binary"]["clones"].size() == 1,
+              "merged: the source function carries its binary symbol and clones");
+    }
     CHECK(nodes.count("bin:helper@1300") && nodes.count("bin:helper@1400") && !nodes.count("bin:helper"), "two static functions with one name keep their addresses");
     CHECK(!nodes.count("bin:_start") && !nodes.count("bin:frame_dummy") && !nodes.count("bin:_init") && !nodes.count("bin:register_tm_clones"), "C start-up code is left out");
     CHECK(!nodes.count("bin:puts") && nodes.count("ext:puts") && nodes.count("ext:abort") && nodes.count("ext:memcpy"), "PLT and GOT calls end at library leaves");

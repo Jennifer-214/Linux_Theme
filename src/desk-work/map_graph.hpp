@@ -236,6 +236,10 @@ public:
         std::map<std::string, int> per_full;
         for (auto i : order) if (owner[i] == i) { fulls[match_key(fns_[i].base)].insert(fns_[i].base); ++per_full[fns_[i].base]; }
         const auto hexs = [](uint64_t v) { std::ostringstream o; o << std::hex << v; return o.str(); };
+        // what each function's symbol is, and the compiler's copies folded into it (Codex's #15: why a function seen in
+        // the source is not a box of its own in the binary)
+        std::map<size_t, std::vector<std::string>> folded;
+        for (auto i : order) if (owner[i] != i && folded[owner[i]].size() < 16) folded[owner[i]].push_back(fns_[i].symbol);
         std::vector<std::string> node_of(fns_.size());
         J nodes = J::array();
         std::set<std::string> made;
@@ -249,6 +253,9 @@ public:
             if (!made.insert(id).second) continue;
             J node{{"id", id}, {"label", key}, {"file", nullptr}, {"line", nullptr}, {"kind", "function"}};
             if (!f.file.empty()) { node["file"] = f.file; node["line"] = f.line; }
+            J clones = J::array();
+            for (const auto& c : folded[owner[i]]) clones.push_back(c);
+            node["binary"] = J{{"symbol", f.symbol.substr(0, 200)}, {"clones", clones}};
             nodes.push_back(node);
         }
         // Every label, the skipped ones too: a call into start-up code is dropped, never pinned on the label before it.
@@ -301,7 +308,7 @@ public:
     }
 
 private:
-    struct Fn { uint64_t addr; std::string base; bool plt, clone, skip, cold; std::string file = {}; long line = 0; };
+    struct Fn { uint64_t addr; std::string base; bool plt, clone, skip, cold; std::string file = {}; long line = 0; std::string symbol = {}; };
     struct Call { size_t from; uint64_t target; std::string sym; char type; };  // c call, t tail jump, i indirect, g GOT
     std::vector<Fn> fns_;
     std::vector<Call> calls_;
@@ -345,6 +352,7 @@ private:
                           || stripped.rfind("__x86.get_pc_thunk", 0) == 0 || name.find("+0x") != std::string::npos
                           || name.find("-0x") != std::string::npos;
         fns_.push_back(Fn{addr, stripped, plt, stripped != base, skip, name.find(".cold") != std::string::npos});
+        fns_.back().symbol = base;   // as linked, its clone marks kept ("f.isra.0", "Q::f(int) [clone .constprop.0]")
         current_ = static_cast<long>(fns_.size() - 1);
     }
     void instruction(const std::string& insn) {
@@ -406,6 +414,12 @@ inline J clean_graph(const J& raw) {
             if (!file.empty() && file[0] != '/' && file.find("..") == std::string::npos && file.find('\n') == std::string::npos) node["file"] = file;
             if (number(n, "line") > 0) node["line"] = number(n, "line");
             if (!text(n, "detail").empty()) node["detail"] = text(n, "detail").substr(0, 200);
+            // what it is in the binary read: its linked symbol, the compiler's copies folded into it (at most 16)
+            if (n.contains("binary") && n["binary"].is_object() && !text(n["binary"], "symbol").empty()) {
+                J clones = J::array();
+                for (const auto& c : list(n["binary"], "clones")) if (c.is_string() && clones.size() < 16) clones.push_back(c.get<std::string>().substr(0, 200));
+                node["binary"] = J{{"symbol", text(n["binary"], "symbol").substr(0, 200)}, {"clones", clones}};
+            }
             // the #if branch it is in, as written, and whether the compile flags turn it on (true / false / unknown)
             if (n.contains("cond") && n["cond"].is_object() && !text(n["cond"], "text").empty()) {
                 J cond{{"text", text(n["cond"], "text").substr(0, 120)}};
@@ -573,9 +587,11 @@ inline J merge(const J& syntax, const J& binary, const std::string& near = {}) {
         complete = complete && flag(*part, "complete", true);
         if (!text(*part, "why").empty()) why.push_back(text(*part, "why"));
     }
+    std::map<std::string, size_t> index_of;
     if (syntax.is_object()) {
         for (const auto& n : list(syntax, "nodes")) {
             if (!ids.insert(text(n, "id")).second) continue;
+            index_of[text(n, "id")] = nodes.size();
             nodes.push_back(n);
             if (text(n, "kind") == "function" && compiled_file(text(n, "file"))) {
                 by_key[match_key(text(n, "label"))].push_back(text(n, "id"));
@@ -615,7 +631,12 @@ inline J merge(const J& syntax, const J& binary, const std::string& near = {}) {
                             pick = only(found->second, [&](const std::string& s) { return file_of[s].rfind(near, 0) == 0; });
                     }
                 }
-                if (!pick.empty()) { alias[id] = pick; ++matched; continue; }
+                if (!pick.empty()) {
+                    alias[id] = pick; ++matched;
+                    // the source function says what it is in the binary: its symbol and the copies folded into it
+                    if (n.contains("binary") && index_of.count(pick)) nodes[index_of[pick]]["binary"] = n["binary"];
+                    continue;
+                }
             }
             if (!ids.insert(id).second) continue;
             J node = n;

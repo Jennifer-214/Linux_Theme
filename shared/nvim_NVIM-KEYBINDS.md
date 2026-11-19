@@ -378,6 +378,7 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `M` in the map | Go to a part of the checkout, picked by name |
 | `z` in the map | The selected function left out of the map's answers (a logger, an allocator every path goes through), its calls with it, until `z` again or `Z`; the page says how many are left out |
 | `Z` in the map | Every function `z` left out of the answers back in; the page asked again |
+| `gb` in the map | The selected function as the binary has it: its linked symbol and the copies the compiler made of it (.cold, .isra, .constprop), or why it has no box of its own there (inlined, or not built into it) |
 | `W` in the map | The calls and functions the last rebuild added and removed, the functions that found or lost their source, and why (the source, the binary, a parser), against the build before it |
 | `i` in the map | The map's evidence in full: which reader answered (the syntax reader matches calls by name: overloads, macros and virtual dispatch are not resolved; the binary reader has the exact calls), what is not built and what it needs; `i` again folds it to one line |
 | `r` in the map | Read this page again, as `r` does in a call graph: desk-work's status and the level shown (a query's answer is asked again); `R` rebuilds the map |

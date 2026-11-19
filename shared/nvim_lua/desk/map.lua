@@ -2090,6 +2090,7 @@ local function page_of(view)
   if level.kind == 'stack' then return M.level_stack(level) end
   if level.kind == 'sanitizer' then return M.level_sanitizer(level) end
   if level.kind == 'regression' then return M.level_regression(level) end
+  if level.kind == 'binary' then return M.level_binary(level) end
   local answer = cached(view, 'module:' .. level.module)
   if not answer then return nil end
   if level.kind == 'files' then return M.level_files(answer, level.module, level.all) end
@@ -3106,6 +3107,31 @@ function M.regression_on_map(root, job_id, base_id)
     push(view, { kind = 'regression', answer = answer })
   end)
 end
+--- A function as the binary has it (Codex's #15): its linked symbol and the compiler's copies folded into it; with
+--- none, why a function seen in the source is no box of its own there. binary: the provider's row from status.
+function M.level_binary(level)
+  local n, provider = level.node or {}, level.provider or {}
+  local b = type(n.binary) == 'table' and n.binary or nil
+  local sections = { { head = tostring(n.label) .. ' in the binary' } }
+  if b then
+    sections[#sections + 1] = { block = { { { 'symbol  ', nil, true, 'DeskMapDim' }, { tostring(b.symbol) } } } }
+    if #(b.clones or {}) > 0 then
+      sections[#sections + 1] = { head = 'copies the compiler made of it · ' .. #b.clones }
+      local rows = {}
+      for _, c in ipairs(b.clones) do rows[#rows + 1] = { { tostring(c) } } end
+      sections[#sections + 1] = { block = rows }
+      sections[#sections + 1] = { parts = { { 'Folded into this one function on the map: a .cold part, an .isra or .constprop copy is the same function, specialised or split.' } }, group = 'DeskMapDim' }
+    else
+      sections[#sections + 1] = { parts = { { 'No copies: the compiler kept it as one function.' } }, group = 'DeskMapDim' }
+    end
+  elseif provider.state == 'ok' then
+    sections[#sections + 1] = { parts = { { 'No symbol of its own in ' .. vim.fn.fnamemodify(tostring(provider.binary or 'the binary'), ':t')
+      .. ': inlined into every caller, or not built into it. The binary reader sees linked symbols, not inlined copies; its callers\' boxes hold its code.' } } }
+  else
+    sections[#sections + 1] = { parts = { { 'Requires a built binary: B rebuilds the map reading one.' } }, group = 'DeskMapDim' }
+  end
+  return { crumbs = { 'binary' }, sections = sections }
+end
 -- Space c s while stopped: the stack on the map, in the pop-out's map when it shows this checkout.
 function M.stack_on_map()
   local frames, why, thread = M.dap_frames()
@@ -3640,6 +3666,16 @@ local ROWS = actions.add({
   row('include', 'Z', 'Bring back what was left out',
     'Every function `z` left out of the answers back in; the page asked again', function(view) M.include_all(view) end,
     function(ctx) return (ctx.map and ctx.map.excluded and #ctx.map.excluded > 0) or 'nothing is left out' end, THERE),
+  row('in-binary', 'gb', 'This function in the binary',
+    "The selected function as the binary has it: its linked symbol and the copies the compiler made of it (.cold, .isra, .constprop), or why it has no box of its own there (inlined, or not built into it)",
+    function(view, ctx)
+      local item = about_item(view, ctx)
+      local n = item and item.target and item.target.node
+      if not n then return tell('Put the cursor on a function first.') end
+      local provider
+      for _, p in ipairs(view.status and view.status.providers or {}) do if p.name == 'binary' then provider = p end end
+      push(view, { kind = 'binary', node = n, provider = provider }, item.key)
+    end, needs_function, ON_IT),
   row('changes', 'W', 'What the last rebuild changed',
     'The calls and functions the last rebuild added and removed, the functions that found or lost their source, and why (the source, the binary, a parser), against the build before it',
     function(view) query(view, { '--q', 'changes' }) end, needs_map, THERE),
