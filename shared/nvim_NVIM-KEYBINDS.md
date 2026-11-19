@@ -335,6 +335,7 @@ the keyboard stays in the pop-out; `f` or Shift+Enter puts the keyboard here too
 | `<C-o>` / `<BS>` in the pop-out | Back where you were: the view before, the graph before a centre, the code spot before `Enter` (the editor goes back too) |
 | `<C-r>` in the pop-out | Forward again, after going back |
 | `/` in the pop-out | Every box or row of this view by its whole name, filtered as you type; `Enter` selects it |
+| `gu` in the pop-out | The view you closed last (`q`) opens again, as it was, in the pop-out it was in; up to 8 are kept for this checkout, newest first |
 | `?` in the pop-out | The keys of this view in the pop-out, in a list |
 | `Space Tab` in the pop-out | Put the keyboard in the next pop-out, and from the last one in the editor (with one pop-out: the editor); the same key in the editor comes to the first |
 | `q` in the pop-out | Close this view; closing the last one closes the pop-out, and the keyboard comes back to the editor |
@@ -708,6 +709,7 @@ which-key its words.
 | home menu: Figures | The newest job's figures against its previous run (desk-work metrics); `Enter` on one opens that job's output |
 | home menu: symdeps | symdeps' own menu (`Space dm`): its cards, lists and checks for C and C++ code. symdeps is an optional plugin |
 | `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is (with several, the first); the same key there goes on to the next, and from the last back here |
+| home menu: Reopen the pop-out view closed last | The pop-out view you closed last (`q` there) opens again, as it was, in the pop-out it was in |
 <!-- desk-keys:end -->
 
 ### The other Claudes (desk.claude)

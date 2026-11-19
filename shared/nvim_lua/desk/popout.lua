@@ -604,6 +604,7 @@ local function payload(view)
       end
     end
   end
+  view.named_as = cut(drawn.title, 200) or kind.title
   return { type = 'view.set', id = view.id, kind = view.kind, surface = kind.surface, title = cut(drawn.title, 200) or kind.title,
     hidden = #hidden > 0 and hidden or nil,
     tab = cut(drawn.tab, 24), subject = cut(drawn.subject, 60),
@@ -792,6 +793,10 @@ forget = function(p, why, opts)
   if not any_open() then unwatch_screens() end
   if not opts.leaving then let_go(chan, why) end
   local views, order = p.views, p.order
+  -- q on its last view there: what it showed, closed by her.
+  if opts.leaving then
+    for _, id in ipairs(order) do if views[id] then M.remember_closed(views[id], p) end end
+  end
   p.views, p.order, p.history, p.tiled = {}, {}, { steps = {}, at = 0 }, nil
   local returned = 0
   for _, id in ipairs(order) do
@@ -1065,6 +1070,25 @@ end
 local RESTORE   -- its row, named for what the record holds
 L.records, L.wrote = {}, {}
 local function layout_root() return L.root or checkout_of() end
+
+-- Views she closed (q, or :q there), newest last, per checkout: gu in a pop-out (or the editor's menu) opens the last one
+-- again, as a restart restores one (its kind's save and restore), in the pop-out it was in. A view that went back to
+-- the editor (o) or a pop-out that crashed is not one she closed.
+M.CLOSED_KEEP = 8
+L.closed = {}   -- root → { { kind, pinned, target, pop, named } }
+function M.remember_closed(view, p)
+  local kind = view and kinds[view.kind]
+  if not (kind and kind.save and kind.restore) then return end
+  local ok, saved = pcall(kind.save, view)
+  if not (ok and type(saved) == 'table') then return end
+  local root = layout_root()
+  local list = L.closed[root] or {}
+  L.closed[root] = list
+  list[#list + 1] = { kind = view.kind, pinned = view.pinned == true, target = type(saved.target) == 'table' and saved.target or nil,
+    pop = p and p.id or 1, named = view.named_as or kind.title }
+  while #list > M.CLOSED_KEEP do table.remove(list, 1) end
+end
+function M.closed_views() return L.closed[layout_root()] or {} end
 local function restore_named()
   if not RESTORE then return end
   -- Only what can come back now: a tab whose kind has not loaded yet waits for it (its pop-out's waiting).
@@ -1364,6 +1388,27 @@ local function restore_tab(p, saved)
   if not fine then kind_failed(view, err) end
   to_front(view)
   return view
+end
+
+-- gu: the view she closed last opens again in the pop-out it was in (opening that when it went with it). false, why.
+function M.reopen_closed()
+  local list = L.closed[layout_root()]
+  local last = list and list[#list]
+  if not last then return false, 'no view was closed here' end
+  if not kinds[last.kind] then return false, 'its kind (' .. last.kind .. ') is not loaded' end
+  if refused_here(M.can_pop()) then return false end
+  for n = #pops + 1, last.pop do pops[n] = new_pop(n) end
+  local p = pops[last.pop] or H
+  if not is_open(p) then
+    local ok, why = open_pop(p, layout_root())
+    if not ok then return false, why end
+  end
+  table.remove(list)
+  local view = restore_tab(p, last)
+  if not view then return false, 'it is open already' end
+  M.save_layout()
+  tell(sentence((last.named or last.kind) .. ' opened again'))
+  return true
 end
 
 -- Every pop-out the record has views for opens again (each its own state machine, on its own screen), in its order.
@@ -3044,6 +3089,22 @@ local ROWS = actions.add({
   { id = 'popout.find', group = 'Pop-out', name = 'Find a box or row', key = '/', on = ON,
     about = 'Every box or row of this view by its whole name, filtered as you type; `Enter` selects it',
     available = function(ctx) return not (ctx.view and ctx.view.kind == 'code') end, run = function() M.client_find() end },
+  { id = 'popout.reopen', group = 'Pop-out', name = 'Reopen the view closed last', key = 'gu', on = ON, remote = true,
+    about = 'The view you closed last (`q`) opens again, as it was, in the pop-out it was in; up to ' .. M.CLOSED_KEEP .. ' are kept for this checkout, newest first',
+    -- Pressed there it goes to the editor, which keeps the list.
+    available = function() return M.is_popout() or #M.closed_views() > 0 or 'no view was closed here' end,
+    run = function()
+      if M.is_popout() then return client_act('popout.reopen') end
+      local ok, why = M.reopen_closed()
+      if not ok and why then tell(sentence(why), WARN) end
+    end },
+  { id = 'popout.reopen-editor', group = 'Pop-out', name = 'Reopen the pop-out view closed last', on = 'editor', remote = false,
+    about = 'The pop-out view you closed last (`q` there) opens again, as it was, in the pop-out it was in',
+    available = function() return #M.closed_views() > 0 or 'no pop-out view was closed here' end,
+    run = function()
+      local ok, why = M.reopen_closed()
+      if not ok and why then tell(sentence(why), WARN) end
+    end },
   -- The editor's half of /: a loaded item that is not drawn, drawn and selected. No key: / asks for it.
   { id = 'popout.reveal', group = 'Pop-out', name = 'Show a box hidden under "+N more"', on = ON, remote = true, menu = false, doc = false,
     input = { prompt = 'Which box (its key)' },
@@ -3074,6 +3135,7 @@ local ROWS = actions.add({
     run = function(ctx)
       if not M.is_popout() then
         local p = pressed_in(ctx)
+        if ctx.view then M.remember_closed(ctx.view, p) end
         if ctx.view and #p.order > 1 then M.clear(ctx.view.id)
         else
           -- The last one: the pop-out closes, and the keyboard comes here rather than stay on its empty screen.

@@ -502,6 +502,10 @@ do
   host("require('desk.callgraph').MAX = 24; _G.popout_test.extra = 0")
   press('r')
   ok(wait(5000, function() return (state().hidden or 0) == 0 and not popped():find('extra_', 1, true) end), 'MAX back')
+  -- … and that read finished (a read still on its way would undo the next test's pin)
+  ok(wait(5000, function()
+    return host("local v = require('desk.popout').view_of('graph'); return v ~= nil and v.graph ~= nil and not v.graph.reading and v.inflight == nil")
+  end), '… read to the end')
   find(before)
   ok(wait(2000, function() return state().selected == before end), '… and ' .. tostring(before) .. ' selected again')
 end
@@ -1203,6 +1207,23 @@ do
     '… and that view is gone there too')
 end
 
+-- ─── gu: the view closed last opens again ─────────────────────────────────────────────────────────────────────
+do
+  host("require('desk.popout').host.closed = {}")
+  host("require('desk.popout').show('rows', require('desk.actions').context())")
+  ok(wait(3000, function() return state().tabs == 2 and state().shown == 'rows' end), 'rows beside the graph, in front')
+  press('q')
+  ok(wait(3000, function() return state().tabs == 1 and vim.deep_equal(state().views, { 'graph' }) end), 'q closes the rows')
+  eq(host("return vim.tbl_map(function(c) return { c.kind, c.pop } end, require('desk.popout').closed_views())"), { { 'rows', 1 } },
+    '… kept as closed by her, in pop-out 1')
+  press('gu')
+  ok(wait(3000, function() return state().tabs == 2 and vim.tbl_contains(state().views, 'rows') end), 'gu: the rows open again there')
+  eq(host("return #require('desk.popout').closed_views()"), 0, '… taken off the list')
+  host("require('desk.popout').clear('rows')")
+  ok(wait(3000, function() return state().tabs == 1 end), "a view the editor takes off (not her q) …")
+  eq(host("return #require('desk.popout').closed_views()"), 0, '… is not one she closed')
+end
+
 -- ─── q on its last view, while the editor refuses its acts ───────────────────────────────────────────────────────
 do
   press('p')
@@ -1216,6 +1237,7 @@ do
   ok(wait(3000, function() return host("return require('desk.popout').host.chan") == vim.NIL end), '… and the editor knows')
   vim.wait(500)
   eq({ heard(), host(panel_open) }, { {}, false }, '… as her closing it: nothing said, nothing brought back')
+  eq(host("local c = require('desk.popout').closed_views(); return c[#c] and c[#c].kind"), 'graph', '… and its graph kept as closed by her (gu reopens it)')
   ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xa1' })", 1, true) end),
     '… and the keyboard is back here')
   vim.rpcrequest(h, 'nvim_input', '<Esc>')
