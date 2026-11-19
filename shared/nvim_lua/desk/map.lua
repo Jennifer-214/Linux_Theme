@@ -2209,7 +2209,8 @@ function M.footer(view, G, keys)
       elseif not unbuildable(view.status) then parts[#parts + 1] = p.name .. ' not built' end
     end
     local notes = {}
-    if #parts > 0 then notes[1] = table.concat(parts, ' · ') .. ' · ' .. typed('why') .. ' why' end
+    -- the words in the theme's voice, the key as typed ({ text }: the layout keeps its case)
+    if #parts > 0 then notes[1] = { G.said(table.concat(parts, ' · ') .. ' · ') .. typed('why') .. G.said(' why') } end
     if s.complete == false and s.why then notes[#notes + 1] = 'partial: ' .. s.why end
     if keys == false then return notes end
     local line = {}
@@ -3970,8 +3971,9 @@ end
 --- The first slot of a key line (Codex's #9): what Enter does with the selected thing, named, padded to one width so
 --- the rest of the line stays put as the selection moves.
 M.ENTER_SLOT = 38
-function M.enter_slot(G, words)
-  local text = typed('in') .. ' ' .. G.said(words)
+function M.enter_slot(G, words, code_part)
+  -- the words in the theme's voice, the code (a name, a place) as typed: retro shouts only the words
+  local text = typed('in') .. ' ' .. G.said(words) .. (code_part and (' ' .. code_part) or '')
   local w = vim.fn.strdisplaywidth(text)
   if w > M.ENTER_SLOT then
     local chars, out = vim.fn.split(text, '\\zs'), ''
@@ -3992,8 +3994,8 @@ function M.strip_text(item, G)
     for _, k in ipairs(list) do out[#out + 1] = typed(k[1]) .. ' ' .. G.said(k[2]) end
     return table.concat(out, ' · ')
   end
-  local function line(enter, rest)
-    local slot = M.enter_slot(G, enter)
+  local function line(enter, rest, code_part)
+    local slot = M.enter_slot(G, enter, code_part)
     return rest and rest ~= '' and (slot .. ' · ' .. rest) or vim.trim(slot)
   end
   if t.kind == 'node' and t.node then
@@ -4001,9 +4003,9 @@ function M.strip_text(item, G)
     local list = { { 'trace', 'trace' }, { 'centre', 'calls' }, { 'reach', 'reach' }, { 'callers', 'callers' } }
     if n.file and ({ c = true, cpp = true })[vim.filetype.match({ filename = n.file }) or ''] then list[#list + 1] = { 'symdeps', 'inspect' } end
     return { tostring(n.label) .. ' · ' .. where(n) .. (n.returns and (' → ' .. n.returns) or ''),
-      line('open ' .. tostring(n.label) .. ' (' .. where(n) .. ')', keys(list)) }
+      line('open', keys(list), tostring(n.label) .. ' (' .. where(n) .. ')') }
   elseif t.kind == 'module' or t.kind == 'file' or t.kind == 'class' then
-    return { tostring(item.name), line('zoom into ' .. tostring(item.name), keys({ { 'back', 'out' } })) }
+    return { tostring(item.name), line('zoom into', keys({ { 'back', 'out' } }), tostring(item.name)) }
   elseif t.kind == 'walk' then
     return { G.said(t.q == 'callers' and 'what comes before ' or 'what comes after ') .. tostring(t.node and t.node.label or ''),
       line(t.q == 'callers' and 'open what comes before' or 'open what comes after', G.said('3 levels (+ and - change it)')) }
@@ -4013,7 +4015,7 @@ function M.strip_text(item, G)
     return { G.said('handoff ') .. tostring(item.name) .. G.said(t.by_hand and ' — added by you' or ' — inferred from the code'),
       line('open producer or consumer', typed('handoff-drop') .. ' ' .. G.said(t.by_hand and 'forgets it' or 'drops it (it is wrong)')) }
   elseif t.kind == 'field' then
-    return { tostring(item.name), line('inspect field ' .. tostring(t.field or item.name), G.said('its declaration, who writes it, or on this route')) }
+    return { tostring(item.name), line('inspect field', G.said('its declaration, who writes it, or on this route'), tostring(t.field or item.name)) }
   elseif t.kind == 'result' then
     return { tostring(item.name), line('show where its result goes', G.said('checked, returned, kept or dropped')) }
   elseif t.kind == 'crossings' then

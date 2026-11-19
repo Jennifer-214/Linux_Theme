@@ -1714,6 +1714,13 @@ do
   local a = Map.strip_text({ target = { kind = "node", node = { id = "x", label = "x", file = "x.lua", line = 1 } } }, G)[2]
   local b = Map.strip_text({ name = "ring", target = { kind = "handoff", by_hand = false } }, G)[2]
   eq(vim.fn.strdisplaywidth(a:match("^(.-) · ")), vim.fn.strdisplaywidth(b:match("^(.-) · ")), "Enter's slot: the same width on a function and on a handoff")
+  -- retro shouts the words, never the code or the key (seen in the VM pass, 2026-11-19: "OPEN DRAIN (ENGINE.CPP:20)")
+  local loud = Map.strip_text({ target = { kind = "node", node = { id = "x", label = "tt::tick", file = "src/e.cpp", line = 11 } } }, Map.glyphs(true))[2]
+  ok(loud:find("Enter OPEN tt::tick (e.cpp:11)", 1, true), "retro: the name and its place as typed: " .. loud)
+  vim.g.desk_style = "retro"
+  local foot = Map.footer({ status = { providers = { { name = "syntax", state = "ok" }, { name = "binary", state = "not built", why = "x" } } } }, Map.glyphs(true), false)
+  vim.g.desk_style = nil
+  eq(foot[1], { "CALLS MATCHED BY NAME · BINARY NOT BUILT · i WHY" }, "… and the footer's key as typed (i, not I)")
 end
   eq(Map.strip_text({ name = "layout (2)", open = false, target = { kind = "fold", fold = "x|layout" } }, G), { "layout (2)", "Enter open it" }, "a fold: Enter opens it")
   eq(Map.strip_text({ name = "tick ring", target = { kind = "handoff", by_hand = false } }, G)[2], "Enter open producer or consumer        · x drops it (it is wrong)", "a handoff: Enter either side, x drops it")
