@@ -1550,6 +1550,32 @@ end
 function M.level_query(answer, all, level)
   if answer.q == 'trace' then return M.trace_page(answer, level and level.folds, level and level.layouts, level and level.field) end
   local sections = {}
+  if answer.q == 'handoffs' then
+    -- Her handoff corrections, each checked against the map as built now (Codex's #38): what she added and dropped,
+    -- its label, where it is declared, and whether each end is still there. Enter: forget, rebind, open.
+    local entries = answer.entries or {}
+    sections[#sections + 1] = { head = 'handoff corrections · ' .. #entries }
+    sections[#sections + 1] = { parts = { { 'desk-work keeps yours in ' .. vim.fn.fnamemodify(tostring(answer.file or ''), ':~') }, { ' · Enter on one: forget, rebind or open it', nil, true } }, group = 'DeskMapDim' }
+    local STATE = { ok = '', moved = '  (moved)', ambiguous = '  (ambiguous: several now)', gone = '  (gone from the map)' }
+    for i, e in ipairs(entries) do
+      local function name(side)
+        local id = tostring(e[side] and e[side].id or '?')
+        return id:match('::(.+)$') or id
+      end
+      local trouble = (e.from.state ~= 'ok' or e.to.state ~= 'ok' or e.stale) and 'DeskMapFocus' or nil
+      local item = { name = name('from') .. ' → ' .. name('to'), key = 'correction:' .. i, target = { kind = 'correction', entry = e } }
+      local rows = { { { (e.side == 'add' and 'added    ' or 'dropped  '), nil, true, 'DeskMapDim' }, { name('from') .. STATE[e.from.state or 'ok'], item, nil, trouble },
+        { ' → ' }, { name('to') .. STATE[e.to.state or 'ok'], nil, nil, trouble },
+        { e.label and ('   ══[ ' .. e.label .. ' ]══') or '', nil, true, 'DeskMapDim' } } }
+      local notes = {}
+      if e.stale then notes[#notes + 1] = 'the reader no longer reads this as a handoff: the drop does nothing now' end
+      if not e.own then notes[#notes + 1] = 'declared in ' .. vim.fn.fnamemodify(tostring(e.declared_in), ':~') .. ' (yours to edit there)' end
+      if #notes > 0 then rows[#rows + 1] = { { '         ' .. table.concat(notes, ' · '), nil, true, 'DeskMapDim' } } end
+      sections[#sections + 1] = { block = rows }
+    end
+    if #entries == 0 then sections[#sections + 1] = { parts = { { 'No handoff corrections for this checkout: `a` on a trace step adds one, `x` on a handoff drops it.' } }, group = 'DeskMapDim' } end
+    return { crumbs = { 'handoffs' }, sections = sections }
+  end
   if answer.q == 'touched' then
     -- What a commit changed, on the map: the functions its hunks touch, by file (a file changed since may have moved).
     local by = node_index(answer)
@@ -2096,7 +2122,8 @@ function M.candidate_text(n)
   local types = {}
   for _, prm in ipairs(n.params or {}) do types[#types + 1] = prm.type end
   local sig = n.params and ('(' .. table.concat(types, ', ') .. ')') or ''
-  return tostring(n.label or n.id) .. sig .. (n.returns and (' → ' .. n.returns) or ''), where(n)
+  -- a plain choice (what to do: { id, label }) is no function, and has no place
+  return tostring(n.label or n.id) .. sig .. (n.returns and (' → ' .. n.returns) or ''), (n.kind or n.file) and where(n) or ''
 end
 -- One picker for a name that fits several functions (a trace's start, end or focus, a handoff's destination): in the
 -- editor the desk menu (searchable), in the pop-out a page of its own, on the screen it was asked from; Enter on one
@@ -2109,7 +2136,7 @@ local function choose(view, answer, chosen)
   end
   vim.ui.select(list, { prompt = answer.message, format_item = function(n)
     local name, at = M.candidate_text(n)
-    return name .. '  ' .. at
+    return name .. (at ~= '' and ('  ' .. at) or '')
   end }, function(choice) if choice then chosen(choice.id) end end)
 end
 function M.level_pick(level)
@@ -2162,6 +2189,10 @@ local function enter(view, ctx)
     ctx = ctx or {}
     ctx.stayed = true
     M.follow_field(view, t, ctx.origin)
+  elseif t.kind == 'correction' then
+    ctx = ctx or {}
+    ctx.stayed = true
+    M.correction_menu(view, t.entry, ctx.origin)
   elseif t.kind == 'pick' then
     -- A name chosen on the pick page: the question asked again with its id, in the page's place.
     local top = view.stack[#view.stack]
@@ -2408,19 +2439,71 @@ end
 local function trace_to(view, ctx) trace_end(view, ctx, '--to', 'Trace to: ') end
 -- x on a trace's handoff (one the reader got wrong) and a on a step (a handoff it missed): her correction, kept by
 -- desk-work outside the checkout (desk.d), then the trace asked again in place. Dropping one she added forgets it.
-local function correct_handoff(view, verb, from, to)
+local function correct_handoff(view, verb, from, to, label, done)
   local top = view.stack[#view.stack]
-  M.desk_work({ 'map', 'handoff', verb, '--root', view.root, '--from', from, '--to', to }, function(answer, out)
+  local argv = { 'map', 'handoff', verb, '--root', view.root, '--from', from, '--to', to }
+  if label then vim.list_extend(argv, { '--label', label }) end
+  M.desk_work(argv, function(answer, out)
     if answer and answer.ok == false and type(answer.candidates) == 'table' and #answer.candidates > 0 then
       return choose(view, answer, function(id, picked)
         if picked and view.stack[#view.stack] == picked then table.remove(view.stack); load(view) end
-        correct_handoff(view, verb, answer.flag == '--from' and id or from, answer.flag == '--from' and to or id)
+        correct_handoff(view, verb, answer.flag == '--from' and id or from, answer.flag == '--from' and to or id, label, done)
       end)
     end
     if not answer or answer.ok == false then return tell(refusal(answer, out), vim.log.levels.WARN) end
+    if done then return done(answer) end
     tell('Handoff ' .. tostring(answer.did) .. ' (kept in ' .. vim.fn.fnamemodify(tostring(answer.file), ':~') .. ').')
     if valid(view) and view.stack[#view.stack] == top and top.args then query(view, top.args, nil, top) end
   end)
+end
+-- Enter on a correction of the review page: forget it, rebind an end that moved or became several, open an end, or
+-- (declared elsewhere) open the file it is in.
+function M.correction_menu(view, e, origin)
+  local choices, by = {}, {}
+  local function add(id, label, run) choices[#choices + 1] = { id = id, label = label }; by[id] = run end
+  local function again()
+    local top = view.stack[#view.stack]
+    if valid(view) and top and top.args then query(view, top.args, nil, top) end
+  end
+  local function short(id) return tostring(id):match('::(.+)$') or tostring(id) end
+  local verb = e.side == 'add' and 'add' or 'drop'
+  local function rebind(side, n)
+    local from, to = side == 'from' and n.id or e.from.id, side == 'to' and n.id or e.to.id
+    correct_handoff(view, 'forget', e.from.id, e.to.id, nil, function()
+      correct_handoff(view, verb, from, to, e.label, function(answer)
+        tell('Rebound: ' .. short(from) .. ' → ' .. short(to) .. ' (' .. tostring(answer.did) .. ').')
+        again()
+      end)
+    end)
+  end
+  if e.own then
+    add('forget', 'forget this correction', function()
+      correct_handoff(view, 'forget', e.from.id, e.to.id, nil, function() tell('Forgotten.'); again() end)
+    end)
+  else
+    add('edit', 'open ' .. vim.fn.fnamemodify(tostring(e.declared_in), ':~') .. ' (declared there: yours to edit)', function()
+      require('desk.nav').open_code(tostring(e.declared_in), 1, nil, origin or (not view.out and view.origin) or nil)
+    end)
+  end
+  for _, side in ipairs({ 'from', 'to' }) do
+    local end_ = e[side] or {}
+    if e.own and end_.state == 'moved' and end_.now then
+      add('rebind-' .. side, 'rebind its ' .. side .. ' to ' .. tostring(end_.now.label) .. ' · ' .. where(end_.now), function() rebind(side, end_.now) end)
+    elseif e.own and end_.state == 'ambiguous' then
+      for k, c in ipairs(end_.candidates or {}) do
+        add('rebind-' .. side .. '-' .. k, 'rebind its ' .. side .. ' to ' .. tostring(c.label) .. ' · ' .. where(c), function() rebind(side, c) end)
+      end
+    elseif end_.state == 'ok' then
+      add('open-' .. side, 'open ' .. short(end_.id) .. (end_.node and (' · ' .. where(end_.node)) or ''), function()
+        jump(view, end_.node or { id = end_.id, label = short(end_.id) }, origin)
+      end)
+    end
+  end
+  choose(view, { message = short(e.from.id) .. ' → ' .. short(e.to.id) .. ': what to do?', candidates = choices }, function(id, picked)
+    if picked and view.stack[#view.stack] == picked then table.remove(view.stack); load(view) end
+    if by[id] then by[id]() end
+  end)
+  return choices
 end
 local function drop_handoff(view, ctx)
   local item = about_item(view, ctx)
@@ -3092,6 +3175,9 @@ local ROWS = actions.add({
   row('handoff-add', 'a', 'Add a handoff from this step',
     'On a trace: this function hands its data on to the one you name (a queue or a callback the map missed), so the trace goes on through it',
     add_handoff, needs_trace_step, { remote = true, input = { prompt = 'Hands off to: ' } }),
+  row('handoffs', nil, 'Review handoff corrections',
+    'Every handoff you added or dropped, its label and where it is declared, each end checked against the map as built now (moved, several now, gone); `Enter` on one forgets, rebinds or opens it',
+    function(view) query(view, { '--q', 'handoffs' }) end, nil, THERE),
   row('findings', 'F', 'Findings on this path',
     "On a trace: the findings of the checkout's tools (desk-work's, docs/desk-tools.md) that fall inside the route's functions, each with its tool; `Enter` opens its line",
     findings_on_path, needs_trace, THERE),

@@ -411,6 +411,8 @@ J map_handoff(const std::string& root, const std::string& verb, std::map<std::st
     const char* flags[2] = {"--from", "--to"};
     for (int i = 0; i < 2; ++i) {
         const auto found = desk_map::resolve(g, opts[flags[i]]);
+        // forget: an end the map no longer has (renamed, deleted) is taken as the id it was kept by
+        if (found.index < 0 && verb == "forget" && found.candidates.empty() && !opts[flags[i]].empty()) { ids[i] = opts[flags[i]]; continue; }
         if (found.index < 0) {
             auto refusal = refuse(std::string(i ? "To: " : "From: ") + found.message);
             if (!found.candidates.empty()) { refusal["candidates"] = found.candidates; refusal["flag"] = i ? "--to" : "--from"; }
@@ -458,7 +460,50 @@ J map_handoff(const std::string& root, const std::string& verb, std::map<std::st
     return J{{"ok", true}, {"did", did}, {"from", ids[0]}, {"to", ids[1]}, {"file", file.string()}};
 }
 
+// desk-work map query --q handoffs: her corrections to review — each added and dropped pair, its label and the file it
+// is declared in (desk-work's own, which forget and rebind edit, or another she keeps herself), and each end checked
+// against the map as built now: "ok", "moved" (gone from where it was, one function of its name now: `now`),
+// "ambiguous" (several: `candidates`) or "gone". A drop whose handoff the reader no longer finds says so (stale).
+J map_handoff_review(const std::string& root) {
+    auto raw = map_json(map_dir(root) / "graph.json");
+    if (!raw.is_object()) return refuse("No project map of this checkout yet; build one with desk-work map build --root " + root);
+    std::set<std::pair<std::string, std::string>> read;
+    for (const auto& e : desk_map::list(raw, "edges"))
+        if (e.is_object() && desk_map::text(e, "kind") == "handoff") read.insert({desk_map::text(e, "from"), desk_map::text(e, "to")});
+    const desk_map::Graph g(std::move(raw));
+    const auto own = corrections_file(root).string();
+    const auto end_of = [&](const std::string& id) {
+        if (g.at.count(id)) return J{{"id", id}, {"state", "ok"}, {"node", g.node(g.at.at(id))}};
+        // rel::label (or rel::label#2): by its label, else its last part
+        auto label = id.substr(id.rfind("::") == std::string::npos ? 0 : id.find("::") + 2);
+        if (const auto hash = label.rfind('#'); hash != std::string::npos) label = label.substr(0, hash);
+        const auto found = desk_map::resolve(g, label);
+        if (found.index >= 0) return J{{"id", id}, {"state", "moved"}, {"now", g.node(static_cast<size_t>(found.index))}};
+        if (!found.candidates.empty()) return J{{"id", id}, {"state", "ambiguous"}, {"candidates", found.candidates}};
+        return J{{"id", id}, {"state", "gone"}};
+    };
+    J entries = J::array();
+    const auto take = [&](const J& doc, const std::string& file) {
+        if (!doc.is_object() || !doc.contains("map") || !doc["map"].is_object()) return;
+        const auto h = doc["map"].value("handoffs", J::object());
+        if (!h.is_object()) return;
+        for (const char* side : {"add", "drop"})
+            for (const auto& p : desk_map::list(h, side)) {
+                if (!p.is_object() || entries.size() >= 4096) continue;
+                const auto from = desk_map::text(p, "from"), to = desk_map::text(p, "to");
+                J entry{{"side", side}, {"from", end_of(from)}, {"to", end_of(to)}, {"declared_in", file}, {"own", file == own}};
+                if (!desk_map::text(p, "label").empty()) entry["label"] = desk_map::text(p, "label").substr(0, 80);
+                if (std::string(side) == "drop" && !read.count({from, to})) entry["stale"] = true;
+                entries.push_back(entry);
+            }
+    };
+    take(declaration_doc(fs::path(root) / ".desk/tools.json"), (fs::path(root) / ".desk/tools.json").string());
+    for (const auto& file : desk_d_files()) if (auto doc = declaration_doc(file); names_root(doc, root)) take(doc, file.string());
+    return J{{"ok", true}, {"q", "handoffs"}, {"file", own}, {"entries", entries}};
+}
+
 J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
+    if (opts["--q"] == "handoffs") return map_handoff_review(root);
     auto doc = corrected_graph(root);
     if (!doc.is_object()) return refuse("No project map of this checkout yet; build one with desk-work map build --root " + root);
     const desk_map::Graph g(std::move(doc));

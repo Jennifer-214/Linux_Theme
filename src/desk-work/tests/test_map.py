@@ -147,6 +147,41 @@ class Map(unittest.TestCase):
         self.assertEqual(file.read_text(), "not json")
 
     @unittest.skipUnless(NVIM, "nvim is not installed")
+    def test_handoff_corrections_review_page_checks_their_ends_after_a_rebuild(self):
+        self.build("--provider", "syntax")
+        self.data("map", "handoff", "add", "--root", self.repo, "--from", "leaf", "--to", "M.beta", "--label", "a queue")
+        self.data("map", "handoff", "drop", "--root", self.repo, "--from", "main", "--to", "middle")
+        review = self.query("--q", "handoffs")
+        own = review["file"]
+        ends = lambda e: (e["side"], e["from"]["state"], e["to"]["state"], e.get("label"), e["own"], e["declared_in"] == own, e.get("stale"))
+        self.assertEqual([ends(e) for e in review["entries"]],
+                         [("add", "ok", "ok", "a queue", True, True, None), ("drop", "ok", "ok", None, True, True, True)],
+                         "each correction, its label and where it is declared; a drop of a pair the reader never read as a handoff: stale")
+        # leaf renamed away, M.beta moved to another file, middle renamed with two others of its name elsewhere: the ends
+        # are checked against the map as built now.
+        (self.repo / "csrc/prog.c").write_text(C.replace("leaf", "leafy").replace("middle", "mid"))
+        (self.repo / "csrc/m1.c").write_text("int middle(int x) { return x; }\n")
+        (self.repo / "csrc/m2.c").write_text("int middle(int x) { return x + 1; }\n")
+        (self.repo / "lua/mod.lua").write_text(LUA.replace("function M.beta()\n  return helper(1)\nend\n", ""))
+        (self.repo / "lua/two.lua").write_text("local M = {}\nfunction M.beta() return 2 end\nreturn M\n")
+        self.git("add", "."); self.git("commit", "-qm", "renamed")
+        self.build("--provider", "syntax")
+        added, dropped = self.query("--q", "handoffs")["entries"]
+        self.assertEqual((added["from"]["state"], added["to"]["state"], added["to"].get("now", {}).get("file")), ("gone", "moved", "lua/two.lua"),
+                         "after a rebuild: an end renamed away is gone; one moved to another file is found there by its name")
+        self.assertEqual((dropped["from"]["state"], dropped["to"]["state"], len(dropped["to"].get("candidates", []))), ("ok", "ambiguous", 2),
+                         "… one whose name is now two functions is ambiguous, with both")
+        # forget takes an end the map no longer has by the id it was kept by
+        forgot = self.data("map", "handoff", "forget", "--root", self.repo, "--from", added["from"]["id"], "--to", added["to"]["id"])
+        self.assertEqual(forgot["did"], "forgotten")
+        self.assertEqual([e["side"] for e in self.query("--q", "handoffs")["entries"]], ["drop"])
+        # one she declares herself elsewhere: listed as hers to edit (own is false)
+        (self.repo / ".desk").mkdir()
+        (self.repo / ".desk/tools.json").write_text(json.dumps({"version": 1, "tools": [], "map": {"handoffs": {"add": [{"from": "x", "to": "y"}]}}}))
+        theirs = [e for e in self.query("--q", "handoffs")["entries"] if not e["own"]]
+        self.assertEqual([(e["declared_in"].endswith(".desk/tools.json"), e["from"]["state"]) for e in theirs], [(True, "gone")])
+
+    @unittest.skipUnless(NVIM, "nvim is not installed")
     def test_syntax_build_status_staleness_and_queries(self):
         status = self.build("--provider", "syntax")
         self.assertTrue(status["built"], status)

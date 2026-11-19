@@ -1013,6 +1013,47 @@ do
     ok(vim.wait(1000, function() return #corrections == 2 end), "a on a step: desk-work adds a handoff")
     eq(corrections[2], "map handoff add --root " .. view.root .. " --from e.cpp::tick --to consumer", "… from that step to the one named")
     vim.wait(200, function() return false end)
+    -- Her corrections reviewed (Codex's #38): each checked against the map as built now; Enter forgets, rebinds, opens.
+    do
+      local tick_node = { id = "e.cpp::tick", label = "tick", file = "e.cpp", line = 11 }
+      local review = { ok = true, q = "handoffs", file = "/c/foxml/desk.d/map-x.json", entries = {
+        { side = "add", label = "a queue", own = true, declared_in = "/c/foxml/desk.d/map-x.json", from = { id = "e.cpp::tick", state = "ok", node = tick_node },
+          to = { id = "e.cpp::gone", state = "ambiguous", candidates = { { id = "a.cpp::gone", label = "gone", file = "a.cpp", line = 3 },
+            { id = "b.cpp::gone", label = "gone", file = "b.cpp", line = 9 } } } },
+        { side = "drop", own = false, stale = true, declared_in = view.root .. "/.desk/tools.json", from = { id = "e.cpp::hot", state = "gone" },
+          to = { id = "e.cpp::tick", state = "ok", node = tick_node } } } }
+      local corrected = Map.desk_work
+      Map.desk_work = function(args, done)
+        if table.concat(args, " "):find("--q handoffs", 1, true) then return vim.defer_fn(function() done(vim.deepcopy(review), { code = 0 }) end, 5) end
+        return corrected(args, done)
+      end
+      local depth0, n0 = #view.stack, #corrections
+      require("desk.actions").get("map.handoffs").run({ map = view })
+      ok(vim.wait(1000, function() return line_with(view.drawn.lines, "handoff corrections · 2") end), "the corrections review: a page of its own")
+      ok(line_with(view.drawn.lines, "added    tick → gone  (ambiguous: several now)   ══[ a queue ]══"), "… an added one, its end that is several now said")
+      ok(line_with(view.drawn.lines, "dropped  hot  (gone from the map) → tick"), "… a dropped one whose end is gone")
+      ok(line_with(view.drawn.lines, "the reader no longer reads this as a handoff") and line_with(view.drawn.lines, ".desk/tools.json (yours to edit there)"),
+        "… a stale drop said, and one declared elsewhere is hers to edit there")
+      local rrow, rtext = line_with(view.drawn.lines, "added    tick")
+      api.nvim_win_set_cursor(view.win, { rrow, (rtext:find("tick", 1, true)) })
+      local menu_of, pick, saved_select = nil, "rebind-to-2", vim.ui.select
+      vim.ui.select = function(items, opts, done)
+        menu_of = vim.tbl_map(opts.format_item, items)
+        for _, it in ipairs(items) do if it.id == pick then return done(it) end end
+        done(nil)
+      end
+      press("<CR>")
+      ok(vim.wait(1000, function() return #corrections == n0 + 2 end), "Enter: what to do with it, and the rebind done")
+      eq(menu_of, { "forget this correction", "open tick · e.cpp:11", "rebind its to to gone · a.cpp:3", "rebind its to to gone · b.cpp:9" },
+        "… forget, open the end still there, rebind the other to each of the functions of its name now")
+      eq({ corrections[n0 + 1], corrections[n0 + 2] }, { "map handoff forget --root " .. view.root .. " --from e.cpp::tick --to e.cpp::gone",
+        "map handoff add --root " .. view.root .. " --from e.cpp::tick --to b.cpp::gone --label a queue" },
+        "… a rebind: the old one forgotten by the ids it was kept by, the new one added with its label")
+      vim.wait(200, function() return false end)
+      Map.desk_work, vim.ui.select = corrected, saved_select
+      while #view.stack > depth0 do press("<BS>"); vim.wait(50, function() return false end) end
+      ok(vim.wait(1000, function() return #view.stack == depth0 end), "… and back to the trace")
+    end
     -- Enter on a call with two sites: both offered, each with its source line; the one chosen opened.
     local real_select, offered = vim.ui.select, nil
     vim.ui.select = function(items, opts, done) offered = vim.tbl_map(opts.format_item, items); done(items[2]) end
@@ -1363,7 +1404,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.centre", "map.copy", "map.down", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
+eq(remote_ids, { "map.callers", "map.centre", "map.copy", "map.down", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
   "the pop-out can show more and retains its existing navigation keys")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do

@@ -87,7 +87,15 @@ as "added by you". Dropping one you added forgets it.
 ```sh
 desk-work map handoff list [--root DIR]
 desk-work map handoff add|drop|forget --from NAME --to NAME [--label TEXT] [--root DIR]
+desk-work map query --q handoffs [--root DIR]
 ```
+
+`--q handoffs` is the review: each correction with its label and the file it is declared in, and each end checked
+against the map as built now: `ok`, `moved` (one function of its name elsewhere: `now`), `ambiguous` (several:
+`candidates`) or `gone`. A drop whose handoff the reader no longer finds is `stale`. On the map, "Review handoff
+corrections" draws it as a page: `Enter` on one forgets it, rebinds a moved or ambiguous end (the old one forgotten by
+the ids it was kept by, the new one added with its label), or opens an end. `forget` takes an end the map no longer
+has by its id.
 
 ## Kinds
 
