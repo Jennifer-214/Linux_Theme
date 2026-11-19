@@ -823,13 +823,69 @@ do
   eq({ rail_at, centre.gauge_col }, { d.gauge_col, d.gauge_col }, 'the rail starts where the drawing says')
   local gap = math.huge
   for _, line in ipairs(d.lines) do
-    local rest = line:sub(d.gauge_col + G.GAUGE_WIDTH + 1)
-    if rest:find('%S') then gap = math.min(gap, #rest:match('^ *')) end
+    -- the rail is GAUGE_WIDTH characters (its shade three bytes): counted in characters
+    local rail = vim.fn.strcharpart(line, d.gauge_col, G.GAUGE_WIDTH)
+    local rest = vim.fn.strcharpart(line, d.gauge_col + G.GAUGE_WIDTH)
+    if rail:find('[█▓▒░]') and rest:find('%S') then gap = math.min(gap, #rest:match('^ *')) end
   end
-  eq(gap, 2, 'two columns between the rail and the leftmost thing drawn, on a 160-column window')
+  eq(gap, 2, 'two columns between the rail and the leftmost thing beside it, on a 160-column window')
   ok(rail_at > 40, 'the rail moved in from the edge (at column ' .. rail_at .. ')')
-  local narrow = G.layout(chain, 40, true)
-  eq(narrow.gauge_col <= 2, true, 'a narrow window: the rail stays at the edge')
+  for _, w in ipairs({ 40, 160 }) do
+    local text = table.concat(G.layout(chain, w, true).lines, '\n')
+    ok(text:find('LAYERS 0 .. +2 · 3 FUNCTIONS', 1, true), 'a heading wider than the drawing keeps its text whole at ' .. w .. ' columns')
+  end
+end
+
+-- ─── a straight chain reads as one column (Codex's #2) ─────────────────────────────────────────────────────────
+do
+  local function at(name, line) return { name = name, detail = 'chain.lua:' .. line, uri = 'file:///w/c.lua', range = { start = { line = line, character = 0 } } } end
+  local five = { center = at('M.entry', 7), layers = { callees = { { at('M.one', 6) }, { at('M.two', 5) }, { at('M.three', 4) }, { at('M.four', 3) }, { at('M.finish', 2) } } } }
+  local d = G.layout(five, 120, true)
+  local text = table.concat(d.lines, '\n')
+  local _, headings = text:gsub('CALLEES', '')
+  eq({ headings, #d.boxes, d.boxes[2].row, d.boxes[6].row }, { 1, 6, true, true }, 'five single-callee levels: one heading, a row each')
+  local cols = {}
+  for i = 2, 6 do cols[#cols + 1] = vim.fn.strdisplaywidth(d.lines[d.boxes[i].line]:sub(1, d.boxes[i].name_col)) end
+  eq(#vim.tbl_keys(vim.iter(cols):fold({}, function(acc, c) acc[c] = true; return acc end)), 1, '… the names on one left edge')
+  ok(#d.lines <= 14, '… and short: ' .. #d.lines .. ' lines (it was 34)')
+  eq(vim.tbl_map(function(b) return b.level end, d.boxes), { 0, 1, 2, 3, 4, 5 }, '… each row its depth, for the rail')
+  eq({ G.nav(d.boxes, 2, 'down'), G.nav(d.boxes, 3, 'up'), G.nav(d.boxes, 1, 'down') }, { 3, 2, 2 }, 'j and k go row to row, from the centre into the rows')
+  local branch = G.layout({ center = at('Engine::tick', 118), layers = { callees = { { at('M.one', 6) }, { at('Book::apply', 40), at('Risk::check', 77) } } } }, 120, true)
+  eq(vim.tbl_map(function(b) return b.row == true end, branch.boxes), { false, false, false, false }, 'a lone single level beside a choice stays a box: boxes where it branches')
+  -- the selection keeps its screen row when a drawing changes under it
+  local buf = api.nvim_create_buf(false, true)
+  local lines = {}
+  for i = 1, 200 do lines[i] = 'line ' .. i end
+  api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.cmd('tabnew')
+  local win = api.nvim_get_current_win()
+  api.nvim_win_set_buf(win, buf)
+  vim.fn.winrestview({ topline = 40 })
+  api.nvim_win_set_cursor(win, { 90, 0 })   -- select puts the cursor on the box first
+  G.keep_row(win, { line = 50, top = 40 }, 90)
+  eq(vim.fn.line('w0', win), 80, 'the selected box moved from line 50 to 90: the window follows, it stays 10 rows from the top')
+  vim.cmd('tabclose')
+  api.nvim_buf_delete(buf, { force = true })
+  -- … through a real redraw: a level of callers added above, the selected box deep below keeps its screen row
+  local tall = { center = at('M.entry', 7), layers = { callees = {} } }
+  for k = 1, 8 do tall.layers.callees[k] = { at('a' .. k, 100 + k), at('b' .. k, 200 + k) } end
+  local gbuf = api.nvim_create_buf(false, true)
+  vim.cmd('tabnew')
+  local gwin = api.nvim_get_current_win()
+  api.nvim_win_set_buf(gwin, gbuf)
+  local s = { buf = gbuf, win = gwin }
+  G._show(s, G.layout(tall, 100, true))
+  local deep
+  for i, b in ipairs(s.drawn.boxes) do if b.item.name == 'b8' then deep = i end end
+  G.select(s, deep, true)
+  local row_before = s.drawn.boxes[deep].line - vim.fn.line('w0', gwin)
+  local taller = vim.deepcopy(tall)
+  taller.layers.callers = { { at('c1', 300), at('c2', 301) } }
+  G._show(s, G.layout(taller, 100, true), true)
+  local now = s.drawn.boxes[s.index]
+  eq({ now.item.name, now.line - vim.fn.line('w0', gwin) }, { 'b8', row_before }, 'a level of callers drawn above: b8 still selected, on the same screen row')
+  vim.cmd('tabclose')
+  api.nvim_buf_delete(gbuf, { force = true })
 end
 
 -- ─── a wide graph: the selected box's real callers and callees lit, the rest dimmed (Codex's #1) ───────────────

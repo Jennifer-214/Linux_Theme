@@ -2491,7 +2491,7 @@ end
 
 -- Draws a view into its buffer. Its selection: the item the editor asks for (select), else the one selected before (by
 -- its key), else its centre, else the first; the cursor goes there when the view has its window.
-local function draw(view, lines, keep)
+local function draw(view, lines, keep, held)
   local buf, G, s = view.buf, graphs(), view.copy
   if not api.nvim_buf_is_valid(buf) then return end
   for name, def in pairs(view.hl) do pcall(api.nvim_set_hl, 0, name, def) end
@@ -2513,6 +2513,8 @@ local function draw(view, lines, keep)
   api.nvim_buf_clear_namespace(buf, G.sel_ns, 0, -1)
   api.nvim_buf_clear_namespace(buf, G.gauge_ns, 0, -1)
   if first then G.select(s, first, true); view.cursor_line = view.items[first].line end
+  -- the item kept where it was on the screen (a level expanded above it)
+  if held and first and keep and view.items[first].key == keep then G.keep_row(view.win, held, view.items[first].line) end
   G.gauge_edges(s)
   centre(view)
   strip(view)
@@ -2596,6 +2598,8 @@ local function handle(msg)
       C.views[got.id] = view
     end
     local before = view.copy.index and view.items[view.copy.index]
+    local held = before and view.win and api.nvim_win_is_valid(view.win) and api.nvim_win_get_buf(view.win) == view.buf
+      and { line = before.line, top = vim.fn.line('w0', view.win) } or nil
     for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'tab', 'subject', 'state', 'marks', 'hl', 'items', 'footer', 'strip', 'pinned',
       'follows', 'tick', 'total', 'cursor', 'previewed', 'hidden' }) do view[field] = got[field] end
     if got.tick then
@@ -2612,7 +2616,7 @@ local function handle(msg)
     end
     if got.news and C.shown ~= got.id then view.news = true end
     C.received = (C.received or 0) + 1
-    draw(view, got.lines, got.select or (before and before.key))
+    draw(view, got.lines, got.select or (before and before.key), not got.select and held or nil)
     -- A view the editor sends anew, or asks to show, comes to the front; one drawn again behind another stays behind.
     if fresh or got.front or not shown() then show(view) else vim.cmd('redrawtabline') end
     if got.tick then

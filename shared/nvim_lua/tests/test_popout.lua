@@ -316,7 +316,8 @@ ok(wait(3000, function() return popped():find('LAYERS -1 .. +2', 1, true) end), 
 ok(pop([=[
   local G = require('desk.callgraph')
   local marks = vim.api.nvim_buf_get_extmarks(0, G.gauge_ns, 0, -1, { details = true })
-  if #marks < 4 then return false end
+  -- its whole band: a box's four lines, or a chain's row (the two callee levels here are a straight run: D2)
+  if #marks < 1 then return false end
   local first = vim.api.nvim_buf_get_lines(0, marks[1][2], marks[1][2] + 1, false)[1]
   -- on the rail's shade, wherever the rail is drawn (beside the drawing: D1)
   local rail = (first:find('[█▓▒░]') or 0) - 1

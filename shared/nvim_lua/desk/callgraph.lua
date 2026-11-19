@@ -68,15 +68,18 @@ function M.gauge(drawn, bands, retro, group, active_group)
   -- The rail beside the drawing, not at the window's edge (Codex's #1, 2026-11-18: on a wide monitor matching "+3" to
   -- its box took a trip across the screen): it starts two columns left of the leftmost thing drawn, the drawing as
   -- far right as before, so every line keeps its width and every column past the rail moves by the rail alone.
+  -- Measured on the lines the rail runs along (a wider heading above them does not push it out); a line that starts
+  -- further left keeps its text, the rail's width inserted before it.
   local shift
-  for _, line in ipairs(drawn.lines) do
-    if line:find('%S') then shift = math.min(shift or math.huge, #line:match('^ *')) end
+  for i, line in ipairs(drawn.lines) do
+    if rail[i] and line:find('%S') then shift = math.min(shift or math.huge, #line:match('^ *')) end
   end
   shift = math.max(0, (shift or 0) - 2)
   drawn.gauge_col = shift
   for i, line in ipairs(drawn.lines) do
     local prefix = rail[i] or string.rep(' ', M.GAUGE_WIDTH)
-    offsets[i], drawn.lines[i] = #prefix, string.rep(' ', shift) .. prefix .. line:sub(shift + 1)
+    local cut = math.min(shift, #line:match('^ *'))
+    offsets[i], drawn.lines[i] = #prefix, line:sub(1, cut) .. prefix .. line:sub(cut + 1)
   end
   for _, m in ipairs(drawn.marks) do m[2], m[3] = m[2] + offsets[m[1]], m[3] + offsets[m[1]] end
   for line, hits in pairs(drawn.hits or {}) do
@@ -225,8 +228,9 @@ function M.layout(graph, width, retro)
       #below == 0 and '0' or '+' .. #below, vim.tbl_count(nearest) + (graph.center and 1 or 0)
         - (graph.center and nearest[identity(graph.center)] and 1 or 0))), 'DeskCallGraphHead')
   end
-  local function tier(side, list, depth, sign, none, role)
-    local first = #lines + 1
+  -- Each level's own functions (each once, at its nearest depth; M.MAX of them unless every one is asked for), in the
+  -- order they are drawn: callers deepest first, then callees.
+  local function picked(side, list, depth)
     local items, left = list, more[side]
     if graph.layers then
       items = {}
@@ -237,14 +241,67 @@ function M.layout(graph, width, retro)
       left = not graph.all_layers and math.max(0, #items - M.MAX) or 0
       if left > 0 then items = vim.list_slice(items, 1, M.MAX) end
     end
-    local before = #boxlist
-    group(depth == 1 and side or (side .. ' ' .. depth), items, left, none, role)
-    for i = before + 1, #boxlist do boxlist[i].level = sign * depth end
-    bands[#bands + 1] = { first = first, last = #lines, level = sign * depth }
+    return { items = items, left = left or 0, depth = depth }
   end
-  for d = #above, 1, -1 do
-    tier('callers', above[d], d, -1, 'no callers found', 'caller')
-    if d > 1 then centred(G.down, 'DeskCallGraphBox') end
+  local up, down = {}, {}
+  for d = #above, 1, -1 do up[d] = picked('callers', above[d], d) end
+  for d, list in ipairs(below) do down[d] = picked('callees', list, d) end
+  local function tier(side, level, sign, none, role)
+    local first = #lines + 1
+    local before = #boxlist
+    group(level.depth == 1 and side or (side .. ' ' .. level.depth), level.items, level.left, none, role)
+    for i = before + 1, #boxlist do boxlist[i].level = sign * level.depth end
+    bands[#bands + 1] = { first = first, last = #lines, level = sign * level.depth }
+  end
+  -- A straight run (two or more levels in a row of one function each, nothing left out): one heading, then a row a
+  -- function, names on one left edge, the rail counting depth (Codex's #2: five single-callee hops were five box
+  -- stacks and five headings). Boxes stay where a level has a choice.
+  local function single(level) return level and #level.items == 1 and level.left == 0 end
+  local function chain(side, levels, sign, role)
+    local built, wname, wdetail = {}, 1, 0
+    for _, level in ipairs(levels) do
+      local item = level.items[1]
+      local name, detail = fit(item.name, width - 6, G.ellipsis), item.detail or ''
+      wname = math.max(wname, width_of(name))
+      built[#built + 1] = { item = item, name = name, detail = detail, level = level }
+    end
+    for _, b in ipairs(built) do wdetail = math.max(wdetail, width_of(b.detail)) end
+    local total = 2 + wname + (wdetail > 0 and (2 + wdetail) or 0)
+    if total > width then wdetail = math.max(0, width - 4 - wname); total = math.min(width, 2 + wname + (wdetail > 0 and (2 + wdetail) or 0)) end
+    local left = string.rep(' ', math.max(0, math.floor((width - total) / 2)))
+    centred(G.said(side), 'DeskCallGraphHead')
+    for _, b in ipairs(built) do
+      local detail = wdetail > 0 and fit(b.detail, wdetail, G.ellipsis) or ''
+      local text = left .. G.single.v .. ' ' .. pad(b.name, wname) .. (wdetail > 0 and ('  ' .. pad(detail, wdetail)) or '')
+      add(text)
+      local ln = #lines
+      local s0, name_col = #left, #left + #G.single.v + 1
+      marks[#marks + 1] = { ln, s0, s0 + #G.single.v, 'DeskCallGraphBox' }
+      marks[#marks + 1] = { ln, name_col, name_col + #b.name, 'DeskCallGraphName', 1 }
+      if detail ~= '' then
+        local dc = name_col + #pad(b.name, wname) + 2
+        marks[#marks + 1] = { ln, dc, dc + #detail, 'DeskCallGraphDim', 1 }
+      end
+      boxlist[#boxlist + 1] = { item = b.item, role = role, top = ln, line = ln, w = width_of(text) - #left, x = width_of(left),
+        spans = { { ln, s0, #text } }, name_col = name_col, level = sign * b.level.depth, row = true }
+      bands[#bands + 1] = { first = ln, last = ln, level = sign * b.level.depth }
+    end
+  end
+  -- the levels of one side, in drawing order, cut into runs and single levels
+  local function pieces(levels, from, to, step)
+    local out, d = {}, from
+    while (step > 0 and d <= to) or (step < 0 and d >= to) do
+      local run = {}
+      while ((step > 0 and d <= to) or (step < 0 and d >= to)) and single(levels[d]) do run[#run + 1] = levels[d]; d = d + step end
+      if #run >= 2 then out[#out + 1] = { run = run }
+      elseif #run == 1 then out[#out + 1] = { level = run[1] }
+      else out[#out + 1] = { level = levels[d] }; d = d + step end
+    end
+    return out
+  end
+  for i, piece in ipairs(pieces(up, #above, 1, -1)) do
+    if i > 1 then centred(G.down, 'DeskCallGraphBox') end
+    if piece.run then chain('callers', piece.run, -1, 'caller') else tier('callers', piece.level, -1, 'no callers found', 'caller') end
   end
   if graph.center then
     if #above > 0 then centred(G.down, 'DeskCallGraphBox') end
@@ -253,9 +310,9 @@ function M.layout(graph, width, retro)
     boxlist[#boxlist].level = 0
     bands[#bands + 1] = { first = first, last = #lines, level = 0 }
   end
-  for d, list in ipairs(below) do
-    if graph.center or d > 1 then centred(G.down, 'DeskCallGraphBox') end
-    tier('callees', list, d, 1, 'calls nothing found', 'callee')
+  for i, piece in ipairs(pieces(down, 1, #below, 1)) do
+    if graph.center or i > 1 then centred(G.down, 'DeskCallGraphBox') end
+    if piece.run then chain('callees', piece.run, 1, 'callee') else tier('callees', piece.level, 1, 'calls nothing found', 'callee') end
   end
   local drawn = { lines = lines, boxes = boxlist, marks = marks, left_out = left_out }
   M.neighbours(graph, boxlist)
@@ -484,8 +541,17 @@ end
 
 -- A new drawing: the centre box selected (else the first), the cursor on it; keep: the same graph drawn again, so
 -- the selection stays where it was.
+--- The selected box kept at the screen row it was on when a drawing changes under it (Codex's #2: a level expanded
+--- above it pushed it down the screen). held = { line, top } from before (its line, the window's first line).
+function M.keep_row(win, held, line)
+  if not (held and win and api.nvim_win_is_valid(win) and line) then return end
+  local top = math.max(1, line - (held.line - held.top))
+  pcall(api.nvim_win_call, win, function() vim.fn.winrestview({ topline = top }) end)
+end
 local function show(s, drawn, keep)
   local was = keep and s.index and s.drawn and s.drawn.boxes[s.index]
+  local held = was and s.win and api.nvim_win_is_valid(s.win) and api.nvim_win_get_buf(s.win) == s.buf
+    and { line = was.line, top = vim.fn.line('w0', s.win) } or nil
   s.drawn, s.index = drawn, nil
   draw(s.buf, drawn)
   local first
@@ -494,10 +560,13 @@ local function show(s, drawn, keep)
       if box.role == was.role and identity(box.item) == identity(was.item) then first = i; break end
     end
   end
+  local kept = first ~= nil
   for i, box in ipairs(drawn.boxes) do if not first and box.centre then first = i end end
   first = first or (drawn.boxes[1] and 1)
   if first then M.select(s, first, true) else paint(s); M.gauge_edges(s) end
+  if kept then M.keep_row(s.win, held, drawn.boxes[first].line) end
 end
+M._show = show
 
 -- The cursor moved in the surface's window: inside a box, that box is the selection; elsewhere it stays.
 function M.follow_cursor(s)
