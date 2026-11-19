@@ -618,6 +618,9 @@ local function payload(view)
     tab = cut(drawn.tab, 24), subject = cut(drawn.subject, 60),
     -- another pop-out previews this one's selection (gp there): its selection is told as it moves
     previewed = kind.place ~= nil and M.preview_pop ~= nil and M.preview_pop ~= view.pop or nil,
+    -- a gp pair names its partner (Codex's #6): the driving view says where its preview is, the preview what drives it
+    partner = M.partner_of(view, kind),
+    partner_line = view.previewing and M.preview_from and M.preview_from.line or nil,
     state = cut(drawn.state, 200) or '', lines = lines, marks = marks, hl = definitions(drawn.hl), items = items,
     footer = plain_footer(drawn.footer), strip = num(drawn.strip), news = drawn.news == true,
     pinned = view.pinned == true, follows = kind.follow ~= nil and (kind.follows ~= false or view.follows == true),
@@ -1763,9 +1766,20 @@ bridge.register('front', timed(front), { pop = POP, view = bridge.field('string'
 -- pane; another pop-out's map or graph then tells its selection as it moves, and the preview pane shows that place's
 -- source, pinned (it does not follow the editor), while her editor and keyboard stay where they are.
 M.preview_pop = nil
+M.preview_from = nil   -- { pop, name, line }: the selection the preview shows, and the pop-out it is in
+--- pure-ish: the words a view of a gp pair says about its partner, or nil.
+function M.partner_of(view, kind)
+  if not M.preview_pop then return nil end
+  if view.previewing then
+    local from = M.preview_from
+    return from and ('following ← ' .. from.pop .. (from.name and (': ' .. from.name) or '')) or ('preview of the other pop-outs')
+  end
+  if kind and kind.place and view.pop ~= M.preview_pop then return 'preview → ' .. M.preview_pop end
+end
 function M.preview_toggle(view)
   if not view then return end
   M.preview_pop = (M.preview_pop ~= view.pop) and view.pop or nil
+  if not M.preview_pop then M.preview_from = nil end
   for _, p in ipairs(pops) do for _, v in pairs(p.views) do if v ~= view then M.redraw(v) end end end
   tell(M.preview_pop and 'This pop-out previews the other pop-outs\' selections (gp again stops).' or 'Previews stopped.')
 end
@@ -1795,6 +1809,8 @@ local function selected(msg)
   if not (kind and kind.place and ref) then return { shown = false } end
   local ok, file, line = pcall(kind.place, view, ref)
   if not (ok and type(file) == 'string') then return { shown = false } end
+  M.preview_from = { pop = p.id, name = type(ref) == 'table' and tostring(ref.name or ref.label or '') ~= '' and tostring(ref.name or ref.label):sub(1, 60) or nil,
+    line = tonumber(line) or 1 }
   vim.schedule(function() M.preview_show(file, tonumber(line) or 1) end)
   return { shown = true }
 end
@@ -2102,6 +2118,17 @@ end
 -- typed ("trace · DrainEventsAndSubmit", "calls · WorkerLoop", "source · orders.cpp"; a kind that names none, its kind)
 -- — PINNED or ↻, ✱ when something new is in it, the one in front in the selection colour; then the keys that switch
 -- views and open the menu. Retro: capitals (the words, not the code), │ between views, * for new.
+-- The preview's line the other pop-out has selected: ▶ at its end, so the two are seen together without the keyboard.
+local partner_ns = api.nvim_create_namespace('desk_popout_partner')
+function M.mark_partner(view)
+  if not (view and api.nvim_buf_is_valid(view.buf)) then return end
+  api.nvim_buf_clear_namespace(view.buf, partner_ns, 0, -1)
+  local line = view.partner_line
+  if line and line <= api.nvim_buf_line_count(view.buf) then
+    pcall(api.nvim_buf_set_extmark, view.buf, partner_ns, line - 1, 0,
+      { virt_text = { { ' ◀ ' .. tostring(view.partner or ''):gsub('^following ← ', 'selected in '), 'DeskCallGraphKey' } }, virt_text_pos = 'eol', priority = 200 })
+  end
+end
 local function tabline()
   local retro = graphs().retro()
   local said, current, out = actions.voice(retro), api.nvim_get_current_tabpage(), {}
@@ -2120,6 +2147,7 @@ local function tabline()
     -- Pinned or following, from the editor's own flags (any kind: the review's state is its progress, 2026-11-16).
     if view and view.pinned then text = text .. (retro and '·' or ' · ') .. said('PINNED')
     elseif view and view.follows then text = text .. ' ' .. (retro and '»' or '↻') end
+    if view and view.partner then text = text .. ' · ' .. said(view.partner) end
     if view and view.news then text = text .. ' ' .. (retro and '*' or '✱') end
     out[#out + 1] = '%' .. n .. 'T' .. (tab == current and '%#DeskPopoutTabSel#' or '%#DeskPopoutTab#') .. escape(text .. ' ')
   end
@@ -2406,7 +2434,8 @@ local function valid_view(msg)
     -- Any surface by its name, known here or not (a plugin's, whose module this window never loads: client_view).
     surface = type(msg.surface) == 'string' and #msg.surface <= 32 and msg.surface:match('^[%w_-]+$') and msg.surface or nil,
     title = type(msg.title) == 'string' and msg.title:sub(1, 200) or msg.id, state = type(msg.state) == 'string' and msg.state:sub(1, 200) or '',
-    tab = short(msg.tab, 24), subject = short(msg.subject, 60), previewed = msg.previewed == true,
+    tab = short(msg.tab, 24), subject = short(msg.subject, 60), previewed = msg.previewed == true, partner = short(msg.partner, 80),
+    partner_line = type(msg.partner_line) == 'number' and msg.partner_line >= 1 and math.floor(msg.partner_line) or nil,
     lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer), hidden = valid_hidden(msg.hidden),
     strip = type(msg.strip) == 'number' and msg.strip >= 1 and msg.strip < #lines and math.floor(msg.strip) or nil,
     select = short(msg.select, 120), front = msg.front == true, news = msg.news == true, views = valid_ids(msg.views),
@@ -2426,6 +2455,7 @@ end
 
 local function finish_snapshot(view)
   if view.loading then return end
+  M.mark_partner(view)
   local place = view.saved_scroll
   view.saved_scroll = nil
   if view.pinned and place and view.win and api.nvim_win_is_valid(view.win) then
@@ -2519,6 +2549,7 @@ local function draw(view, lines, keep, held)
   centre(view)
   strip(view)
   set_keyline(view)
+  M.mark_partner(view)
 end
 
 -- The keys of a view whose surface this window cannot load (view.standin): that surface's remote rows as the editor
@@ -2601,7 +2632,8 @@ local function handle(msg)
     local held = before and view.win and api.nvim_win_is_valid(view.win) and api.nvim_win_get_buf(view.win) == view.buf
       and { line = before.line, top = vim.fn.line('w0', view.win) } or nil
     for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'tab', 'subject', 'state', 'marks', 'hl', 'items', 'footer', 'strip', 'pinned',
-      'follows', 'tick', 'total', 'cursor', 'previewed', 'hidden' }) do view[field] = got[field] end
+      'follows', 'tick', 'total', 'cursor', 'previewed', 'hidden', 'partner', 'partner_line' }) do view[field] = got[field] end
+    M.mark_partner(view)
     if got.tick then
       if not view.loading and got.pinned and view.win and api.nvim_win_is_valid(view.win) then
         view.saved_scroll = api.nvim_win_call(view.win, vim.fn.winsaveview)

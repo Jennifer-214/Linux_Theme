@@ -531,6 +531,16 @@ do
   vim.wait(300, function() return false end)
 end
 
+-- ─── a gp pair names its partner (Codex's #6): the graph's header says where its preview is ─────────────────────
+host("local P = require('desk.popout'); P.preview_pop = 2; P.redraw(P.view_of('graph'))")
+ok(wait(3000, function() return (state().header or ''):find('preview → 2', 1, true) end), 'previewed by pop-out 2: its header says so: ' .. tostring(state().header))
+host("local P = require('desk.popout'); P.preview_pop = nil; P.redraw(P.view_of('graph'))")
+ok(wait(3000, function() return not (state().header or ''):find('preview →', 1, true) end), '… and stops saying it when the pair is undone')
+ok(wait(3000, function()
+  local h = host("local v = require('desk.popout').view_of('graph'); return { v.gen, v.queued == true }")
+  return h[2] == false and state().gen == h[1]
+end), '… the pop-out caught up')
+
 -- ─── Space Space in the pop-out: the editor's rows for that box ─────────────────────────────────────────────────
 press('<Space><Space>')
 ok(wait(3000, function() return pop("local m = require('desk.menu')._last; return m ~= nil and vim.api.nvim_win_is_valid(m.win)") end),
