@@ -103,6 +103,21 @@ do
   vim.fn.delete(pp_root, "rf")
 end
 do
+  -- An include guard is not a condition (T2, 2026-11-19, the trader's map: every function in BacktestPanels.hpp said
+  -- "#ifndef BACKTEST_PANELS_HPP" on its box): #ifndef X + #define X around the file, no #else; a real #ifdef inside
+  -- it still says itself, and an #ifndef that defines nothing is still a condition.
+  local g_root = vim.fn.tempname()
+  vim.fn.mkdir(g_root .. "/src", "p")
+  vim.fn.writefile({ "#ifndef NET_HPP", "#define NET_HPP", "void send(int a) { (void)a; }", "#ifdef LINUX", "void on_linux(void) {}", "#endif",
+    "#ifndef NO_TRACE", "void trace(void) {}", "#endif", "#endif" }, g_root .. "/src/net.hpp")
+  local g = Map.syntax_graph({ root = g_root, files = { "src/net.hpp" } })
+  local conds = {}
+  for _, n in ipairs(g.nodes) do conds[n.label] = n.cond and n.cond.text or false end
+  eq(conds, { send = false, on_linux = "#ifdef LINUX", trace = "#ifndef NO_TRACE" },
+    "the guard left off; the #ifdef inside it and an #ifndef that defines nothing kept")
+  vim.fn.delete(g_root, "rf")
+end
+do
   -- Text from the source cut at a character, never inside one (2026-11-19, the trader's map: a log format string with
   -- → cut at 80 bytes split the arrow; the answer was then not valid JSON and desk-work dropped the whole map).
   local function valid_utf8(str)

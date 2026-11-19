@@ -325,9 +325,25 @@ end
 local PREPROC = { preproc_if = true, preproc_ifdef = true, preproc_elif = true, preproc_else = true, preproc_elifdef = true }
 --- The #if branch a node is in (the nearest), as written ("#ifdef LINUX", "#elif defined(MAC)", "#else (#ifdef LINUX)"),
 --- and whether `defines` turn it on (nil: no flags, or a condition it cannot read). nil when it is in none.
+-- An include guard (T2, 2026-11-19): #ifndef X whose first line is #define X, with no #else or #elif, at the top of
+-- the file. Not a condition: every function of a header would say it.
+local function include_guard(b, src)
+  if b:type() ~= 'preproc_ifdef' or b:field('alternative')[1] then return false end
+  if not vim.treesitter.get_node_text(b, src):match('^#%s*ifndef') then return false end
+  local parent = b:parent()
+  if not parent or parent:type() ~= 'translation_unit' then return false end
+  local name = b:field('name')[1] and vim.treesitter.get_node_text(b:field('name')[1], src)
+  for child in b:iter_children() do
+    if child:named() and child ~= b:field('name')[1] then
+      local def = child:type() == 'preproc_def' and child:field('name')[1]
+      return def ~= nil and def ~= false and vim.treesitter.get_node_text(def, src) == name
+    end
+  end
+  return false
+end
 function M.preproc_cond(node, src, defines)
   local branch = node:parent()
-  while branch and not PREPROC[branch:type()] do branch = branch:parent() end
+  while branch and (not PREPROC[branch:type()] or include_guard(branch, src)) do branch = branch:parent() end
   if not branch then return nil end
   local function head(b)
     local t = b:type()
@@ -376,8 +392,8 @@ function M.preproc_cond(node, src, defines)
   return { text = cut_text(text, 120), active = active }
 end
 
-local CACHE_VERSION = '2'   -- changed whenever what a file's piece holds changes: every cached piece read again
--- (2: 2026-11-19, text cut at a character; pieces cached before could hold half a →)
+local CACHE_VERSION = '3'   -- changed whenever what a file's piece holds changes: every cached piece read again
+-- (2: 2026-11-19, text cut at a character; pieces cached before could hold half a →. 3: include guards no condition)
 -- request: { root, files = { rel… }, limits = { nodes, edges }, cache = dir? }. Returns the map's graph shape plus spans (each
 -- unit's first and last line, for "what a commit touched"), notes and counts.
 function M.syntax_graph(request)
