@@ -512,8 +512,8 @@ eq({ G.target_at(dir .. "/no-such-file.lua", 1) }, { nil, "that file is no longe
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", "m", "r", "q", "gs", "t", "o" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", "m", "r", "gs", "t", "p", "q", "o" }, "the panel's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", "m", "r", "q", "gs", "t", "gl", "o" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", "m", "r", "gs", "t", "p", "q", "gl", "o" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do
@@ -799,6 +799,41 @@ do
     "callers: the map's level under the server's (caller_of_M.alpha is gamma's place), read from the caller's end")
   G.close_view(v.buf)
   G.transport = transport
+end
+
+-- ─── gl: the graph's functions in a window's location list ───────────────────────────────────────────────────────
+do
+  local function at(name, file, line) return { name = name, detail = file .. ':' .. line, uri = vim.uri_from_fname('/w/' .. file), range = { start = { line = line - 1, character = 2 } } } end
+  local flush, push = at('Queue::flush', 'q.cpp', 84), at('push', 'q.cpp', 10)
+  local graph = { center = at('drain', 'd.cpp', 5),
+    layers = { callers = { { flush }, { push, flush } }, callees = { { at('grow', 'q.cpp', 30) } } } }
+  local items, missing = G.loclist_items(graph)
+  eq(vim.tbl_map(function(i) return { i.filename, i.lnum, i.col, i.text } end, items), {
+    { '/w/d.cpp', 5, 3, 'Centre · drain · d.cpp:5' },
+    { '/w/q.cpp', 84, 3, 'Caller, depth 1 · Queue::flush · q.cpp:84' },
+    { '/w/q.cpp', 10, 3, 'Caller, depth 2 · push · q.cpp:10' },
+    { '/w/q.cpp', 30, 3, 'Callee, depth 1 · grow · q.cpp:30' } },
+    'gl: the centre, then each side level by level, each function once at its nearest depth')
+  eq(missing, 0, '… none left out')
+  local flat = { center = at('drain', 'd.cpp', 5), callers = { flush }, hidden = { callers = { push, { name = 'nowhere' } } } }
+  items, missing = G.loclist_items(flat)
+  eq({ #items, items[3] and items[3].text, missing }, { 3, 'Caller, depth 1 · push · q.cpp:10', 1 },
+    'a graph of one level: what "+N more" left out is listed too; a box with no file is counted, not listed')
+  -- Into a code window's location list; the quickfix list (the build's errors) kept.
+  local code = vim.fn.tempname() .. '.c'
+  vim.fn.writefile({ 'int x;' }, code)
+  vim.cmd('tabnew ' .. vim.fn.fnameescape(code))
+  local win = api.nvim_get_current_win()
+  vim.fn.setqflist({}, ' ', { title = 'build', items = { { filename = code, lnum = 1, text = 'error: x' } } })
+  local said
+  local notify = vim.notify
+  vim.notify = function(m) said = m end
+  eq(G._to_loclist(graph), win, 'gl: the code window she is in')
+  vim.notify = notify
+  eq({ #vim.fn.getloclist(win), vim.fn.getloclist(win, { title = 1 }).title, vim.fn.getqflist({ title = 1 }).title, #vim.fn.getqflist() },
+    { 4, 'call graph · drain', 'build', 1 }, '… its location list holds the four; the quickfix list is still the build\'s')
+  ok(said and said:find('4 functions in the location list', 1, true) and said:find(':lnext', 1, true), '… and says how to walk them: ' .. tostring(said))
+  vim.cmd('tabclose')
 end
 
 vim.fn.delete(dir, "rf")

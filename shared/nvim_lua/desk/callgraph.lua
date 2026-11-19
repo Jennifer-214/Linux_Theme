@@ -664,6 +664,52 @@ local function location(item)
   if item.buf and api.nvim_buf_is_valid(item.buf) and item.row then return api.nvim_buf_get_name(item.buf), item.row + 1 end
 end
 
+--- pure: every function the graph has read — the centre, then each side level by level, what M.MAX left out ("+N
+--- more") included — as location-list items, each once at its nearest level: "Caller, depth 2 · Queue::flush · q.cpp:84".
+--- A box with no file (no working source) is left out and counted. → items, left out.
+function M.loclist_items(graph)
+  local items, seen, missing = {}, {}, 0
+  local function add(item, said)
+    local key = identity(item)
+    if seen[key] then return end
+    seen[key] = true
+    local file, line = location(item)
+    if not file then missing = missing + 1; return end
+    local col = item.range and item.range.start and item.range.start.character or item.col or 0
+    items[#items + 1] = { filename = file, lnum = line, col = col + 1,
+      text = said .. ' · ' .. tostring(item.name or '?') .. ((item.detail and item.detail ~= '') and (' · ' .. item.detail) or '') }
+  end
+  if graph.center then add(graph.center, 'Centre') end
+  for _, side in ipairs(SIDES) do
+    local word = side == 'callers' and 'Caller' or 'Callee'
+    local tiers = graph.layers and graph.layers[side]
+    if not tiers then
+      tiers = graph[side] and { vim.list_extend(vim.list_slice(graph[side]), graph.hidden and graph.hidden[side] or {}) } or {}
+    end
+    for depth, tier in ipairs(tiers) do
+      for _, item in ipairs(tier) do add(item, word .. ', depth ' .. depth) end
+    end
+  end
+  return items, missing
+end
+
+-- gl: that list in a code window's location list (the one she was last in), so :lnext and :lprev walk it while she
+-- edits, the graph closed or not, and the quickfix list keeps what it has (the build's errors).
+local function to_loclist(graph)
+  local items, missing = M.loclist_items(graph)
+  if #items == 0 then return tell('No function of this graph has a file to list.', vim.log.levels.WARN) end
+  local nav = require('desk.nav')
+  local here = api.nvim_get_current_win()
+  local win = nav.code_window(here) and here or nav.last_code()
+  if not win then win = nav.code_target() end
+  vim.fn.setloclist(win, {}, ' ', { title = 'call graph · ' .. tostring(graph.center and graph.center.name or '?'), items = items })
+  local name = vim.fn.fnamemodify(api.nvim_buf_get_name(api.nvim_win_get_buf(win)), ':t')
+  tell(('%d function%s in the location list of the window with %s — :lnext / :lprev walk them, :lopen lists them%s.'):format(#items,
+    #items == 1 and '' or 's', name ~= '' and name or 'no name', missing > 0 and (' (' .. missing .. ' with no file left out)') or ''))
+  return win
+end
+M._to_loclist = to_loclist
+
 -- Expand through every member of a frontier, including boxes hidden by the display limit.
 local function server_layers(graph, side, depth, active, done)
   local source = graph.source
@@ -1538,6 +1584,13 @@ local ROWS = actions.add({
   { id = 'callgraph.panel-close', group = 'Call graph', name = 'Close the call graph panel', key = 'q', on = 'callgraph-panel',
     about = 'Close the panel', run = function() M.panel_close() end },
   -- o here sends the graph to the pop-out; o there brings it back (desk.popout's own row, popout.back).
+  { id = 'callgraph.loclist', group = 'Call graph', name = "Send these functions to the window's location list", key = 'gl', on = BOTH, remote = true,
+    about = 'Every function the graph has read, what "+N more" leaves out too, into the location list of the code window you were last in: `:lnext` and `:lprev` walk them while you edit, the quickfix list kept',
+    available = function(ctx)
+      local holder = ctx.view or ctx.graph
+      return (holder and holder.graph and holder.graph.center) and true or 'no function is shown'
+    end,
+    run = function(ctx) to_loclist((ctx.view or ctx.graph).graph) end },
   { id = 'callgraph.popout', group = 'Call graph', name = 'Send this graph to the pop-out', key = 'o', on = BOTH, remote = false,
     about = 'Move this graph to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as a split',
     available = function() return pop().can_pop() end, run = function(ctx) pop().show('graph', ctx) end },
