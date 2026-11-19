@@ -665,8 +665,9 @@ J metrics_between(const std::string& root, const std::string& id, const std::str
     return out;
 }
 // ─── coverage of one run (Codex's #16): an lcov file the run produced, kept with the run ────────────────────────────
-// lcov's SF/FN/FNDA/DA lines → { files: { rel: { lines: { "12": count }, functions: [{ name, line, count }] } } }, paths
-// relative to the checkout (one outside it is left out); at most 4000 files.
+// lcov's SF/FN/FNDA/DA/BRDA lines → { files: { rel: { lines: { "12": count }, functions: [{ name, line, count }],
+// branches: { "12": { taken, of } } } } }: a branch line counts each outcome of a condition and whether it happened
+// ("-": the condition never ran); paths relative to the checkout (one outside it is left out); at most 4000 files.
 J lcov_coverage(const std::string& text, const std::string& root, const std::string& base) {
     J files = J::object();
     std::string rel;
@@ -695,6 +696,22 @@ J lcov_coverage(const std::string& text, const std::string& root, const std::str
                 const auto name = line.substr(comma + 1);
                 (*cur)["functions"].push_back(J{{"name", name.substr(0, 200)}, {"line", fn_line.count(name) ? fn_line[name] : 0},
                                                 {"count", std::atoll(line.substr(5, comma - 5).c_str())}});
+            }
+        } else if (line.rfind("BRDA:", 0) == 0) {
+            // BRDA:<line>,<block>,<branch>,<taken>
+            const auto comma = line.find(',', 5);
+            const auto last = line.rfind(',');
+            if (comma != std::string::npos && last != std::string::npos && last > comma) {
+                const auto n = line.substr(5, comma - 5);
+                const auto taken = line.substr(last + 1);
+                if (!cur->contains("branches")) (*cur)["branches"] = J::object();
+                auto& b = (*cur)["branches"];
+                if (!b.contains(n)) {
+                    if (b.size() >= 20000) continue;
+                    b[n] = J{{"taken", 0}, {"of", 0}};
+                }
+                b[n]["of"] = b[n]["of"].get<long long>() + 1;
+                if (taken != "-" && std::atoll(taken.c_str()) > 0) b[n]["taken"] = b[n]["taken"].get<long long>() + 1;
             }
         } else if (line.rfind("DA:", 0) == 0) {
             const auto comma = line.find(',');

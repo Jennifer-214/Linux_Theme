@@ -1277,6 +1277,17 @@ class Work(unittest.TestCase):
         again = self.data("coverage", "--run", other)
         self.assertEqual((again["executable"], again["files"]["engine.c"]["lines"]["2"]), ("/w/build/app", 0), "… another test's run: another branch")
 
+    def test_a_runs_coverage_keeps_its_branches(self):
+        # Codex's E4 (2026-11-19): lcov's BRDA lines, each condition's outcomes and how many were taken ("-": the
+        # condition never ran, none taken); two records of the same line (two blocks) add up
+        lcov = ("SF:engine.c\nDA:3,4\nBRDA:3,0,0,4\nBRDA:3,0,1,0\nBRDA:7,0,0,-\nBRDA:7,0,1,-\n"
+                "BRDA:9,0,0,2\nBRDA:9,0,1,1\nBRDA:9,1,0,0\nBRDA:9,1,1,3\nBRF:8\nBRH:5\nend_of_record\n")
+        self.execute("open('lcov.info', 'w').write(%r)" % lcov)
+        run = self.data("jobs")[0]
+        f = self.data("coverage", "--run", run["id"], "--file", "engine.c")["files"]["engine.c"]
+        self.assertEqual(f.get("branches"), {"3": {"taken": 1, "of": 2}, "7": {"taken": 0, "of": 2}, "9": {"taken": 3, "of": 4}},
+                         "each line's outcomes and how many happened")
+
     def test_suggested_tests_put_the_one_that_ran_the_file_first(self):
         # Codex's E1 (2026-11-19): a run's recorded coverage is the strongest reason; the suggester said "coverage of this
         # file is not established" even when a run had kept it.

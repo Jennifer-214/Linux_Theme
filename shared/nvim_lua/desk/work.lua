@@ -673,7 +673,17 @@ function M.coverage_marks(buf, cov)
         virt_text_pos = 'eol', priority = 15 })
     end
   end
-  return ran, missed
+  -- a condition with an outcome that never happened (Codex's E4): "1/2 outcomes" at its line; every outcome taken, quiet
+  local partial = 0
+  for n, b in pairs(cov.branches or {}) do
+    local line, taken, of = tonumber(n), tonumber(type(b) == 'table' and b.taken) or 0, tonumber(type(b) == 'table' and b.of) or 0
+    if line and line >= 1 and line <= count and of > 0 and taken < of then
+      partial = partial + 1
+      pcall(vim.api.nvim_buf_set_extmark, buf, cover_ns, line - 1, 0, { virt_text = { { '  ' .. taken .. '/' .. of .. ' outcomes', 'DeskCoverNot' } },
+        virt_text_pos = 'eol', priority = 14 })
+    end
+  end
+  return ran, missed, partial
 end
 --- pure: where each line of `before` is in `after` when it is unchanged (a diff's hunks left out) → { [old] = new }.
 function M.map_lines(before, after)
@@ -805,10 +815,11 @@ function M.show_coverage(buf, root, rel, cov, info, pick)
   local short = tostring(info.head or ''):sub(1, 7)
   local edits = info.clean == false and (' (the run had uncommitted edits: shown at ' .. short .. ', edited lines may differ)') or ''
   local function marked(target, c, extra)
-    local ran, missed = M.coverage_marks(target, c)
+    local ran, missed, partial = M.coverage_marks(target, c)
     vim.b[target].desk_coverage = info.id
     shown[target] = { id = info.id, head = info.head, cov = cov, name = info.name or info.said, said = info.said }
-    vim.notify('Coverage of ' .. info.said .. ': ' .. ran .. ' lines ran, ' .. missed .. ' did not' .. (extra or '') .. edits .. '.')
+    local conditions = (partial or 0) > 0 and (', ' .. partial .. (partial == 1 and ' condition' or ' conditions') .. ' with an outcome that never happened') or ''
+    vim.notify('Coverage of ' .. info.said .. ': ' .. ran .. ' lines ran, ' .. missed .. ' did not' .. conditions .. (extra or '') .. edits .. '.')
   end
   local then_lines
   if (info.head or '') ~= '' then
@@ -823,7 +834,11 @@ function M.show_coverage(buf, root, rel, cov, info, pick)
   pick({ { label = 'The version that ran (' .. short .. ')', how = 'then' }, { label = 'This file, the lines unchanged since', how = 'map' } }, function(choice)
     if not choice then return end
     if choice.how == 'map' then
-      local map, shifted, lost = M.map_lines(then_lines, now), { lines = {}, functions = {} }, 0
+      local map, shifted, lost = M.map_lines(then_lines, now), { lines = {}, functions = {}, branches = {} }, 0
+      for n, b in pairs(cov.branches or {}) do
+        local to = map[tonumber(n)]
+        if to then shifted.branches[tostring(to)] = b end
+      end
       for n, c in pairs(cov.lines or {}) do
         local to = map[tonumber(n)]
         if to then shifted.lines[tostring(to)] = c else lost = lost + 1 end
@@ -968,7 +983,7 @@ local ROWS = actions.add({
   { id = 'work.tests', group = 'Work', name = 'Claude test failures', key = '<leader>Ce', on = 'editor', remote = true, also = '`:WorkTests`',
     available = desk_work, about = "The last test run's failures as a jump list (its log when it has no locations)", run = function() M.tests() end },
   { id = 'work.coverage', group = 'Work', name = "A test run's coverage in this file", on = 'editor', available = desk_work,
-    about = "The lines and functions one test run covered, marked in this file (a run that wrote lcov.info, or one desk-work coverage add gave); the run, its command, executable and commit said with it. When the file changed since that run, the version that ran opens beside it with the marks (gf: the file as it is now), or this file gets them on the lines unchanged since. A second run chosen is compared with the first (both ran █, only the first ▌, only the second ▐, neither ·) or replaces it; the shown run again takes the marks off",
+    about = "The lines and functions one test run covered, marked in this file (a run that wrote lcov.info, or one desk-work coverage add gave), and each condition with an outcome it never took (\"1/2 outcomes\", when the lcov has branch lines); the run, its command, executable and commit said with it. When the file changed since that run, the version that ran opens beside it with the marks (gf: the file as it is now), or this file gets them on the lines unchanged since. A second run chosen is compared with the first (both ran █, only the first ▌, only the second ▐, neither ·) or replaces it; the shown run again takes the marks off",
     run = function() M.coverage() end },
   { id = 'work.tasks', group = 'Work', name = 'Project next steps', key = '<leader>Ck', on = 'editor', available = desk_work,
     about = 'Pinned next steps for this project: pin one, mark it done, or turn it into a note for Claude', run = function() M.tasks() end },

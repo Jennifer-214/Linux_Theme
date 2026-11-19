@@ -666,6 +666,14 @@ do
   end
   eq({ signs[1], signs[2], signs[3] }, { "DeskCoverRan", "DeskCoverNot", "DeskCoverRan" }, "… each line's mark")
   eq({ texts[1], texts[5] }, { "  ran 3×", "  not run" }, "… and each function's count beside it")
+  -- a condition's outcomes (Codex's E4): one never taken, said at its line; every one taken, nothing
+  local _, _, partial = W.coverage_marks(cbuf, { lines = { ["2"] = 4, ["3"] = 4 }, functions = {},
+    branches = { ["2"] = { taken = 1, of = 2 }, ["3"] = { taken = 2, of = 2 }, ["40"] = { taken = 0, of = 2 } } })
+  texts = {}
+  for _, m in ipairs(vim.api.nvim_buf_get_extmarks(cbuf, W.cover_ns, 0, -1, { details = true })) do
+    if m[4].virt_text then texts[m[2] + 1] = m[4].virt_text[1][1] end
+  end
+  eq({ texts[2], texts[3], partial }, { "  1/2 outcomes", nil, 1 }, "a condition with an outcome never taken: said, and counted")
   vim.api.nvim_buf_delete(cbuf, { force = true })
 end
 do
@@ -684,7 +692,7 @@ do
   git("add", "f.c")
   git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "f")
   local head = vim.trim(git("rev-parse", "HEAD").stdout)
-  local cov = { lines = { ["1"] = 3, ["2"] = 0, ["3"] = 3 } }
+  local cov = { lines = { ["1"] = 3, ["2"] = 0, ["3"] = 3 }, branches = { ["2"] = { taken = 1, of = 2 } } }
   local function marked(buf)
     local at = {}
     for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, W.cover_ns, 0, -1, { details = true })) do
@@ -712,6 +720,12 @@ do
   vim.api.nvim_set_current_win(code_win)
   W.show_coverage(code_buf, dir, "f.c", cov, { head = head, id = "r1", said = "run r1" }, function(choices, done) done(choices[2]) end)
   eq(marked(code_buf), { 21, 22, 23 }, "mapped onto today's file: each line where it is now (20 lines above it)")
+  local outcomes
+  for _, m in ipairs(vim.api.nvim_buf_get_extmarks(code_buf, W.cover_ns, 0, -1, { details = true })) do
+    if m[4].virt_text and m[4].virt_text[1][1]:find("outcomes", 1, true) then outcomes = m[2] + 1 end
+  end
+  eq(outcomes, 22, "… a condition's outcomes moved with its line")
+  ok(said[#said]:find("1 condition with an outcome that never happened", 1, true), "… and the note counts it: " .. tostring(said[#said]))
   vim.api.nvim_buf_set_lines(code_buf, 20, 21, false, { "int tick(void) {" })
   W.show_coverage(code_buf, dir, "f.c", cov, { head = head, id = "r1", said = "run r1" }, function(choices, done) done(choices[2]) end)
   eq(marked(code_buf), { 22, 23 }, "… a line changed since is not marked")
