@@ -284,6 +284,87 @@ function M.handoff_edges(units, by_short, ops, passed, pointers, calls, seen, ca
   return edges
 end
 
+-- ─── #if branches: which one a function is in, and whether the compile flags turn it on (Codex's #13) ─────────────
+--- pure: a compile command's -D and -U, as { NAME = value } (value '1' when none is given; a -U takes one away).
+function M.defines_of(args)
+  local out = {}
+  local i = 1
+  while i <= #args do
+    local a = args[i]
+    local d = a:match('^%-D(.+)$') or (a == '-D' and args[i + 1]) or nil
+    local u = a:match('^%-U(.+)$') or (a == '-U' and args[i + 1]) or nil
+    if a == '-D' or a == '-U' then i = i + 1 end
+    if d then local name, value = d:match('^([%w_]+)=?(.*)$'); if name then out[name] = value ~= '' and value or '1' end end
+    if u then out[u] = nil end
+    i = i + 1
+  end
+  return out
+end
+-- a simple condition read against the defines: defined(X), defined X, X, !…, a number; nil when it says more than that
+local function holds(cond, defines)
+  cond = vim.trim(tostring(cond or ''))
+  local neg = cond:match('^!%s*(.+)$')
+  if neg then local v = holds(neg, defines); if v == nil then return nil end; return not v end
+  local name = cond:match('^defined%s*%(%s*([%w_]+)%s*%)$') or cond:match('^defined%s+([%w_]+)$')
+  if name then return defines[name] ~= nil end
+  if cond:match('^%d+$') then return tonumber(cond) ~= 0 end
+  if cond:match('^[%a_][%w_]*$') then local v = defines[cond]; return v ~= nil and v ~= '0' end
+  return nil
+end
+local PREPROC = { preproc_if = true, preproc_ifdef = true, preproc_elif = true, preproc_else = true, preproc_elifdef = true }
+--- The #if branch a node is in (the nearest), as written ("#ifdef LINUX", "#elif defined(MAC)", "#else (#ifdef LINUX)"),
+--- and whether `defines` turn it on (nil: no flags, or a condition it cannot read). nil when it is in none.
+function M.preproc_cond(node, src, defines)
+  local branch = node:parent()
+  while branch and not PREPROC[branch:type()] do branch = branch:parent() end
+  if not branch then return nil end
+  local function head(b)
+    local t = b:type()
+    if t == 'preproc_ifdef' or t == 'preproc_elifdef' then
+      local word = vim.treesitter.get_node_text(b, src):match('^#%s*(%a+)') or 'ifdef'
+      local name = b:field('name')[1] and vim.treesitter.get_node_text(b:field('name')[1], src) or '?'
+      return '#' .. word .. ' ' .. name, word:find('n') and { kind = 'ifndef', name = name } or { kind = 'ifdef', name = name }
+    end
+    local c = b:field('condition')[1] and vim.trim((vim.treesitter.get_node_text(b:field('condition')[1], src):gsub('%s+', ' '))) or ''
+    return '#' .. (t == 'preproc_elif' and 'elif' or 'if') .. ' ' .. c, { kind = 'if', cond = c }
+  end
+  -- the chain of branches this one ends: the #if it belongs to, its #elifs before it
+  local chain, b = {}, branch
+  while b and PREPROC[b:type()] do
+    table.insert(chain, 1, b)
+    local parent = b:parent()
+    if parent and PREPROC[parent:type()] and parent:field('alternative')[1] == b then b = parent else break end
+  end
+  local function on(test)
+    if not defines then return nil end
+    if test.kind == 'ifdef' then return defines[test.name] ~= nil end
+    if test.kind == 'ifndef' then return defines[test.name] == nil end
+    return holds(test.cond, defines)
+  end
+  local text
+  local earlier_off = true
+  local active
+  for k, br in ipairs(chain) do
+    local is_last = k == #chain
+    if br:type() == 'preproc_else' then
+      text = '#else (' .. (head(chain[1])) .. ')'
+      if is_last then
+        if defines and earlier_off ~= nil then active = earlier_off else active = nil end
+      end
+    else
+      local h, test = head(br)
+      local v = on(test)
+      if is_last then
+        text = h
+        if earlier_off == nil or v == nil then active = nil else active = earlier_off and v end
+      else
+        if v == nil or earlier_off == nil then earlier_off = nil elseif v then earlier_off = false end
+      end
+    end
+  end
+  return { text = text:sub(1, 120), active = active }
+end
+
 -- request: { root, files = { rel… }, limits = { nodes, edges } }. Returns the map's graph shape plus spans (each
 -- unit's first and last line, for "what a commit touched"), notes and counts.
 function M.syntax_graph(request)
@@ -300,6 +381,29 @@ function M.syntax_graph(request)
   local function has_parser(lang)
     if parsers[lang] == nil then parsers[lang] = vim.treesitter.language.add(lang) == true end
     return parsers[lang]
+  end
+  -- the compile flags of each file, from compile_commands.json (the checkout's or its build/'s): which #if branch is on
+  local commands
+  local function defines_for(rel)
+    if commands == nil then
+      commands = false
+      for _, at in ipairs({ root .. '/compile_commands.json', root .. '/build/compile_commands.json' }) do
+        local text = read_file(at)
+        local ok, list = pcall(vim.json.decode, text or '')
+        if ok and type(list) == 'table' then
+          commands = {}
+          for _, e in ipairs(list) do
+            if type(e) == 'table' and type(e.file) == 'string' then
+              local file = e.file:sub(1, 1) == '/' and e.file or ((e.directory or root) .. '/' .. e.file)
+              local args = type(e.arguments) == 'table' and e.arguments or vim.split(tostring(e.command or ''), '%s+', { trimempty = true })
+              commands[vim.fs.normalize(file)] = M.defines_of(args)
+            end
+          end
+          break
+        end
+      end
+    end
+    return commands and commands[vim.fs.normalize(root .. '/' .. rel)] or nil
   end
   local function read_one(rel)
     if type(rel) ~= 'string' or rel == '' or rel:sub(1, 1) == '/' or ('/' .. rel .. '/'):find('/%.%./') then return end
@@ -335,6 +439,10 @@ function M.syntax_graph(request)
           units[#units + 1] = { id = id, label = label, short = name:match('([%w_~]+)$') or name, file = rel, line = first + 1,
                                 kind = kind, owner = owner, owner_label = owner and units[owner].label or '',
                                 family = FAMILY[lang] or lang, folder = rel:match('^(.*)/') or '' }
+          if (FAMILY[lang] or lang) == 'c' then
+            local fine, cond = pcall(M.preproc_cond, node, src, defines_for(rel))
+            if fine and cond then units[#units].cond = cond end
+          end
           if kind == 'function' and (FAMILY[lang] or lang) == 'c' then
             local fine, sig = pcall(M.signature, node, src)
             if fine and sig then
@@ -433,7 +541,7 @@ function M.syntax_graph(request)
   for i, u in ipairs(units) do
     by_short[u.short] = by_short[u.short] or {}
     table.insert(by_short[u.short], i)
-    nodes[i] = { id = u.id, label = u.label, file = u.file, line = u.line, kind = u.kind }
+    nodes[i] = { id = u.id, label = u.label, file = u.file, line = u.line, kind = u.kind, cond = u.cond }
     if u.sig then
       nodes[i].params, nodes[i].returns, nodes[i].params_more = u.sig.params, u.sig.returns, u.sig.params_more
       for _, prm in ipairs(u.sig.params or {}) do prm.seen_more = nil end
@@ -958,9 +1066,16 @@ function M.ambiguity(n)
   if not (a and a.name) then return nil end
   return tostring(a.name) .. ': ' .. tostring(a.count or '?') .. ' match' .. (#list > 1 and (' +' .. (#list - 1)) or '')
 end
+--- pure: the #if branch a function is in, as its box says it: "#ifdef LINUX (on)", "(off)" by the compile flags.
+function M.cond_said(n)
+  local c = type(n.cond) == 'table' and n.cond or nil
+  if not (c and c.text) then return nil end
+  return c.text .. (c.active == true and ' (on)' or c.active == false and ' (off)' or '')
+end
 local function node_item(n, extra)
   local said = M.ambiguity(n)
-  local item = { name = n.label, detail = where(n) .. (said and (' · ' .. said) or ''), target = { kind = 'node', node = n } }
+  local cond = M.cond_said(n)
+  local item = { name = n.label, detail = where(n) .. (cond and (' · ' .. cond) or '') .. (said and (' · ' .. said) or ''), target = { kind = 'node', node = n } }
   for k, v in pairs(extra or {}) do item[k] = v end
   return item
 end
@@ -1788,6 +1903,8 @@ function M.level_query_plain(answer, all, level)
     if cycle[n.id] then detail = detail .. ' · in a cycle' end
     if capped[n.id] then detail = detail .. (backwards and ' · called from more' or ' · calls more') end
     local said = not backwards and M.ambiguity(n)
+    local cond = M.cond_said(n)
+    if cond then detail = detail .. ' · ' .. cond end
     if said then detail = detail .. ' · ' .. said end   -- what it reaches may be among the names it calls ambiguously
     return node_item(n, { detail = detail, warn = cycle[n.id] or nil })
   end

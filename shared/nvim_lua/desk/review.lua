@@ -548,7 +548,12 @@ function M.changed_symbols(file, tree)
       if node and not ids[node:id()] then
         ids[node:id()] = true
         local u = { node = node, label = label_of(node, name, src), owner = owner_of(node, src), params = params_of(node, src) }
-        u.ident = u.owner .. '\0' .. u.label .. '\0' .. u.params
+        -- C and C++: the #if branch it is in, so #ifdef twins are a row each (Codex's #13)
+        local okm, Map = pcall(require, 'desk.map')
+        local fine, cond = false, nil
+        if okm and Map.preproc_cond and (lang == 'c' or lang == 'cpp') then fine, cond = pcall(Map.preproc_cond, node, src) end
+        u.cond = fine and cond and cond.text or ''
+        u.ident = u.owner .. '\0' .. u.label .. '\0' .. u.params .. '\0' .. u.cond
         out[#out + 1] = u
       end
     end
@@ -570,7 +575,7 @@ function M.changed_symbols(file, tree)
             if t.label == u.label and t.owner == u.owner and (not twin or t.params == u.params) then twin = t end
           end
           if twin then at[other] = { twin.node:start() }; seen[twin.ident] = true end
-          result[#result + 1] = { name = u.label, label = u.label, owner = u.owner, params = u.params, kind = u.node:type(), side = side,
+          result[#result + 1] = { name = u.label, label = u.label, owner = u.owner, params = u.params, cond = u.cond, kind = u.node:type(), side = side,
             line = row + 1, signature = file.signature, at = at }
         end
       end
@@ -590,6 +595,12 @@ function M.changed_symbols(file, tree)
       local owned = row.owner ~= '' and not row.label:find('::', 1, true) and not row.label:find('.', 1, true)
       row.name = (owned and (row.owner .. '::') or '') .. row.label .. row.params
     end
+  end
+  -- still the same name (#ifdef twins: one function, two branches): each says its branch
+  local by_full = {}
+  for _, row in ipairs(result) do if row.kind ~= 'hunk' then by_full[row.name] = (by_full[row.name] or 0) + 1 end end
+  for _, row in ipairs(result) do
+    if (by_full[row.name] or 0) > 1 and (row.cond or '') ~= '' then row.name = row.name .. ' [' .. row.cond .. ']' end
   end
   file.symbols = result
   return result

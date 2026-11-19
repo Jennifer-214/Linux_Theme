@@ -127,6 +127,12 @@ eq(calls(structure("two.lua", TWO, (TWO:gsub("return M\n$", "M.z = function()\n 
 local TWINS = "#ifdef A\nvoid f(void) { a(); }\n#else\nvoid f(void) { b(); }\n#endif\n"
 eq(calls(structure("twins.c", TWINS, (TWINS:gsub("a%(%);", "a(); d();"))), "f"), "+d",
   "C: f under #ifdef and again under #else; the first gains d(): its own calls are compared")
+eq(vim.tbl_map(function(sy) return sy.name end, R.changed_symbols((function()
+  local after = TWINS:gsub("a%(%);", "a(); d();"):gsub("b%(%);", "b(); e();")
+  local f = { rel = "twins2.c", left = TWINS, right = after, loaded = true, signature = "twins2" }
+  f.hunks = (vim.text and vim.text.diff or vim.diff)(TWINS, after, { result_type = "indices", algorithm = "histogram", linematch = 60 })
+  return f
+end)())), { "f(void) [#ifdef A]", "f(void) [#else (#ifdef A)]" }, "#ifdef twins both changed: a row each, named by its branch (Codex's #13)")
 local SAME = "local M = {}\nfunction M.alpha()\n  local x = 1\n  return old(x)\nend\nreturn M\n"
 eq(calls(structure("same.lua", SAME, (SAME:gsub("  local x = 1\n", "  local x = 1\n  print(x)\n"))), "M.alpha"), "+print",
   "a line added inside a function: it is compared with itself in the copy before (found through the lines left alone)")

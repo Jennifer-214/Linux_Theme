@@ -86,6 +86,22 @@ do
   eq(e and vim.tbl_map(function(site) return site.line end, e.sites or {}), { 4, 5 }, "two calls from twice to leaf: one edge, both its sites")
   vim.fn.delete(two_root, "rf")
 end
+do
+  -- Same-name functions told apart by their #if branch, and which one the compile flags turn on (Codex's #13).
+  local pp_root = vim.fn.tempname()
+  vim.fn.mkdir(pp_root .. "/src", "p")
+  vim.fn.writefile({ "#ifdef LINUX", "void send(int a) { a1(); }", "#elif defined(MAC)", "void send(int a) { m1(); }", "#else", "void send(int a) { b1(); }", "#endif",
+    "int plain(void) { return 0; }" }, pp_root .. "/src/net.c")
+  vim.fn.writefile({ vim.json.encode({ { directory = pp_root, file = "src/net.c", arguments = { "cc", "-DLINUX", "-c", "src/net.c" } } }) }, pp_root .. "/compile_commands.json")
+  local g3 = Map.syntax_graph({ root = pp_root, files = { "src/net.c" } })
+  local conds = {}
+  for _, n in ipairs(g3.nodes) do conds[#conds + 1] = { n.label, n.cond and n.cond.text or false, n.cond and n.cond.active } end
+  eq(conds, { { "send", "#ifdef LINUX", true }, { "send", "#elif defined(MAC)", false }, { "send", "#else (#ifdef LINUX)", false }, { "plain", false } },
+    "each send() with its branch, and the one -DLINUX turns on; a function in none has none")
+  eq({ Map.cond_said(g3.nodes[1]), Map.cond_said(g3.nodes[2]), Map.cond_said({ cond = { text = "#if X > 1" } }) },
+    { "#ifdef LINUX (on)", "#elif defined(MAC) (off)", "#if X > 1" }, "… said on its box; a condition the flags cannot settle, as written")
+  vim.fn.delete(pp_root, "rf")
+end
 local by_label, ids = {}, {}
 for _, n in ipairs(graph.nodes) do by_label[n.label] = by_label[n.label] or n; ids[n.id] = n end
 local function edge(a, b, kind)

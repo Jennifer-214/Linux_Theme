@@ -406,6 +406,12 @@ inline J clean_graph(const J& raw) {
             if (!file.empty() && file[0] != '/' && file.find("..") == std::string::npos && file.find('\n') == std::string::npos) node["file"] = file;
             if (number(n, "line") > 0) node["line"] = number(n, "line");
             if (!text(n, "detail").empty()) node["detail"] = text(n, "detail").substr(0, 200);
+            // the #if branch it is in, as written, and whether the compile flags turn it on (true / false / unknown)
+            if (n.contains("cond") && n["cond"].is_object() && !text(n["cond"], "text").empty()) {
+                J cond{{"text", text(n["cond"], "text").substr(0, 120)}};
+                if (n["cond"].contains("active") && n["cond"]["active"].is_boolean()) cond["active"] = n["cond"]["active"];
+                node["cond"] = cond;
+            }
             // the calls of it the reader could not tell apart by name ("send: 2 match"), at most 8
             if (n.contains("ambiguous") && n["ambiguous"].is_array()) {
                 J list = J::array();

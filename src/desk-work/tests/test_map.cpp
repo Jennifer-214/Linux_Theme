@@ -256,6 +256,15 @@ int main(int, char** argv) {
         const auto amb_clean = desk_map::clean_graph(amb);
         CHECK(amb_clean["nodes"][1].value("ambiguous", J::array()) == J::array({J{{"name", "send"}, {"count", 2}, {"line", 4}}}),
               "an ambiguous call kept on its caller (one that matched once, or not an object, dropped)");
+        // The #if branch a function is in, and whether the flags turn it on: kept (a bad active dropped, text cut to 120).
+        {
+            J cond = raw;
+            cond["nodes"][1]["cond"] = J{{"text", "#ifdef LINUX"}, {"active", true}};
+            cond["nodes"][0]["cond"] = J{{"text", std::string(300, 'x')}, {"active", "yes"}};
+            const auto kept = desk_map::clean_graph(cond);
+            CHECK(kept["nodes"][1].value("cond", J()) == J({{"text", "#ifdef LINUX"}, {"active", true}}) && kept["nodes"][0]["cond"]["text"].get<std::string>().size() == 120
+                  && !kept["nodes"][0]["cond"].contains("active"), "a function's #if branch kept, whether it is on only as true or false");
+        }
         // What a rebuild changed (Codex's #42): calls and functions added and removed, source found and lost, and why.
         {
             J prev = J::parse(R"({"head": "aaaaaaa1", "dirty": "x", "built_at": 10, "binary": "/b/app",
