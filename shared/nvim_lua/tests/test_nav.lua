@@ -52,7 +52,11 @@ for _, id in ipairs({ "review.symdeps", "callgraph.symdeps" }) do
   eq(A.available(A.get(id), {}), "requires symdeps", id .. ": without symdeps, greyed with what it needs")
 end
 package.loaded["fox-symdeps"] = {}
-eq({ A.available(A.get("review.symdeps"), {}), A.available(A.get("callgraph.symdeps"), {}) }, { true, true }, "with symdeps both can run")
+-- the graph's gs on a box (2026-11-18 it asks for the selected one, a C or C++ function): a C++ box in the pop-out here
+local cpp_box = { view = {}, item = { name = "push", uri = "file:///w/q.cpp" } }
+eq({ A.available(A.get("review.symdeps"), {}), A.available(A.get("callgraph.symdeps"), cpp_box) }, { true, true }, "with symdeps both can run")
+eq(A.available(A.get("callgraph.symdeps"), { view = {}, item = { name = "f", uri = "file:///w/f.lua" } }), "requires a C or C++ function",
+  "… the graph's on a C or C++ box only")
 local inspected
 local symdeps = R.symdeps
 R.symdeps = function(layout) inspected = layout end
