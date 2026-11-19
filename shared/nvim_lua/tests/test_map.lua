@@ -279,6 +279,16 @@ local callers_page = Map.layout(Map.level_query(callers), 80, false)
 ok(line_with(callers_page.lines, "│ M.beta") < line_with(callers_page.lines, "║ use"), "callers: the farthest at the top, the function at the bottom")
 local ways = Map.layout(Map.level_query({ ok = true, q = "paths", from = contents.nodes[5], to = contents.nodes[2], depth = 10, max = 20,
   paths = { { nodes = { "lua/other.lua::use", "lua/mod.lua::M.alpha", "lua/mod.lua::M.beta" }, kinds = { "call-by-name", "call" } } }, nodes = contents.nodes }), 80, false)
+do
+  -- the map's boxes fit names as the call graph's do: two overloads in a narrow page stay different (Codex's #5)
+  local nodes = { { id = "q.hpp::a", label = "fox::engine::OrderBook::apply_insert(const Order&)", file = "q.hpp", line = 4, depth = 1 },
+    { id = "q.hpp::b", label = "fox::engine::OrderBook::apply_insert(const Cancel&)", file = "q.hpp", line = 9, depth = 1 },
+    { id = "r.cpp::route", label = "route", file = "r.cpp", line = 2, depth = 0 } }
+  local page = Map.layout(Map.level_query({ ok = true, q = "reach", from = nodes[3], depth = 1, nodes = nodes,
+    steps = { { from = "r.cpp::route", to = "q.hpp::a", depth = 1, mark = "leaf" }, { from = "r.cpp::route", to = "q.hpp::b", depth = 1, mark = "leaf" } } }), 26, false)
+  local text = table.concat(page.lines, "\n")
+  ok(text:find("apply_insert(Ord", 1, true) and text:find("apply_insert(Can", 1, true), "two overloads in a 26-column map page: told apart\n" .. text)
+end
 -- The trace page: a box per step (the function itself double), its parameters under it, the call between steps with
 -- each argument → the parameter it lands in, and the other callers and callees, Enter-able.
 local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16,

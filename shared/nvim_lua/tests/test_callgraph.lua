@@ -840,6 +840,28 @@ do
   G.transport = transport
 end
 
+-- ─── names fitted where they still differ (Codex's #5) ────────────────────────────────────────────────────────
+do
+  local long = 'fox::engine::OrderBook::apply_insert(const Order&)'
+  eq({ G.fit_name(long, 60, '…'), G.fit_name(long, 40, '…'), G.fit_name(long, 30, '…'), G.fit_name(long, 20, '…') },
+    { long, '…OrderBook::apply_insert(const Order&)', '…apply_insert(const Order&)', '…apply_insert(Order)' },
+    'the qualifiers go first, from the outside in, then the parameters\' const and &: the method and what it takes stay')
+  eq(G.fit_names({ long, 'fox::engine::OrderBook::apply_insert(const Cancel&)' }, 18, '…'), { '…apply_insert(Ord…', '…apply_insert(Can…' },
+    'two overloads in 18 columns: still told apart')
+  eq(G.details({ { file = '/w/src/feed/queue.hpp', line = 40 }, { file = '/w/src/replay/queue.hpp', line = 40 }, { file = '/w/src/book.cpp', line = 3 } }),
+    { 'feed/queue.hpp:40', 'replay/queue.hpp:40', 'book.cpp:3' }, 'two queue.hpp files: the folders that tell them apart')
+  -- in a drawing, a narrow window: the two neighbouring overloads stay different before Enter (the acceptance test)
+  local function at(name, file, line) return { name = name, detail = vim.fs.basename(file) .. ':' .. line, uri = 'file://' .. file, range = { start = { line = line - 1, character = 0 } } } end
+  local g = { center = at('fox::engine::Router::route(const Msg&)', '/w/router.cpp', 9),
+    callees = { at(long, '/w/feed/queue.hpp', 40), at('fox::engine::OrderBook::apply_insert(const Cancel&)', '/w/replay/queue.hpp', 40) } }
+  local d = G.layout(g, 24, true)
+  local shown = {}
+  for _, b in ipairs(d.boxes) do if b.role == 'callee' then shown[#shown + 1] = d.lines[b.line]:match('│ (.-) *│') end end
+  ok(#shown == 2 and shown[1] ~= shown[2], 'two overloads in a 24-column window: their boxes read differently: ' .. vim.inspect(shown))
+  local text = table.concat(d.lines, '\n')
+  ok(text:find('feed/queue.hpp:40', 1, true) and text:find('replay/queue.hpp:40', 1, true), '… and their files say which queue.hpp')
+end
+
 -- ─── the depth rail beside the drawing, not at the window's edge (Codex's #1) ───────────────────────────────────
 do
   local function at(name, line) return { name = name, detail = 'chain.lua:' .. line, uri = 'file:///w/c.lua', range = { start = { line = line, character = 0 } } } end

@@ -42,6 +42,88 @@ local function fit(s, w, ellipsis)
 end
 local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width_of(s))) end
 
+-- Names fitted where they still differ (Codex's #5, 2026-11-18): a box clipped at its right edge made two long names
+-- of one class read the same just where she had to choose. The selected box's strip keeps the whole name.
+--- pure: a code name fitted to w columns, shortened where it still says the most: the qualifiers go first (from the
+--- outside in: …::OrderBook::apply_insert(const Order&)), then the parameters' qualifiers (const, &, *), then the end.
+function M.fit_name(name, w, ell)
+  name = tostring(name or ''):gsub('[%c]', ' ')
+  if width_of(name) <= w then return name end
+  local base, params = name:match('^(.-)(%b())$')
+  base, params = base or name, params or ''
+  local parts = vim.split(base, '::', { plain = true })
+  for drop = 1, #parts - 1 do
+    local c = ell .. table.concat(vim.list_slice(parts, drop + 1), '::') .. params
+    if width_of(c) <= w then return c end
+  end
+  local short = params:gsub('const%s+', ''):gsub('%s*[&*]+', ''):gsub('%s+', ' ')
+  local last = parts[#parts]
+  local lead = #parts > 1 and ell or ''
+  if width_of(lead .. last .. short) <= w then return lead .. last .. short end
+  return fit(lead .. last .. short, w, ell)
+end
+
+--- pure: names of one row (siblings) each fitted, and where two would read the same, the part where they differ kept
+--- instead: the end of each from a little before the first character they differ at.
+function M.fit_names(names, w, ell)
+  local out = {}
+  for i, n in ipairs(names) do out[i] = M.fit_name(n, w, ell) end
+  for i = 1, #names do
+    for j = i + 1, #names do
+      if out[i] == out[j] and names[i] ~= names[j] then
+        local a, b = names[i], names[j]
+        local k = 1
+        while k <= math.min(#a, #b) and a:sub(k, k) == b:sub(k, k) do k = k + 1 end
+        -- from the start of the word they differ in
+        local from = k
+        while from > 1 and a:sub(from - 1, from - 1):match('[%w_]') do from = from - 1 end
+        for _, idx in ipairs({ i, j }) do
+          local n = names[idx]
+          local method = n:match('([%w_~]+)%b()$') or n:match('([%w_~]+)$') or ''
+          local tail = n:sub(from)
+          local c = ell .. method .. '(' .. tail
+          if tail:find('^' .. vim.pesc(method)) or not n:find('%(') then c = ell .. tail end
+          out[idx] = fit(c, w, ell)
+        end
+      end
+    end
+  end
+  return out
+end
+
+--- pure: file details of one drawing, where two different files share a name (feed/queue.hpp, replay/queue.hpp): the
+--- folders that tell them apart added. items = { { file, line } } → the details "queue.hpp:40", "feed/queue.hpp:40".
+function M.details(items)
+  local out, by = {}, {}
+  for i, it in ipairs(items) do
+    local base = vim.fs.basename(it.file or '')
+    by[base] = by[base] or {}
+    by[base][it.file] = true
+    out[i] = base
+  end
+  for i, it in ipairs(items) do
+    local base = out[i]
+    if vim.tbl_count(by[base]) > 1 then
+      local parts = vim.split(it.file, '/', { plain = true, trimempty = true })
+      for depth = 2, #parts do
+        local label = table.concat(vim.list_slice(parts, #parts - depth + 1), '/')
+        local clash = false
+        for other in pairs(by[base]) do
+          if other ~= it.file then
+            local op = vim.split(other, '/', { plain = true, trimempty = true })
+            if table.concat(vim.list_slice(op, #op - depth + 1), '/') == label then clash = true end
+          end
+        end
+        out[i] = label
+        if not clash then break end
+      end
+    end
+    out[i] = out[i] .. (it.line and (':' .. it.line) or '')
+  end
+  return out
+end
+
+
 M.GAUGE_WIDTH = 7
 function M.gauge_range(boxes)
   local first, last
@@ -152,10 +234,26 @@ function M.layout(graph, width, retro)
     local left = string.rep(' ', math.max(0, math.floor((width - width_of(text)) / 2)))
     add(left .. text, group, #left, #left + #text)
   end
+  -- a file name two different files share in this drawing gets the folders that tell them apart
+  local where_of = {}
+  do
+    local all = {}
+    local function take(item) if item and item.uri and item.uri:match('^file:') and item.range then all[#all + 1] = item end end
+    take(graph.center)
+    for _, side in ipairs(SIDES) do
+      for _, tier in ipairs(layers_of(graph, side)) do for _, it in ipairs(tier) do take(it) end end
+      for _, it in ipairs(graph.hidden and graph.hidden[side] or {}) do take(it) end
+    end
+    local said = M.details(vim.tbl_map(function(it) return { file = vim.uri_to_fname(it.uri), line = it.range.start.line + 1 } end, all))
+    for i, it in ipairs(all) do
+      if said[i]:find('/', 1, true) then where_of[it] = said[i] end
+    end
+  end
   local function boxes(items, frame, border, name_group, role)
     local built = {}
-    for _, item in ipairs(items) do
-      local name, detail = fit(item.name, width - 4, G.ellipsis), fit(item.detail or '', width - 4, G.ellipsis)
+    local names = M.fit_names(vim.tbl_map(function(it) return tostring(it.name or '') end, items), width - 4, G.ellipsis)
+    for k, item in ipairs(items) do
+      local name, detail = names[k], fit(where_of[item] or item.detail or '', width - 4, G.ellipsis)
       local inner = math.max(width_of(name), width_of(detail), 1)
       built[#built + 1] = { item = item, name = name, detail = detail, inner = inner, w = inner + 4 }
     end
@@ -270,7 +368,7 @@ function M.layout(graph, width, retro)
     local built, wname, wdetail = {}, 1, 0
     for _, level in ipairs(levels) do
       local item = level.items[1]
-      local name, detail = fit(item.name, width - 6, G.ellipsis), item.detail or ''
+      local name, detail = M.fit_name(item.name, width - 6, G.ellipsis), where_of[item] or item.detail or ''
       wname = math.max(wname, width_of(name))
       built[#built + 1] = { item = item, name = name, detail = detail, level = level }
     end

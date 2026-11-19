@@ -585,8 +585,10 @@ function M.layout(page, width, retro)
   end
   local function boxes(items, frame, border, name_group)
     local built = {}
-    for _, item in ipairs(items) do
-      local name, detail = fit(item.name, width - 4, G.ellipsis), fit(item.detail or '', width - 4, G.ellipsis)
+    -- names fitted where they still differ (the call graph's fitter: qualifiers first, then parameters' const and &)
+    local names = graph.fit_names(vim.tbl_map(function(it) return tostring(it.name or '') end, items), width - 4, G.ellipsis)
+    for k, item in ipairs(items) do
+      local name, detail = names[k], fit(item.detail or '', width - 4, G.ellipsis)
       local inner = math.max(width_of(name), width_of(detail), 1)
       built[#built + 1] = { item = item, name = name, detail = detail, inner = inner, w = inner + 4 }
     end
