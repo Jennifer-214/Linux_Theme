@@ -33,6 +33,19 @@ static const J* step(const J& answer, const std::string& from, const std::string
 }
 
 int main(int, char** argv) {
+    // ─── an answer with a broken character (2026-11-19, the trader's map: one → cut in half lost the whole map) ───
+    {
+        const std::string good = "{\"label\":\"tick → order\",\"n\":1}";
+        CHECK(desk_map::utf8_clean(good) == good, "utf8_clean: valid text unchanged");
+        const std::string half = std::string("{\"args\":[\"(K=%d) \xe2\x86\"],\"n\":1}");
+        const auto cleaned = desk_map::utf8_clean(half);
+        CHECK(cleaned == std::string("{\"args\":[\"(K=%d) \xef\xbf\xbd\"],\"n\":1}"), "… a split arrow becomes one U+FFFD");
+        const auto parsed = J::parse(cleaned, nullptr, false);
+        CHECK(!parsed.is_discarded() && parsed["n"] == 1, "… and the answer parses, the rest of it kept");
+        CHECK(J::parse(half, nullptr, false).is_discarded(), "(as the reader's answer was, it did not parse at all)");
+        CHECK(desk_map::utf8_clean(std::string("a\xc3(b\xff\xf0\x9f\x98\x80")) == std::string("a\xef\xbf\xbd(b\xef\xbf\xbd\xf0\x9f\x98\x80"),
+              "… a lead byte with no follower and a byte never valid, each one U+FFFD; a 4-byte character kept");
+    }
     // ─── the disassembly reader ────────────────────────────────────────────────────────────────────────────────
     const std::string here = std::string(argv[0]).substr(0, std::string(argv[0]).rfind('/') + 1);
     std::ifstream fixture(here + "fixtures/objdump-sample.txt");

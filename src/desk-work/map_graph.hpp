@@ -24,6 +24,32 @@
 namespace desk_map {
 using J = nlohmann::json;
 
+// Text with each byte that is not part of a whole UTF-8 character replaced by U+FFFD (2026-11-19: the syntax reader
+// cut a → in half in one call's arguments, the answer did not parse, and the trader's whole map was dropped for it;
+// the reader cuts at characters now, and an answer it cannot vouch for still reads, a character at most lost).
+inline std::string utf8_clean(const std::string& in) {
+    std::string out;
+    out.reserve(in.size());
+    const auto* s = reinterpret_cast<const unsigned char*>(in.data());
+    const size_t n = in.size();
+    for (size_t i = 0; i < n;) {
+        const unsigned char c = s[i];
+        size_t len = c < 0x80 ? 1 : (c >= 0xC2 && c < 0xE0) ? 2 : (c >= 0xE0 && c < 0xF0) ? 3 : (c >= 0xF0 && c < 0xF5) ? 4 : 0;
+        bool ok = len > 0 && i + len <= n;
+        for (size_t k = 1; ok && k < len; ++k) ok = (s[i + k] & 0xC0) == 0x80;
+        // no overlong 3-byte forms, no surrogates, nothing past U+10FFFF
+        if (ok && len == 3) ok = !(c == 0xE0 && s[i + 1] < 0xA0) && !(c == 0xED && s[i + 1] >= 0xA0);
+        if (ok && len == 4) ok = !(c == 0xF0 && s[i + 1] < 0x90) && !(c == 0xF4 && s[i + 1] >= 0x90);
+        if (ok) { out.append(in, i, len); i += len; continue; }
+        // one U+FFFD for the broken piece: its lead byte and the continuation bytes that follow it (a cut → is one)
+        size_t k = 1;
+        while (len > 1 && k < len && i + k < n && (s[i + k] & 0xC0) == 0x80) ++k;
+        out += "\xef\xbf\xbd";
+        i += k;
+    }
+    return out;
+}
+
 inline std::string text(const J& j, const char* key) {
     const auto it = j.find(key);
     return it != j.end() && it->is_string() ? it->get<std::string>() : std::string();

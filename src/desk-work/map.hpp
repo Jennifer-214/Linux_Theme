@@ -5,7 +5,7 @@
 // notice); status says stale instead of rebuilding. The graph itself is computed in map_graph.hpp.
 fs::path map_dir(const std::string& root) { return project_dir(root) / "map"; }
 const std::vector<std::string>& map_providers() { static const std::vector<std::string> names{"syntax", "binary"}; return names; }
-J map_json(const fs::path& p) { auto j = J::parse(read(p, 512u * 1024 * 1024), nullptr, false); return j.is_discarded() ? J() : j; }
+J map_json(const fs::path& p) { auto j = J::parse(desk_map::utf8_clean(read(p, 512u * 1024 * 1024)), nullptr, false); return j.is_discarded() ? J() : j; }
 
 // Code the syntax reader reads, and whose edits make the map stale: by extension, outside folders that hold someone
 // else's code or build output (git's ignore rules have already left out the rest).
@@ -131,7 +131,7 @@ J map_syntax(const std::string& root, const J& stamp) {
     fs::remove(answer, ec);
     // each file's reading kept by its text in syntax-cache/ (the reader drops what no build asks for again)
     if (!atomic(request, J{{"version", 1}, {"root", root}, {"files", files}, {"limits", J{{"nodes", 50000}, {"edges", 200000}}},
-                           {"cache", (map_dir(root) / "syntax-cache").string()}}.dump(), false)) {
+                           {"cache", (map_dir(root) / "syntax-cache").string()}}.dump(-1, ' ', false, J::error_handler_t::replace), false)) {
         result["why"] = "could not write the reader's request in " + map_dir(root).string(); return result;
     }
     A argv{"nvim", "--headless", "--clean", "-l", map_lua(), "--syntax-graph", request.string(), answer.string()};
@@ -239,7 +239,7 @@ int map_build_run(const std::string& root, std::string provider) {
         if (fd >= 0) ::close(fd);
         return 0;
     }
-    atomic(map_dir(root) / "building.json", J{{"pid", ::getpid()}, {"process", proc_stamp(::getpid())}, {"started", now()}, {"provider", provider}}.dump(), false);
+    atomic(map_dir(root) / "building.json", J{{"pid", ::getpid()}, {"process", proc_stamp(::getpid())}, {"started", now()}, {"provider", provider}}.dump(-1, ' ', false, J::error_handler_t::replace), false);
     const auto binary = map_binary(root);
     const auto stamp = map_stamp(root, binary);
     const auto dirty = num(stamp, "dirty_count");
@@ -254,7 +254,7 @@ int map_build_run(const std::string& root, std::string provider) {
         std::cout << map_said(r) << '\n';
         for (const auto& note : desk_map::list(r, "notes")) std::cout << name << ": " << note.get<std::string>() << '\n';
         std::cout << std::flush;
-        atomic(map_dir(root) / "providers" / (name + ".json"), r.dump(), false);
+        atomic(map_dir(root) / "providers" / (name + ".json"), r.dump(-1, ' ', false, J::error_handler_t::replace), false);
         results[name] = r;
     }
     const auto graph_of = [&](const std::string& name) {
@@ -691,7 +691,7 @@ int map_build(const std::string& root, std::map<std::string, std::string>& opts)
         const auto path = fs::canonical(fs::absolute(opts["--binary"], ec), ec).string();
         const auto problem = ec ? opts["--binary"] + " does not exist" : binary_problem(path);
         if (!problem.empty()) return say(refuse(problem));
-        if (!atomic(map_dir(root) / "settings.json", J{{"binary", path}}.dump(), false)) return say(unwritable());
+        if (!atomic(map_dir(root) / "settings.json", J{{"binary", path}}.dump(-1, ' ', false, J::error_handler_t::replace), false)) return say(unwritable());
     }
     if (map_building(root).is_object()) return say(J{{"ok", true}, {"running", true}, {"message", "A map build is already running here"}});
     std::error_code ec;
@@ -708,7 +708,7 @@ int map_build(const std::string& root, std::map<std::string, std::string>& opts)
         return code == 0 ? 0 : 1;
     }
     if (!sh::have("setsid")) return say(refuse("requires setsid (util-linux) to build in the background; --wait yes builds in the foreground"));
-    atomic(map_dir(root) / "building.json", J{{"at", now()}, {"provider", provider}}.dump(), false);
+    atomic(map_dir(root) / "building.json", J{{"at", now()}, {"provider", provider}}.dump(-1, ' ', false, J::error_handler_t::replace), false);
     argv.insert(argv.begin(), {"setsid", "-f"});
     if (sh::run(argv) != 0) { fs::remove(map_dir(root) / "building.json", ec); return say(refuse("The build could not be started")); }
     return say(J{{"ok", true}, {"started", true}, {"message", "Building the project map in the background"}});

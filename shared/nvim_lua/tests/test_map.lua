@@ -103,6 +103,38 @@ do
   vim.fn.delete(pp_root, "rf")
 end
 do
+  -- Text from the source cut at a character, never inside one (2026-11-19, the trader's map: a log format string with
+  -- → cut at 80 bytes split the arrow; the answer was then not valid JSON and desk-work dropped the whole map).
+  local function valid_utf8(str)
+    local i, n = 1, #str
+    while i <= n do
+      local c = str:byte(i)
+      local len = c < 0x80 and 1 or (c >= 0xC2 and c < 0xE0) and 2 or (c >= 0xE0 and c < 0xF0) and 3 or (c >= 0xF0 and c < 0xF5) and 4 or nil
+      if not len or i + len - 1 > n then return false end
+      for k = i + 1, i + len - 1 do local b = str:byte(k); if b < 0x80 or b >= 0xC0 then return false end end
+      i = i + len
+    end
+    return true
+  end
+  eq({ Map.cut_text("ab→cd", 3), Map.cut_text("ab→cd", 4), Map.cut_text("ab→cd", 5), Map.cut_text("abc", 9) }, { "ab", "ab", "ab→", "abc" },
+    "cut_text: at most n bytes, never part of a character")
+  local u_root = vim.fn.tempname()
+  vim.fn.mkdir(u_root .. "/src", "p")
+  local pad = string.rep("x", 77)   -- the quote, 77 x and a space: the arrow's first byte is byte 80
+  local long_type = "struct " .. string.rep("ü", 70)
+  vim.fn.writefile({ "void warn(const char *f, int n) { (void)f; (void)n; }", "void fold(" .. long_type .. " *p) {", '  warn("' .. pad .. ' → done", 1);', "}" }, u_root .. "/src/fold.c")
+  local g = Map.syntax_graph({ root = u_root, files = { "src/fold.c" } })
+  local text = vim.json.encode(g)
+  ok(valid_utf8(text), "the reader's answer is valid UTF-8 with an arrow across byte 80 and a long type of ü")
+  local arg
+  for _, e in ipairs(g.edges or {}) do
+    for _, a in ipairs(e.args or {}) do if a:find(pad, 1, true) then arg = a end end
+    for _, site in ipairs(e.sites or {}) do for _, a in ipairs(site.args or {}) do if a:find(pad, 1, true) then arg = a end end end
+  end
+  ok(arg and #arg <= 80 and valid_utf8(arg), "… the argument cut before the arrow: " .. tostring(arg))
+  vim.fn.delete(u_root, "rf")
+end
+do
   -- A rebuild in proportion to the edit (Codex's #43): each file's reading cached by its text, the names matched again
   -- across every file; the answer a clean build's, also when a new overload elsewhere makes an untouched call ambiguous.
   local cr = vim.fn.tempname()

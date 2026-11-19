@@ -17,6 +17,17 @@ local function one_line(s) return vim.trim(tostring(s or ''):gsub('%s+', ' ')) e
 
 -- ─── the syntax reader (run headless by desk-work) ─────────────────────────────────────────────────────────────
 -- A call per language: its node type and the field that names what it calls.
+--- pure: text from the source, at most n bytes, cut at a character and never inside one (2026-11-19: a → split at 80
+--- bytes made the reader's answer invalid JSON, and desk-work dropped the trader's whole map for it).
+function M.cut_text(text, n)
+  text = tostring(text or '')
+  if #text <= n then return text end
+  local i = n
+  -- back to the start of the character byte n + 1 belongs to (UTF-8 continuation bytes are 0x80-0xBF)
+  while i > 0 and (text:byte(i + 1) or 0) >= 0x80 and (text:byte(i + 1) or 0) < 0xC0 do i = i - 1 end
+  return text:sub(1, i)
+end
+local cut_text = M.cut_text
 local CALLS = { call_expression = 'function', function_call = 'name', call = 'function', command = 'name', method_invocation = 'name' }
 -- Units are the review's (desk.review's unit_types); classes in JavaScript, TypeScript and Java are declarations.
 local MORE_UNITS = { class_declaration = true }
@@ -119,7 +130,7 @@ end
 local function written(const, type_node, marks, src)
   local base = (const and 'const ' or '') .. (type_node and one_line(text_of(type_node, src)) or '')
   local tail = table.concat(vim.tbl_map(function(m) return m[1] .. (m.const and ' const' or '') end, marks or {}), '')
-  return ((tail ~= '' and (base .. ' ' .. tail) or base)):sub(1, 120)
+  return cut_text(tail ~= '' and (base .. ' ' .. tail) or base, 120)
 end
 -- How a parameter is passed: the declarator nearest its name applies to it (`int *& p` is a reference to a pointer).
 -- in: the callee cannot write the caller's value through it; inout: a non-const reference, pointer or array, it can.
@@ -150,7 +161,7 @@ function M.signature(node, src)
       local type_text = ty and one_line(text_of(ty, src)) or ''
       if not (type_text == 'void' and not name and #pmarks == 0) then
         local pass, dir = M.passing(const, type_text, pmarks)
-        params[#params + 1] = { name = (name or ''):sub(1, 64), type = written(const, ty, pmarks, src), pass = pass, dir = dir }
+        params[#params + 1] = { name = cut_text(name or '', 64), type = written(const, ty, pmarks, src), pass = pass, dir = dir }
       end
     elseif (t == 'variadic_parameter' or (not child:named() and child:type() == '...')) and #params < 16 then
       params[#params + 1] = { name = '...', type = '...', pass = 'value', dir = 'in' }
@@ -177,7 +188,7 @@ local function list_texts(list, src)
   local out, more = {}, 0
   for child in (list and list:iter_children() or function() end) do
     if child:named() and not child:type():find('comment', 1, true) then
-      if #out < 12 then out[#out + 1] = one_line(text_of(child, src)):sub(1, 80) else more = more + 1 end
+      if #out < 12 then out[#out + 1] = cut_text(one_line(text_of(child, src)), 80) else more = more + 1 end
     end
   end
   return out, more
@@ -245,7 +256,7 @@ function M.handoff_edges(units, by_short, ops, passed, pointers, calls, seen, ca
     local key = units[from].id .. '\0' .. units[to].id .. '\0handoff'
     if seen[key] then return end
     seen[key] = true
-    edges[#edges + 1] = { from = units[from].id, to = units[to].id, kind = 'handoff', label = label:sub(1, 80), line = line, to_line = to_line }
+    edges[#edges + 1] = { from = units[from].id, to = units[to].id, kind = 'handoff', label = cut_text(label, 80), line = line, to_line = to_line }
   end
   -- One object under a plural and its singular (tick_rings[c] pushed, the core's tick_ring popped).
   local by_object = {}
@@ -362,10 +373,11 @@ function M.preproc_cond(node, src, defines)
       end
     end
   end
-  return { text = text:sub(1, 120), active = active }
+  return { text = cut_text(text, 120), active = active }
 end
 
-local CACHE_VERSION = '1'   -- changed whenever what a file's piece holds changes: every cached piece read again
+local CACHE_VERSION = '2'   -- changed whenever what a file's piece holds changes: every cached piece read again
+-- (2: 2026-11-19, text cut at a character; pieces cached before could hold half a →)
 -- request: { root, files = { rel… }, limits = { nodes, edges }, cache = dir? }. Returns the map's graph shape plus spans (each
 -- unit's first and last line, for "what a commit touched"), notes and counts.
 function M.syntax_graph(request)
