@@ -354,6 +354,11 @@ int main(int, char** argv) {
         CHECK(lane(t) == std::vector<std::string>({"entry2", "mid", "a", "F", "b", "c", "end"}),
               "the lane: up to the farthest start (entry2, not entry), down to the farthest end, a cycle walked once");
         CHECK(t["steps"][3]["role"] == "focus" && t["steps"][0]["role"] == "up" && t["steps"][6]["role"] == "down", "… each step says where it is");
+        // the other starts (T3, 2026-11-19: on the trader the farthest start was main → the backtest GUI, not the live
+        // producer thread): every function above F that nothing calls, farthest first, the one picked left out
+        std::vector<std::string> others;
+        for (const auto& st : t.value("starts", J::array())) others.push_back(st["id"]);
+        CHECK(others == std::vector<std::string>({"entry", "s"}), "the other starts: entry (2 calls up), then s (1)");
         CHECK(t["steps"][3]["params"][0]["pass"] == "const ref", "… with its signature");
         CHECK(desk_map::clean_graph(doc)["nodes"][4]["params"][0]["reads"] == J({"px", "ts"}) && desk_map::clean_graph(doc)["nodes"][4]["params"][0]["writes"] == J({"seq"}),
               "… and what it reads and writes of each parameter, strings only");

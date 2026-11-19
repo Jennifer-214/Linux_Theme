@@ -1699,6 +1699,15 @@ function M.trace_page(answer, folds, layouts, field)
       { ' · to ' .. tostring(last.label), nil, nil, 'DeskMapName' },
       { answer.to and ' (your choice)' or ' (picked by the map: where the calls end)', nil, true, 'DeskMapDim' } } }, group = 'DeskMapDim' }
   end
+  -- the other starts it could have begun at (T3): each one Enter away from the trace again from there
+  if type(answer.starts) == 'table' and #answer.starts > 0 then
+    local parts = { { 'also starts at: ', nil, true, 'DeskMapDim' } }
+    for k, st in ipairs(answer.starts) do
+      parts[#parts + 1] = { tostring(st.label), { name = tostring(st.label), key = 'start:' .. tostring(st.id), target = { kind = 'start', id = st.id, node = st } } }
+      if k < #answer.starts then parts[#parts + 1] = { ' · ', nil, nil, 'DeskMapDim' } end
+    end
+    sections[#sections + 1] = { block = { parts }, group = 'DeskMapDim' }
+  end
   if focus and focus.before then
     sections[#sections + 1] = { block = { { { '▲ ' .. focus.before, walk_item(focus, 'callers', focus.before) }, { ' before · ', nil, true },
       { '▼ ' .. (focus.after or 0), walk_item(focus, 'reach', focus.after or 0) }, { ' after it in the map', nil, true } } }, group = 'DeskMapDim' }
@@ -2716,6 +2725,14 @@ local function enter(view, ctx)
   elseif t.kind == 'result' then
     -- Where its result goes: each call of it, with its line read.
     query(view, { '--q', 'calls-into', '--of', t.node.id }, item.key)
+  elseif t.kind == 'start' then
+    -- Another start of this trace (T3): the trace again from there, the end she chose kept.
+    local a = view.stack[#view.stack] and view.stack[#view.stack].answer
+    if a and a.q == 'trace' then
+      local args = { '--q', 'trace', '--from', a.focus, '--start', t.id }
+      if a.to then vim.list_extend(args, { '--to', a.to }) end
+      query(view, args)
+    end
   elseif t.kind == 'crossings' then
     -- The calls from one part into another, by the entry function each reaches: a page of its own.
     query(view, { '--q', 'crossings', '--from', t.from, '--to', t.to }, item.key)
@@ -4142,6 +4159,8 @@ function M.strip_text(item, G)
       line('open', keys(list), tostring(n.label) .. ' (' .. where(n) .. ')') }
   elseif t.kind == 'module' or t.kind == 'file' or t.kind == 'class' then
     return { tostring(item.name), line('zoom into', keys({ { 'back', 'out' } }), tostring(item.name)) }
+  elseif t.kind == 'start' then
+    return { G.said('another start · ') .. tostring(item.name), line('trace from here', tostring(item.name)) }
   elseif t.kind == 'walk' then
     return { G.said(t.q == 'callers' and 'what comes before ' or 'what comes after ') .. tostring(t.node and t.node.label or ''),
       line(t.q == 'callers' and 'open what comes before' or 'open what comes after', G.said('3 levels (+ and - change it)')) }

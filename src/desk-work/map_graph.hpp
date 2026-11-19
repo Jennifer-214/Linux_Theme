@@ -1028,6 +1028,39 @@ inline J trace(const Graph& g, size_t focus, int depth, long to = -1, long start
         }
     }
     J out{{"ok", true}, {"q", "trace"}, {"focus", text(g.nodes[focus], "id")}, {"depth", depth}, {"steps", steps}, {"calls", calls}};
+    // The other starts (T3, 2026-11-19: the farthest one can be the wrong one; on the trader it was main → the backtest
+    // GUI, not the live producer thread): every function above the focus, within depth, that nothing calls, farthest
+    // first, the one the lane starts at left out; at most 8. The page offers each: the trace again from there.
+    {
+        std::vector<int> dist(g.nodes.size(), -1);
+        std::deque<size_t> queue{focus};
+        dist[focus] = 0;
+        std::vector<size_t> found;
+        while (!queue.empty()) {
+            const auto v = queue.front();
+            queue.pop_front();
+            if (g.in[v].empty() && v != focus && v != lane.front()) found.push_back(v);
+            if (dist[v] >= depth) continue;
+            for (const auto& [w, mask] : g.in[v]) {
+                (void)mask;
+                if (dist[w] >= 0) continue;
+                dist[w] = dist[v] + 1;
+                queue.push_back(w);
+            }
+        }
+        std::stable_sort(found.begin(), found.end(), [&](size_t a, size_t b) {
+            return dist[a] != dist[b] ? dist[a] > dist[b] : text(g.nodes[a], "label") < text(g.nodes[b], "label");
+        });
+        J starts = J::array();
+        for (const auto v : found) {
+            if (starts.size() >= 8) break;
+            J one{{"id", text(g.nodes[v], "id")}, {"label", text(g.nodes[v], "label")}, {"calls_up", dist[v]}};
+            if (g.nodes[v].contains("file")) one["file"] = g.nodes[v]["file"];
+            if (g.nodes[v].contains("line")) one["line"] = g.nodes[v]["line"];
+            starts.push_back(one);
+        }
+        if (!starts.empty()) out["starts"] = starts;
+    }
     if (to >= 0) { out["to"] = text(g.nodes[static_cast<size_t>(to)], "id"); out["reached"] = end == static_cast<size_t>(to); }
     if (start >= 0) { out["start"] = text(g.nodes[static_cast<size_t>(start)], "id"); out["start_reached"] = start_reached; }
     return out;

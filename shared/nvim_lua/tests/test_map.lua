@@ -2164,6 +2164,33 @@ do
   pv.stack, Map.desk_work, P.host.history = stack, inner, history
   pv.pinned = false
 end
+-- The other starts (T3, 2026-11-19: the trader's trace began at main → the backtest GUI, not the live producer thread):
+-- under the trace's start, the others it could have begun at, each one Enter away from the trace again from there.
+do
+  local stack, inner, asked, history = pv.stack, Map.desk_work, {}, vim.deepcopy(P.host.history)
+  local with = vim.deepcopy(trace_answer)
+  with.to = "e.cpp::submit"
+  with.starts = { { id = "run.cpp::ProducerThreadBody", label = "ProducerThreadBody", file = "run.cpp", line = 866, calls_up = 4 },
+                  { id = "run.cpp::DrainerThreadBody", label = "DrainerThreadBody", file = "run.cpp", line = 806, calls_up = 2 } }
+  local page = Map.layout(Map.level_query(with), 120, false)
+  local row, text = line_with(page.lines, "also starts at")
+  ok(text and text:find("ProducerThreadBody", 1, true) and text:find("DrainerThreadBody", 1, true), "the trace says its other starts: " .. tostring(text))
+  local hit = row and Map.item_at(page, row, text:find("ProducerThreadBody", 1, true) - 1)
+  eq(hit and hit.target and { hit.target.kind, hit.target.id }, { "start", "run.cpp::ProducerThreadBody" }, "… each one a target")
+  ok(not line_with(Map.layout(Map.level_query(trace_answer), 120, false).lines, "also starts at"), "… none: no line")
+  pv.stack = { { kind = "modules" }, { kind = "query", answer = with, args = { "--q", "trace", "--from", "e.cpp::tick", "--to", "e.cpp::submit" } } }
+  Map.desk_work = function(args, done)
+    asked[#asked + 1] = table.concat(args, " ")
+    if args[2] == "query" then return vim.defer_fn(function() done(trace_answer, { code = 0 }) end, 5) end
+    return inner(args, done)
+  end
+  act("map.in", { ref = hit })
+  ok(vim.wait(1000, function() return asked[#asked] and asked[#asked]:find("--start run.cpp::ProducerThreadBody", 1, true) ~= nil end),
+    "Enter on one: the trace again from there, the end she chose kept: " .. tostring(asked[#asked]))
+  ok(asked[#asked] and asked[#asked]:find("--to e.cpp::submit", 1, true), "… (--to kept)")
+  pv.stack, Map.desk_work, P.host.history = stack, inner, history
+  pv.pinned = false
+end
 -- T on a trace: the whole trace, asked with that trace's question (its function, and the end and start she chose).
 do
   local stack, inner, asked, history = pv.stack, Map.desk_work, {}, vim.deepcopy(P.host.history)
