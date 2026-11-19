@@ -71,7 +71,7 @@ refused":
 
 The project map infers handoffs between functions that do not call each other: a push and a pop on one queue, a
 function passed by name, a function pointer. When it gets one wrong or misses one, the trace page corrects it: `x` on
-a `══[ handoff ]══` drops it, `a` on a step names the function it hands off to. desk-work keeps the corrections in a
+a handoff (the `══ handoff · inferred ══ …` break between two steps) drops it, `a` on a step names the function it hands off to. desk-work keeps the corrections in a
 file of its own in desk.d, `map-<checkout folder>.json` (never in the checkout), in this format, with no tools:
 
 ```json

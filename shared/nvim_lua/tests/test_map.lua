@@ -472,36 +472,36 @@ do
   local cut_page = Map.layout(Map.trace_page(cut, { ["e.cpp::tick|params"] = true }), 140, false)
   ok(line_with(cut_page.lines, "1 shown · 2 more omitted (the reader keeps 16)"), "parameters left out: said under them")
   ok(line_with(cut_page.lines, "reads   px · ts   (2 shown · 3 more omitted)"), "fields left out: said beside them")
-  ok(line_with(cut_page.lines, ":11 (10 calls, 1 kept)") and line_with(cut_page.lines, "3 → retries   (2 shown · 4 more omitted)"),
+  ok(line_with(cut_page.lines, ":11 (10 calls, 1 kept)") and line_with(cut_page.lines, "3 → retries)   (2 shown · 4 more omitted)"),
     "calls and arguments left out: said on the call's line\n" .. table.concat(cut_page.lines, "\n"))
 end
 local traced = Map.layout(Map.trace_page(trace_answer), 90, false)
 ok(line_with(traced.lines, "trace through `tick` · 3 functions") or line_with(traced.lines, "trace through tick · 3 functions"), "the trace's heading")
-ok(line_with(traced.lines, "╔═ tick ") and line_with(traced.lines, " e.cpp:11 ═╗"), "a card per step: the function it goes through double, its name and place in the top border")
-ok(line_with(traced.lines, "║ → bool · 32 lines · ▲ 41 ▼ 23"), "… what it returns, how big it is, how many come before and after it")
+ok(line_with(traced.lines, " ║ tick ") and (select(2, line_with(traced.lines, " ║ tick ")) or ""):find("e.cpp:11$"),
+  "a step a line (Codex's #3): the function it goes through with a double bar, its name on the left edge, its place on the right")
+ok(line_with(traced.lines, "║     → bool · 32 lines · ▲ 41 ▼ 23"), "… what it returns, how big it is, how many come before and after it")
 ok(line_with(traced.lines, "▲ 41 before · ▼ 23 after it in the map"), "the function it goes through: before and after, under the heading")
 local up_row, up_line = line_with(traced.lines, "▲ 41 ▼ 23")
 eq(up_row and Map.item_at(traced, up_row, up_line:find("▲ 41", 1, true)).target, { kind = "walk", q = "callers", node = trace_answer.steps[2] },
   "▲ on a card: Enter opens what comes before it")
 eq(up_row and Map.item_at(traced, up_row, up_line:find("▼ 23", 1, true)).target.q, "reach", "… ▼ what comes after it")
-ok(line_with(traced.lines, "║ ▾ uses (1)") and line_with(traced.lines, "║     t  reads   px · ts") and line_with(traced.lines, "║        writes  seq"),
+ok(line_with(traced.lines, "║     ▾ uses (1)") and line_with(traced.lines, "║         t  reads   px · ts") and line_with(traced.lines, "║            writes  seq"),
   "what it reads and writes of each parameter, open on the function it goes through")
-ok(line_with(traced.lines, "║ ▸ layout (1)"), "… and its layout, folded until asked")
-ok(line_with(traced.lines, "║ ▾ parameters (1)") and line_with(traced.lines, "║     in  const ref  const Tick &  t"), "its parameters, open: which way, how passed, type, name")
-ok(line_with(traced.lines, "│     in  moved in  Order &&  order") and line_with(traced.lines, "│     in  value     int       retries"), "… aligned in columns")
-ok(line_with(traced.lines, "│     inout  ref  Ring &  ring"), "… inout where the callee can change the caller's value")
-ok(line_with(traced.lines, "║ ▸ other callers (1)") and not line_with(traced.lines, "replay"), "its other callers, folded, counted")
-for i, line in ipairs(traced.lines) do
-  if line:find("┌", 1, true) or line:find("╔", 1, true) then ok(api.nvim_strwidth(line) == api.nvim_strwidth(traced.lines[i + 1]), "a card's top line meets its sides: " .. line) end
-end
-ok(line_with(traced.lines, ":11   Order{t.px} → order · 3 → retries"), "between steps the call: its line, each argument → its parameter")
-ok(line_with(traced.lines, ":12   t"), "… an argument named as its parameter is said once")
+ok(line_with(traced.lines, "║     ▸ layout (1)"), "… and its layout, folded until asked")
+ok(line_with(traced.lines, "║     ▾ parameters (1)") and line_with(traced.lines, "║         in  const ref  const Tick &  t"), "its parameters, open: which way, how passed, type, name")
+ok(line_with(traced.lines, "│         in  moved in  Order &&  order") and line_with(traced.lines, "│         in  value     int       retries"), "… aligned in columns")
+ok(line_with(traced.lines, "│         inout  ref  Ring &  ring"), "… inout where the callee can change the caller's value")
+ok(line_with(traced.lines, "║     ▸ other callers (1)") and not line_with(traced.lines, "replay"), "its other callers, folded, counted")
+for _, line in ipairs(traced.lines) do ok(api.nvim_strwidth(line) <= 90, "a line fits the page: " .. line) end
+local call_row, call_line = line_with(traced.lines, "║     calls  submit(Order{t.px} → order · 3 → retries)")
+ok(call_row and call_line:find(":11$"), "the call, indented under the step that makes it: each argument → its parameter, its line on the right")
+ok(line_with(traced.lines, "│     calls  tick(t)"), "… an argument named as its parameter is said once")
 local fold_row, fold_line = line_with(traced.lines, "other callers (1)")
 local fold = fold_row and Map.item_at(traced, fold_row, fold_line:find("other callers", 1, true))
 eq(fold and fold.target, { kind = "fold", fold = "e.cpp::tick|callers" }, "a fold's header is a hit, to open it")
 local opened = Map.layout(Map.trace_page(trace_answer, { ["e.cpp::tick|callers"] = true, ["e.cpp::tick|params"] = false }), 90, false)
-ok(line_with(opened.lines, "║ ▾ other callers (1)") and line_with(opened.lines, "║     replay  e.cpp:30"), "open: one caller a line, with where it is")
-ok(line_with(opened.lines, "║ ▸ parameters (1)") and not line_with(opened.lines, "const Tick &  t"), "… and the parameters folded when she closed them")
+ok(line_with(opened.lines, "║     ▾ other callers (1)") and line_with(opened.lines, "║         replay  e.cpp:30"), "open: one caller a line, with where it is")
+ok(line_with(opened.lines, "║     ▸ parameters (1)") and not line_with(opened.lines, "const Tick &  t"), "… and the parameters folded when she closed them")
 local replay_row, replay_line = line_with(opened.lines, "replay  e.cpp:30")
 eq(replay_row and Map.item_at(opened, replay_row, replay_line:find("replay", 1, true)).target.node.id, "e.cpp::replay", "… each one Enter-able")
 -- The layout fold, from symdeps' census of the step's file: each struct passed, its size, and the fields it touches.
@@ -528,14 +528,15 @@ do
   local plain = Map.layout(Map.trace_page(trace_answer, { ["e.cpp::tick|uses"] = true }), 110, false)
   ok(line_with(plain.lines, "reads   px · ts"), "… and the names alone while no layout is known")
 end
-ok(line_with(laid.lines, "║     t  Tick  32 B, align 8 · 1 line · 6 B padding") and line_with(laid.lines, "║         touches  a px@0 8 B · e ts@24 8 B · d seq@16 8 B"),
+ok(line_with(laid.lines, "║         t  Tick  32 B, align 8 · 1 line · 6 B padding") and line_with(laid.lines, "║             touches  a px@0 8 B · e ts@24 8 B · d seq@16 8 B"),
   "… its size, alignment, cache lines, its padding, and the fields this function touches with their offsets and sizes")
 local row0 = line_with(laid.lines, " 0 │aaaaaaaa ▒c······│")
 ok(row0 and line_with(laid.lines, "16 │dddddddd eeeeeeee│"), "the byte map: a letter per member over its bytes (a bit-field's by its bits), ▒ where bit-fields share one, · padding")
 local function lit(drawn, row)
   local out = {}
   for _, m in ipairs(drawn.marks) do
-    if m[1] == row and m[4] == "DeskMapFocus" then out[#out + 1] = drawn.lines[row]:sub(m[2] + 1, m[3]) end
+    -- (the focus step's bar is lit too: it is no member)
+    if m[1] == row and m[4] == "DeskMapFocus" and drawn.lines[row]:sub(m[2] + 1, m[3]) ~= "║" then out[#out + 1] = drawn.lines[row]:sub(m[2] + 1, m[3]) end
   end
   return out
 end
@@ -572,7 +573,7 @@ ok(line_with(Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { error 
 vim.g.desk_style = "retro"
 local traced_retro = Map.layout(Map.trace_page(trace_answer), 90, true)
 vim.g.desk_style = nil
-ok(line_with(traced_retro.lines, "║     IN  CONST REF  const Tick &  t") and line_with(traced_retro.lines, "║ + OTHER CALLERS (1)")
+ok(line_with(traced_retro.lines, "║         IN  CONST REF  const Tick &  t") and line_with(traced_retro.lines, "║     + OTHER CALLERS (1)")
   and line_with(traced_retro.lines, "32 LINES"), "retro: the words in capitals, the code as typed")
 local unreached = Map.layout(Map.trace_page(vim.tbl_extend("force", trace_answer, { to = "e.cpp::flush", reached = false })), 90, false)
 ok(line_with(unreached.lines, "tick does not reach flush within 16 calls"), "e to a function it does not reach: says so")
@@ -674,7 +675,7 @@ do
   local cyc = vim.deepcopy(trace_answer)
   cyc.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "none" }
   local cpage = Map.layout(Map.trace_page(cyc), 120, false)
-  ok(line_with(cpage.lines, "┄ no call from tick to submit: the route came back through a cycle here") and not line_with(cpage.lines, ":11   Order"),
+  ok(line_with(cpage.lines, "║     ┄ no call to submit: the route came back through a cycle here") and not line_with(cpage.lines, "calls  submit("),
     "two steps with no call between them: said, not drawn as a call")
 end
 do
@@ -777,16 +778,16 @@ end
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11, to_line = 20 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)
-ok(line_with(handed_page.lines, "══[ tick_ring: push :11 → pop :20 ]══  inferred"), "a handoff between steps: what it went through, said as inferred")
-ok(not line_with(handed_page.lines, ":11   Order{t.px}"), "… with no call's arguments, as there is no call")
+ok(line_with(handed_page.lines, " ══ handoff · inferred ══ tick_ring: push :11 → pop :20 ══"), "a handoff between steps: a full-width break, inferred said where the reader decides to trust it")
+ok(not line_with(handed_page.lines, "calls  submit("), "… with no call's arguments, as there is no call")
 do
-  local row, text = line_with(handed_page.lines, "══[ tick_ring")
+  local row, text = line_with(handed_page.lines, "══ tick_ring")
   local hit = row and Map.item_at(handed_page, row, text:find("tick_ring", 1, true))
   eq(hit and { hit.target.kind, hit.target.from, hit.target.to, hit.target.by_hand, hit.target.producer, hit.target.consumer },
     { "handoff", "e.cpp::tick", "e.cpp::submit", false, { label = "tick", file = "e.cpp", line = 11 }, { label = "submit", file = "e.cpp", line = 20 } },
     "… the handoff a hit (x drops it, Enter opens either side), naming its two ends and where each is")
   handed.calls[2].by_hand = true
-  ok(line_with(Map.layout(Map.trace_page(handed), 90, false).lines, "══[ tick_ring: push :11 → pop :20 ]══  added by you"), "one she added says so")
+  ok(line_with(Map.layout(Map.trace_page(handed), 90, false).lines, "══ handoff · added by you ══ tick_ring: push :11 → pop :20"), "one she added says so")
 end
 local way_row, way = line_with(ways.lines, "use → M.alpha → M.beta")
 ok(way_row and way:find("(by name)", 1, true), "a way, with the part found by name said")
@@ -1125,7 +1126,7 @@ do
   local depth_before = #view.stack
   cursor_on("M.alpha")
   press("t")
-  ok(vim.wait(1000, function() return line_with(view.drawn.lines, "╔═ tick ") end), "t: the trace page, drawn")
+  ok(vim.wait(1000, function() return line_with(view.drawn.lines, " ║ tick ") end), "t: the trace page, drawn")
   -- Following (the pop-out's): once the cursor rests in a code window of the checkout, outside the traced function.
   do
     local code = view.root .. "/e.cpp"
@@ -1169,7 +1170,7 @@ do
     ok(vim.wait(rest + 1000, function() return #traced_args == n + 4 end), "the cursor in no function: asked")
     vim.wait(200, function() return false end)
     vim.notify = real_notify
-    eq({ said, #view.stack, line_with(view.drawn.lines, "╔═ tick ") ~= nil }, { {}, depth, true }, "… and quiet: nothing said, the trace kept")
+    eq({ said, #view.stack, line_with(view.drawn.lines, " ║ tick ") ~= nil }, { {}, depth, true }, "… and quiet: nothing said, the trace kept")
     local outside = vim.fn.tempname() .. ".cpp"
     vim.fn.writefile({ "int x;" }, outside)
     api.nvim_win_call(cw, function() vim.cmd("edit " .. vim.fn.fnameescape(outside)) end)
@@ -1192,11 +1193,11 @@ do
       return inner(args, done)
     end
     press("r")
-    ok(vim.wait(1000, function() return line_with(view.drawn.lines, "══[ tick_ring ]══  inferred") end), "the trace with a handoff, read again")
+    ok(vim.wait(1000, function() return line_with(view.drawn.lines, "══ handoff · inferred ══ tick_ring ══") end), "the trace with a handoff, read again")
     vim.wait(300, function() return false end) -- r reads the status too: its redraw lands before the cursor is placed
     local said, real_notify, real_input = {}, vim.notify, vim.ui.input
     vim.notify = function(m) said[#said + 1] = m end
-    local hrow, htext = line_with(view.drawn.lines, "══[ tick_ring")
+    local hrow, htext = line_with(view.drawn.lines, "══ tick_ring")
     api.nvim_win_set_cursor(view.win, { hrow, (htext:find("tick_ring", 1, true)) })
     vim.ui.input = function(opts, done) eq(opts.prompt, "Drop this handoff (it is wrong)? y/n: ", "x asks first"); done("n") end
     press("x")
@@ -1209,7 +1210,7 @@ do
     eq(corrections[1], "map handoff drop --root " .. view.root .. " --from e.cpp::tick --to e.cpp::submit", "… that handoff, by its two ends")
     ok(vim.wait(1000, function() return #traced_args == asked_before + 1 end), "… and the trace is asked again")
     ok(vim.iter(said):any(function(m) return m:find("Handoff dropped", 1, true) ~= nil end), "… saying what it did: " .. vim.inspect(said))
-    local trow, ttext = line_with(view.drawn.lines, "╔═ tick ")
+    local trow, ttext = line_with(view.drawn.lines, " ║ tick ")
     api.nvim_win_set_cursor(view.win, { trow, (ttext:find("tick", 1, true)) })
     vim.ui.input = function(opts, done) eq(opts.prompt, "Hands off to: ", "a asks where to"); done("consumer") end
     press("a")
@@ -1275,9 +1276,9 @@ do
     -- Enter on a handoff: its producer (the push) or its consumer (the pop).
     trace_answer.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "ring", line = 11, to_line = 20 }
     press("r")
-    ok(vim.wait(1000, function() return line_with(view.drawn.lines, "══[ ring ]══") end), "the handoff drawn")
+    ok(vim.wait(1000, function() return line_with(view.drawn.lines, "══ ring ══") end), "the handoff drawn")
     vim.wait(300, function() return false end)
-    local hr, ht = line_with(view.drawn.lines, "══[ ring ]══")
+    local hr, ht = line_with(view.drawn.lines, "══ ring ══")
     api.nvim_win_set_cursor(view.win, { hr, (ht:find("ring", 1, true)) })
     press("<CR>")
     eq(offered, { "where it is handed over: tick  e.cpp:11", "where it is taken: submit  e.cpp:20" }, "Enter on a handoff: its producer and its consumer")

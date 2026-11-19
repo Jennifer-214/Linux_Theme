@@ -854,6 +854,91 @@ function M.layout(page, width, retro)
     elseif s.arrow then centred(G.down, 'DeskMapBox')
     elseif s.parts then
       put_parts(s.parts, '', s.group)
+    elseif s.card and s.card.column then
+      -- A trace step in one column you read straight down (Codex's #3): a bar (double on the function asked about), the
+      -- name on one left edge and its place on the right; what it does indented under it; a part marked `right` set at
+      -- the right edge (a call's line).
+      local c = s.card
+      local bar = c.frame == 'double' and G.double.v or G.single.v
+      local left, right_edge = ' ', width - 1
+      local head_line = #lines + 1
+      local title = fit(c.title or '', math.max(8, width - 6 - width_of(c.right or '')), G.ellipsis)
+      local text = left .. bar .. ' '
+      local title_col = #text
+      text = text .. title
+      local place = c.right or ''
+      if place ~= '' then text = text .. string.rep(' ', math.max(2, right_edge - width_of(text) - width_of(place))) .. place end
+      add(text)
+      marks[#marks + 1] = { head_line, #left, #left + #bar, c.frame == 'double' and 'DeskMapFocus' or 'DeskMapBox' }
+      marks[#marks + 1] = { head_line, title_col, title_col + #title, c.frame == 'double' and 'DeskMapFocus' or 'DeskMapName', 1 }
+      if place ~= '' then marks[#marks + 1] = { head_line, #text - #place, #text, 'DeskMapDim' } end
+      hits[head_line] = hits[head_line] or {}
+      table.insert(hits[head_line], { s = title_col, e = title_col + #title, item = c.item })
+      placed[#placed + 1] = { item = c.item, spans = { { head_line, title_col, title_col + #title } }, line = head_line, name_col = title_col,
+                              x = width_of(left) + 2, w = width_of(title), centre = c.frame == 'double' }
+      local indent = left .. bar .. '     '
+      for _, l in ipairs(c.body or {}) do
+        local parts, at_right = {}, nil
+        for _, part in ipairs(l.parts or l) do if part.right then at_right = part else parts[#parts + 1] = part end end
+        -- wrap between the parts of a list (its first marked `hang`), going on under the list's start
+        local room = right_edge - width_of(indent) - (at_right and (width_of(parts_text({ at_right })) + 2) or 0)
+        local rows_, cur, w, hang = {}, {}, 0, nil
+        for _, part in ipairs(parts) do
+          if part.hang and not hang then hang = w end
+          local pw = width_of(parts_text({ part }))
+          if hang and #cur > 0 and w + pw > room and w > hang then rows_[#rows_ + 1] = cur; cur, w = { { string.rep(' ', hang) } }, hang end
+          cur[#cur + 1] = part
+          w = w + pw
+        end
+        rows_[#rows_ + 1] = cur
+        for r, row_ in ipairs(rows_) do
+          local lnum, line_text = #lines + 1, indent
+          add('')
+          marks[#marks + 1] = { lnum, #left, #left + #bar, c.frame == 'double' and 'DeskMapFocus' or 'DeskMapBox' }
+          for _, part in ipairs(row_) do
+            local piece = part[3] and G.said(tostring(part[1] or '')) or tostring(part[1] or '')
+            local space = room - width_of(line_text) + width_of(indent)
+            if width_of(piece) > space then piece = fit(piece, math.max(1, space), G.ellipsis) end
+            if part[2] then
+              hits[lnum] = hits[lnum] or {}
+              table.insert(hits[lnum], { s = #line_text, e = #line_text + #piece, item = part[2] })
+              placed[#placed + 1] = { item = part[2], spans = { { lnum, #line_text, #line_text + #piece } }, line = lnum, name_col = #line_text,
+                                      x = width_of(line_text), w = width_of(piece) }
+            end
+            if part[4] or part[2] then marks[#marks + 1] = { lnum, #line_text, #line_text + #piece, part[4] or 'DeskMapName', 1 } end
+            line_text = line_text .. piece
+          end
+          if at_right and r == 1 then
+            local piece = at_right[3] and G.said(tostring(at_right[1] or '')) or tostring(at_right[1] or '')
+            line_text = line_text .. string.rep(' ', math.max(2, right_edge - width_of(line_text) - width_of(piece)))
+            if at_right[2] then
+              hits[lnum] = hits[lnum] or {}
+              table.insert(hits[lnum], { s = #line_text, e = #line_text + #piece, item = at_right[2] })
+              placed[#placed + 1] = { item = at_right[2], spans = { { lnum, #line_text, #line_text + #piece } }, line = lnum, name_col = #line_text,
+                                      x = width_of(line_text), w = width_of(piece) }
+            end
+            marks[#marks + 1] = { lnum, #line_text, #line_text + #piece, at_right[4] or 'DeskMapDim', 1 }
+            line_text = line_text .. piece
+          end
+          lines[lnum] = line_text
+        end
+      end
+    elseif s.rule then
+      -- A full-width break between two steps (a queue or thread handoff): what it is, trusted or not, where the reader
+      -- decides; its label a hit.
+      local r = s.rule
+      local lead = ' ' .. G.double.h .. G.double.h .. ' ' .. G.said(r.said or '') .. ' ' .. G.double.h .. G.double.h .. ' '
+      local label = tostring(r.label or '')
+      local lnum = #lines + 1
+      local text = lead .. label .. ' '
+      text = text .. string.rep(G.double.h, math.max(2, width - 1 - width_of(text)))
+      add(text, 'DeskMapFocus')
+      if r.item then
+        hits[lnum] = hits[lnum] or {}
+        table.insert(hits[lnum], { s = #lead, e = #lead + #label, item = r.item })
+        placed[#placed + 1] = { item = r.item, spans = { { lnum, #lead, #lead + #label } }, line = lnum, name_col = #lead, x = width_of(lead), w = width_of(label) }
+        marks[#marks + 1] = { lnum, #lead, #lead + #label, 'DeskMapName', 1 }
+      end
     elseif s.card then
       -- A box with lines inside (a trace step): its name and where it is in the top border, the name a hit with where
       -- Enter goes; each line inside a line of parts (folds, parameters, names), cut to the page.
@@ -1729,9 +1814,10 @@ function M.trace_page(answer, folds, layouts, field)
         return rows
       end)
     end
-    sections[#sections + 1] = { card = { item = node_item(st), title = st.label, right = where(st), body = body,
-      frame = st.role == 'focus' and 'double' or 'single' } }
     local call, after = calls[k], steps[k + 1]
+    local card = { item = node_item(st), title = st.label, right = where(st), body = body, column = true,
+      frame = st.role == 'focus' and 'double' or 'single' }
+    sections[#sections + 1] = { card = card }
     if call and after and call.kind == 'handoff' then
       -- No call between the two: what one gives, the other takes (a ring's push and pop, a thread started with it, a
       -- function pointer). Inferred from the code, and said so.
@@ -1741,15 +1827,16 @@ function M.trace_page(answer, folds, layouts, field)
         producer = { label = st.label, file = st.file, line = call.line or st.line },
         consumer = { label = after.label, file = after.file, line = call.to_line or after.line } },
         key = 'handoff:' .. tostring(call.from) .. '>' .. tostring(call.to) }
-      sections[#sections + 1] = { block = { { { '══[ ' .. (call.label or 'handoff') .. ' ]══', item },
-        { call.by_hand and '  added by you' or '  inferred', nil, true } } }, group = 'DeskMapFocus' }
+      -- a full-width break: "inferred" said on the transition, where the reader decides whether to trust it
+      sections[#sections + 1] = { blank = true }
+      sections[#sections + 1] = { rule = { said = 'handoff · ' .. (call.by_hand and 'added by you' or 'inferred'), label = call.label or 'handoff', item = item } }
+      sections[#sections + 1] = { blank = true }
     elseif call and after and call.kind == 'none' then
       -- Two steps with no call between them: a cycle on the route (A → F → A → Z) was walked once, so F and Z meet here
       -- without F calling Z. Said, never drawn as a call.
-      sections[#sections + 1] = { block = { { { '┄ no call from ' .. st.label .. ' to ' .. after.label .. ': the route came back through a cycle here', nil, true } } },
-        group = 'DeskMapDim' }
+      body[#body + 1] = { { '┄ no call to ' .. after.label .. ': the route came back through a cycle here', nil, true, 'DeskMapDim' } }
+      sections[#sections + 1] = { blank = true }
     elseif call and after then
-      sections[#sections + 1] = { arrow = true }
       local flow, into = {}, after.params or {}
       for i, arg in ipairs(call.args or {}) do
         local prm = into[i]
@@ -1763,12 +1850,16 @@ function M.trace_page(answer, folds, layouts, field)
         -- them when there are several).
         local call_item = { name = st.label .. ' → ' .. after.label, key = 'call:' .. tostring(call.from) .. '>' .. tostring(call.to),
           target = { kind = 'call', file = st.file, caller = st.label, callee = after.label, sites = sites } }
-        local parts = { { at .. (at ~= '' and #flow > 0 and '   ' or ''), at ~= '' and call_item or nil } }
-        for i, f in ipairs(flow) do parts[#parts + 1] = { f .. (i < #flow and ' · ' or '') } end
+        -- the call, indented under the step that makes it: "calls  submit(Order{t.px} → order · 3 → retries)   :11"
+        local parts = { { 'calls  ', nil, true, 'DeskMapDim' }, { after.label, nil, nil, 'DeskMapName' }, { '(' } }
+        for i, f in ipairs(flow) do parts[#parts + 1] = { f .. (i < #flow and ' · ' or ''), nil, nil, 'DeskMapDim', hang = i == 1 } end
+        parts[#parts + 1] = { ')' }
         local said = M.omitted(#flow, call.args_more)
-        if said then parts[#parts + 1] = { '   (' .. said .. ')' } end
-        sections[#sections + 1] = { block = { parts }, group = 'DeskMapDim' }
+        if said then parts[#parts + 1] = { '   (' .. said .. ')', nil, nil, 'DeskMapDim' } end
+        if at ~= '' then parts[#parts + 1] = { at, call_item, nil, 'DeskMapName', right = true } end
+        body[#body + 1] = parts
       end
+      sections[#sections + 1] = { blank = true }
     end
   end
   return { crumbs = { 'trace' }, sections = sections }
@@ -2833,7 +2924,7 @@ end
 local function drop_handoff(view, ctx)
   local item = about_item(view, ctx)
   local t = item and item.target
-  if not (t and t.kind == 'handoff') then return tell('Put the cursor on a handoff (══[ … ]══) first.') end
+  if not (t and t.kind == 'handoff') then return tell('Put the cursor on a handoff (its ══ handoff ══ break) first.') end
   local function go(yes) if yes:lower():sub(1, 1) == 'y' then correct_handoff(view, 'drop', t.from, t.to) end end
   local said = ctx and type(ctx.text) == 'string' and vim.trim(ctx.text) ~= '' and vim.trim(ctx.text) or nil
   if said then return go(said) end
@@ -3558,7 +3649,7 @@ local function needs_handoff(ctx)
   local why = needs_trace(ctx)
   if why ~= true then return why end
   local t = ctx.item and ctx.item.target
-  return (not ctx.view or (t and t.kind == 'handoff')) or 'select a handoff (══[ … ]══) first'
+  return (not ctx.view or (t and t.kind == 'handoff')) or 'select a handoff (its ══ handoff ══ break) first'
 end
 local function needs_trace_step(ctx)
   local why = needs_trace(ctx)
@@ -3683,7 +3774,7 @@ local ROWS = actions.add({
   row('trace-from', 'S', 'Trace from a chosen start', 'On a trace: up from the function you name (a thread body, the live path) instead of the farthest start',
     trace_start, needs_trace, { remote = true, input = { prompt = 'Trace from: ' } }),
   row('handoff-drop', 'x', 'Drop this handoff',
-    'On a trace, on a `══[ handoff ]══`: the map inferred it wrongly, so it is dropped (one you added is forgotten). Kept by desk-work outside the checkout, in `~/.config/foxml/desk.d/`',
+    'On a trace, on a handoff (its `══ handoff ══` break): the map inferred it wrongly, so it is dropped (one you added is forgotten). Kept by desk-work outside the checkout, in `~/.config/foxml/desk.d/`',
     drop_handoff, needs_handoff, { remote = true, input = { prompt = 'Drop this handoff? y/n: ' } }),
   row('handoff-add', 'a', 'Add a handoff from this step',
     'On a trace: this function hands its data on to the one you name (a queue or a callback the map missed), so the trace goes on through it',
