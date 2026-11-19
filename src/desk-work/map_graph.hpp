@@ -549,14 +549,23 @@ inline J changes(const J& prev, const J& now) {
         return m;
     };
     const auto before = label_of(prev), after = label_of(now);
-    const auto edge_keys = [](const J& graph) {
+    // each call with where it is (Codex's E9: the changes page opens it): its caller's file and the call's line, in the
+    // graph it is from (a removed call: the build before)
+    const auto edge_keys = [](const J& graph, const std::map<std::string, J>& nodes) {
         std::map<std::string, J> m;
         for (const auto& e : list(graph, "edges"))
-            if (e.is_object() && text(e, "kind") != "contains")
-                m[text(e, "from") + '\x1f' + text(e, "to") + '\x1f' + text(e, "kind")] = J{{"from", text(e, "from")}, {"to", text(e, "to")}, {"kind", text(e, "kind")}};
+            if (e.is_object() && text(e, "kind") != "contains") {
+                J one{{"from", text(e, "from")}, {"to", text(e, "to")}, {"kind", text(e, "kind")}};
+                const auto caller = nodes.find(text(e, "from"));
+                if (caller != nodes.end() && caller->second.contains("file") && caller->second["file"].is_string()) one["file"] = caller->second["file"];
+                if (number(e, "line") > 0) one["line"] = number(e, "line");
+                m[text(e, "from") + '\x1f' + text(e, "to") + '\x1f' + text(e, "kind")] = one;
+            }
         return m;
     };
-    const auto eb = edge_keys(prev), ea = edge_keys(now);
+    const auto eb = edge_keys(prev, before), ea = edge_keys(now, after);
+    if (!text(now, "head").empty()) out["head"] = text(now, "head");
+    if (!text(prev, "head").empty()) out["previous_head"] = text(prev, "head");
     const auto diff = [](const std::map<std::string, J>& a, const std::map<std::string, J>& b, J& list_out) {
         long long n = 0;
         for (const auto& [k, v] : a) if (!b.count(k)) { if (list_out.size() < 20) list_out.push_back(v); ++n; }
@@ -570,7 +579,7 @@ inline J changes(const J& prev, const J& now) {
     out["edges_added_list"] = edges_added; out["edges_removed_list"] = edges_removed;
     J slim_added = J::array(), slim_removed = J::array();
     for (const auto& n : nodes_added) slim_added.push_back(J{{"id", text(n, "id")}, {"label", text(n, "label")}, {"file", n.value("file", J())}, {"line", n.value("line", J())}});
-    for (const auto& n : nodes_removed) slim_removed.push_back(J{{"id", text(n, "id")}, {"label", text(n, "label")}});
+    for (const auto& n : nodes_removed) slim_removed.push_back(J{{"id", text(n, "id")}, {"label", text(n, "label")}, {"file", n.value("file", J())}, {"line", n.value("line", J())}});
     out["nodes_added_list"] = slim_added; out["nodes_removed_list"] = slim_removed;
     long long found = 0, lost = 0;
     for (const auto& [id, n] : after) {

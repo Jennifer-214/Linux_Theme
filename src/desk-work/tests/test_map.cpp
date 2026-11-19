@@ -313,6 +313,20 @@ int main(int, char** argv) {
             CHECK(c["because"] == J({"the source changed (aaaaaaa → bbbbbbb)", "the binary was rebuilt", "a parser became available"}),
                   "… and why: the source, the binary rebuilt, a parser now there");
             CHECK(desk_map::changes(J(), now).value("first", false), "the first build: nothing to compare");
+            // where each change is, to open it (Codex's E9): an added call in the caller's file today, a removed one and a
+            // removed function in the source the build before read
+            J lined_prev = prev, lined_now = now;
+            lined_prev["nodes"][0]["line"] = 3; lined_prev["nodes"][2]["line"] = 9;
+            lined_prev["edges"][1]["line"] = 5;
+            lined_now["nodes"][1]["line"] = 1;
+            lined_now["edges"][1]["line"] = 2;
+            const auto w = desk_map::changes(lined_prev, lined_now);
+            const auto& added = w["edges_added_list"][0];
+            const auto& removed = w["edges_removed_list"][0];
+            CHECK(added.value("file", "") == "b.c" && added.value("line", 0) == 2 && removed.value("file", "") == "a.c" && removed.value("line", 0) == 5,
+                  "an added call: its caller's file and the call's line now; a removed one: as the build before had them");
+            CHECK(w["nodes_removed_list"][0].value("file", "") == "a.c" && w["nodes_removed_list"][0].value("line", 0) == 9, "… a removed function: its file and line then");
+            CHECK(w.value("head", "") == "bbbbbbb2" && w.value("previous_head", "") == "aaaaaaa1", "… and the two builds' commits");
         }
         // What the reader left out, counted: kept as whole numbers, never a string or a negative.
         J counted = raw;

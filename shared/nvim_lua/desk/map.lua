@@ -2003,11 +2003,26 @@ function M.level_query_plain(answer, level)
       for _, it in ipairs(items) do rows[#rows + 1] = row(it) end
       sections[#sections + 1] = { block = rows }
     end
-    local function call_row(e) return { { short(e.from) .. ' → ' .. short(e.to) }, { e.kind == 'call-by-name' and '  (by name)' or e.kind == 'handoff' and '  (handoff)' or '', nil, true, 'DeskMapDim' } } end
-    list('calls added', answer.edges_added_list or {}, answer.edges_added, call_row)
-    list('calls removed', answer.edges_removed_list or {}, answer.edges_removed, call_row)
+    -- each change a target where the answer says where it is (Codex's E9): an added call opens in its file today, a
+    -- removed one in the source the build before read
+    local function change(side, name, key, file, line)
+      if not file then return nil end
+      return { name = name, key = 'change:' .. side .. ':' .. key, target = { kind = 'change', side = side, file = file, line = line,
+        head = side == 'removed' and answer.previous_head or nil } }
+    end
+    local function call_row(side)
+      return function(e)
+        local name = short(e.from) .. ' → ' .. short(e.to)
+        return { { name, change(side, name, tostring(e.from) .. '>' .. tostring(e.to), e.file, e.line) },
+          { e.kind == 'call-by-name' and '  (by name)' or e.kind == 'handoff' and '  (handoff)' or '', nil, true, 'DeskMapDim' } }
+      end
+    end
+    list('calls added', answer.edges_added_list or {}, answer.edges_added, call_row('added'))
+    list('calls removed', answer.edges_removed_list or {}, answer.edges_removed, call_row('removed'))
     list('functions added', answer.nodes_added_list or {}, answer.nodes_added, function(n) return { { n.label, n.file and node_item(n) or nil } } end)
-    list('functions removed', answer.nodes_removed_list or {}, answer.nodes_removed, function(n) return { { n.label } } end)
+    list('functions removed', answer.nodes_removed_list or {}, answer.nodes_removed, function(n)
+      return { { n.label, change('removed', n.label, tostring(n.id), n.file ~= vim.NIL and n.file or nil, n.line ~= vim.NIL and n.line or nil) } }
+    end)
     local moved = {}
     if (tonumber(answer.found_source) or 0) > 0 then moved[#moved + 1] = answer.found_source .. ' found their source' end
     if (tonumber(answer.lost_source) or 0) > 0 then moved[#moved + 1] = answer.lost_source .. ' lost their source match' end
@@ -2635,6 +2650,32 @@ local function jump(view, node, origin)
   return ok
 end
 
+--- A rebuild's change where it is (Codex's E9): an added call in its file today; a removed call or function in the
+--- source the build before read (t.head), read-only in a split, gf to today's file; a commit not in this checkout said.
+function M.open_change(root, t, origin)
+  if not (t and t.file) then return tell('This change says no place.') end
+  if t.side ~= 'removed' then
+    local ok, why = require('desk.nav').open_code(root .. '/' .. t.file, t.line or 1, nil, origin)
+    if not ok then tell('Could not open ' .. t.file .. ': ' .. tostring(why)) end
+    return
+  end
+  local got = t.head and vim.system({ 'git', '-C', root, 'show', t.head .. ':' .. t.file }, { text = true }):wait()
+  if not (got and got.code == 0) then
+    return tell(tostring(t.head or 'The build before'):sub(1, 7) .. ' is not in this checkout: the source that call was read in cannot be shown.', vim.log.levels.WARN)
+  end
+  local buf = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(got.stdout:gsub('\n$', ''), '\n', { plain = true }))
+  vim.bo[buf].bufhidden, vim.bo[buf].modifiable = 'wipe', false
+  pcall(api.nvim_buf_set_name, buf, t.file .. ' · as the build before read it (' .. t.head:sub(1, 7) .. ')')
+  local kind = vim.filetype.match({ filename = t.file })
+  if kind then vim.bo[buf].filetype = kind end
+  vim.cmd('sbuffer ' .. buf)
+  local path = root .. '/' .. t.file
+  vim.keymap.set('n', 'q', '<cmd>bwipeout<cr>', { buffer = buf, desc = 'Close the earlier version' })
+  vim.keymap.set('n', 'gf', function() vim.cmd('edit ' .. vim.fn.fnameescape(path)) end, { buffer = buf, desc = 'Open the file as it is now' })
+  pcall(api.nvim_win_set_cursor, 0, { math.max(1, math.min(t.line or 1, api.nvim_buf_line_count(buf))), 0 })
+end
+
 -- The box a key is about: in the pop-out the one selected there (ctx.item), here the one under the cursor.
 local function about_item(view, ctx) if view.out then return ctx and ctx.item end; return here(view) end
 
@@ -2725,6 +2766,11 @@ local function enter(view, ctx)
   elseif t.kind == 'result' then
     -- Where its result goes: each call of it, with its line read.
     query(view, { '--q', 'calls-into', '--of', t.node.id }, item.key)
+  elseif t.kind == 'change' then
+    -- A rebuild's change (E9): where it is, in the editor.
+    ctx = ctx or {}
+    ctx.stayed = nil
+    M.open_change(view.root, t, ctx.origin or (not view.out and view.origin) or nil)
   elseif t.kind == 'start' then
     -- Another start of this trace (T3): the trace again from there, the end she chose kept.
     local a = view.stack[#view.stack] and view.stack[#view.stack].answer
@@ -4161,6 +4207,9 @@ function M.strip_text(item, G)
     return { tostring(item.name), line('zoom into', keys({ { 'back', 'out' } }), tostring(item.name)) }
   elseif t.kind == 'start' then
     return { G.said('another start · ') .. tostring(item.name), line('trace from here', tostring(item.name)) }
+  elseif t.kind == 'change' then
+    return { tostring(item.name) .. ' · ' .. t.file .. (t.line and (':' .. t.line) or ''),
+      line(t.side == 'removed' and 'open it as the build before read it' or 'open it', tostring(item.name)) }
   elseif t.kind == 'walk' then
     return { G.said(t.q == 'callers' and 'what comes before ' or 'what comes after ') .. tostring(t.node and t.node.label or ''),
       line(t.q == 'callers' and 'open what comes before' or 'open what comes after', G.said('3 levels (+ and - change it)')) }

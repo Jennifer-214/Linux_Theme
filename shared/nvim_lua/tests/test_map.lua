@@ -484,6 +484,49 @@ do
   ok(text:find("because the source changed (aaaaaaa → bbbbbbb)", 1, true) and text:find("calls added · 1", 1, true) and text:find("f → extra  (by name)", 1, true)
     and text:find("calls removed · 2", 1, true) and text:find("functions added · 1", 1, true) and text:find("1 lost their source match", 1, true),
     "W: the page, why first, then each list\n" .. text)
+  -- each change opens where it is (Codex's E9): an added call in its file today, a removed call and a removed function
+  -- in the source the build before read (read-only beside it, gf to today's file)
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  local function git(...) return vim.system({ "git", "-C", dir, ... }, { text = true }):wait() end
+  git("init", "-q")
+  vim.fn.writefile({ "void old(void) {}", "void f(void) {", "  old();", "}", "void g(void) { old(); }" }, dir .. "/a.c")
+  git("add", "a.c")
+  git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "before")
+  local before = vim.trim(git("rev-parse", "HEAD").stdout)
+  vim.fn.writefile({ "void extra(void) {}", "void f(void) {", "  extra();", "}" }, dir .. "/a.c")
+  local changed = vim.tbl_extend("force", c, { ok = true, q = "changes", head = "working", previous_head = before,
+    edges_added_list = { { from = "a.c::f", to = "a.c::extra", kind = "call", file = "a.c", line = 3 } },
+    edges_removed_list = { { from = "a.c::f", to = "a.c::old", kind = "call", file = "a.c", line = 3 } },
+    nodes_added_list = {}, nodes_removed_list = { { id = "a.c::old", label = "old", file = "a.c", line = 1 } } })
+  page = Map.layout(Map.level_query(changed), 100, false)
+  local function target_on(textpart)
+    local row, l = line_with(page.lines, textpart)
+    local it = row and Map.item_at(page, row, l:find(textpart, 1, true) - 1 + 1)
+    return it and it.target
+  end
+  local add, rem, gone = target_on("f → extra"), target_on("f → old"), target_on("old")
+  eq(add and { add.kind, add.side, add.file, add.line }, { "change", "added", "a.c", 3 }, "an added call: a target, its file and line")
+  eq(rem and { rem.kind, rem.side, rem.head }, { "change", "removed", before }, "a removed call: with the commit the build before read")
+  local opened
+  local real_open = require("desk.nav").open_code
+  require("desk.nav").open_code = function(path, line) opened = { vim.fs.basename(path), line }; return true end
+  Map.open_change(dir, add)
+  require("desk.nav").open_code = real_open
+  eq(opened, { "a.c", 3 }, "Enter on an added call: today's file at the call")
+  vim.cmd("tabnew")
+  Map.open_change(dir, rem)
+  local buf = api.nvim_get_current_buf()
+  ok(api.nvim_buf_get_name(buf):find("as the build before read it", 1, true), "Enter on a removed call: the version the build before read: " .. api.nvim_buf_get_name(buf))
+  eq({ api.nvim_buf_get_lines(buf, 2, 3, false)[1], api.nvim_win_get_cursor(0)[1], vim.bo[buf].modifiable }, { "  old();", 3, false }, "… at the call, read-only")
+  eq(vim.fn.maparg("gf", "n", false, true).buffer, 1, "… gf there: today's file")
+  vim.cmd("tabclose!")
+  local said, real_notify = nil, vim.notify
+  vim.notify = function(m) said = m end
+  Map.open_change(dir, vim.tbl_extend("force", rem, { head = string.rep("d", 40) }))
+  vim.notify = real_notify
+  ok(said and said:find("not in this checkout", 1, true), "… a commit not here: said: " .. tostring(said))
+  vim.fn.delete(dir, "rf")
 end
 do
   -- A sanitizer's report as its stacks, where they meet marked (Codex's #17).
