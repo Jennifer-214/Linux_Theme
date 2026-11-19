@@ -102,7 +102,7 @@ do
     { "#ifdef LINUX (on)", "#elif defined(MAC) (off)", "#if X > 1" }, "… said on its box; a condition the flags cannot settle, as written")
   vim.fn.delete(pp_root, "rf")
 end
-do
+if has_parser("cpp") then
   -- An include guard is not a condition (T2, 2026-11-19, the trader's map: every function in BacktestPanels.hpp said
   -- "#ifndef BACKTEST_PANELS_HPP" on its box): #ifndef X + #define X around the file, no #else; a real #ifdef inside
   -- it still says itself, and an #ifndef that defines nothing is still a condition.
@@ -116,7 +116,7 @@ do
   eq(conds, { send = false, on_linux = "#ifdef LINUX", trace = "#ifndef NO_TRACE" },
     "the guard left off; the #ifdef inside it and an #ifndef that defines nothing kept")
   vim.fn.delete(g_root, "rf")
-end
+else skipped[#skipped + 1] = "include guards (no cpp parser)" end
 do
   -- Text from the source cut at a character, never inside one (2026-11-19, the trader's map: a log format string with
   -- → cut at 80 bytes split the arrow; the answer was then not valid JSON and desk-work dropped the whole map).
