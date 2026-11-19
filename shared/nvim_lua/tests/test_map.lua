@@ -472,6 +472,32 @@ do
   eq({ require("desk.actions").key("map.coverage"), require("desk.actions").key("map.next-unrun"), require("desk.actions").key("map.prev-unrun") },
     { "gc", "]u", "[u" }, "gc picks a run, ]u and [u go between the boxes it did not reach")
 end
+do
+  -- Two routes (Codex's E6, 2026-11-19): where they first differ and meet again, lined up by what they share.
+  eq(Map.compare_routes({ "Replay", "Decode", "Restore", "Apply", "end" }, { "Live", "Decode", "Validate", "Apply", "end" }),
+    { { a = { "Replay" }, b = { "Live" } }, { same = { "Decode" } }, { a = { "Restore" }, b = { "Validate" } }, { same = { "Apply", "end" } } },
+    "two starts, the same Decode, Restore against Validate, both reach Apply")
+  eq(Map.compare_routes({ "x", "y" }, { "x", "y" }), { { same = { "x", "y" } } }, "the same route: one part")
+  eq(Map.compare_routes({ "x", "k", "y" }, { "x", "y" }), { { same = { "x" } }, { a = { "k" }, b = {} }, { same = { "y" } } }, "… one goes through k, the other straight on")
+  eq(Map.compare_routes({ "p" }, { "q" }), { { a = { "p" }, b = { "q" } } }, "nothing shared: one part each")
+  local function route(...)
+    local steps = {}
+    for i, id in ipairs({ ... }) do steps[#steps + 1] = { id = "r.cpp::" .. id, label = id, file = "r.cpp", line = i } end
+    return { ok = true, q = "trace", focus = "r.cpp::Apply", steps = steps }
+  end
+  local a, b = route("Replay", "Decode", "Restore", "Apply"), route("Live", "Decode", "Validate", "Apply")
+  local page = Map.layout(Map.level_query({ ok = true, q = "routes", a = a, b = b }), 120, false)
+  local text = table.concat(page.lines, "\n")
+  ok(text:find("two routes to Apply", 1, true) and text:find("same through Decode", 1, true)
+    and text:find("from Replay: Restore", 1, true) and text:find("from Live: Validate", 1, true) and text:find("both reach Apply", 1, true),
+    "the page: where they part and meet\n" .. text)
+  local row, l = line_with(page.lines, "from Replay: Restore")
+  local hit = row and Map.item_at(page, row, l:find("Restore", 1, true) - 1)
+  eq(hit and hit.target and { hit.target.kind, hit.target.node.id }, { "node", "r.cpp::Restore" }, "… each name opens its code")
+  local lane = row and Map.item_at(page, row, l:find("from Replay", 1, true) - 1)
+  eq(lane and lane.target and { lane.target.kind, lane.target.which }, { "route", "a" }, "… a route's own part opens its trace")
+  ok(not text:find("from Replay: Restore", 1, true) or text:find("from Replay: Restore", 1, true) < text:find("both reach", 1, true), "… in order")
+end
 local reach = { ok = true, q = "reach", depth = 2, from = contents.nodes[5],
   nodes = { vim.tbl_extend("force", contents.nodes[5], { depth = 0 }), vim.tbl_extend("force", contents.nodes[1], { depth = 1 }), vim.tbl_extend("force", contents.nodes[2], { depth = 2 }) },
   steps = { { from = "lua/other.lua::use", to = "lua/mod.lua::M.alpha", depth = 1, mark = "follow" },
@@ -2041,7 +2067,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.along-down", "map.along-up", "map.avoid", "map.callers", "map.centre", "map.changes", "map.copy", "map.coverage", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.in-binary", "map.include", "map.left", "map.next-unrun", "map.out", "map.paths", "map.prev-unrun", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-all", "map.trace-from", "map.trace-to", "map.up", "map.why" },
+eq(remote_ids, { "map.along-down", "map.along-up", "map.avoid", "map.callers", "map.centre", "map.changes", "map.compare-route", "map.copy", "map.coverage", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.in-binary", "map.include", "map.left", "map.next-unrun", "map.out", "map.paths", "map.prev-unrun", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-all", "map.trace-from", "map.trace-to", "map.up", "map.why" },
   "the pop-out keeps its navigation keys (no m: nothing is left out)")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do
@@ -2256,6 +2282,34 @@ do
   ok(vim.wait(1000, function() return asked[#asked] and asked[#asked]:find("--start run.cpp::ProducerThreadBody", 1, true) ~= nil end),
     "Enter on one: the trace again from there, the end she chose kept: " .. tostring(asked[#asked]))
   ok(asked[#asked] and asked[#asked]:find("--to e.cpp::submit", 1, true), "… (--to kept)")
+  pv.stack, Map.desk_work, P.host.history = stack, inner, history
+  pv.pinned = false
+end
+-- Compare with another start (E6): offered from a trace's other starts; picked, that trace asked and both on one page.
+do
+  local stack, inner, asked, history = pv.stack, Map.desk_work, {}, vim.deepcopy(P.host.history)
+  local with = vim.deepcopy(trace_answer)
+  with.to = "e.cpp::submit"
+  with.starts = { { id = "run.cpp::ProducerThreadBody", label = "ProducerThreadBody", file = "run.cpp", line = 866, calls_up = 4 } }
+  pv.stack = { { kind = "modules" }, { kind = "query", answer = with, args = { "--q", "trace", "--from", "e.cpp::tick", "--to", "e.cpp::submit" } } }
+  local offered = A.offered(A.get("map.compare-route").input, ctx_on(nil)).choices
+  eq(offered, { { id = "run.cpp::ProducerThreadBody", name = "ProducerThreadBody" } }, "the other starts offered")
+  eq(A.key("map.compare-route"), nil, "… a menu row, no key")
+  local other = vim.deepcopy(trace_answer)
+  other.steps[1] = { id = "run.cpp::ProducerThreadBody", label = "ProducerThreadBody", file = "run.cpp", line = 866 }
+  Map.desk_work = function(args, done)
+    asked[#asked + 1] = table.concat(args, " ")
+    if args[2] == "query" then return vim.defer_fn(function() done(other, { code = 0 }) end, 5) end
+    return inner(args, done)
+  end
+  eq(act("map.compare-route", nil, { choice = "run.cpp::ProducerThreadBody" }), { true }, "picked, from the pop-out")
+  ok(vim.wait(1000, function() return #pv.stack == 3 end), "… a page of its own")
+  ok(asked[#asked]:find("--start run.cpp::ProducerThreadBody", 1, true) and asked[#asked]:find("--to e.cpp::submit", 1, true), "… the other trace asked with the same end: " .. tostring(asked[#asked]))
+  local top = pv.stack[#pv.stack]
+  eq({ top.answer.q, top.answer.a.steps[1].id, top.answer.b.steps[1].id }, { "routes", "e.cpp::hot", "run.cpp::ProducerThreadBody" }, "… the two routes on it")
+  ok(table.concat(shown().lines, "\n"):find("from ProducerThreadBody", 1, true), "… drawn in the pop-out")
+  pv.stack = { { kind = "modules" }, { kind = "query", answer = trace_answer, args = { "--q", "trace", "--from", "e.cpp::tick" } } }
+  ok(A.available(A.get("map.compare-route"), ctx_on(nil)) ~= true, "a trace with no other start: not offered")
   pv.stack, Map.desk_work, P.host.history = stack, inner, history
   pv.pinned = false
 end

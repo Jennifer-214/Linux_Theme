@@ -477,7 +477,10 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   page (picked from the runs that kept it; `gc` again takes it off): each function says "ran 3×" or "not run", from the
   run's recorded functions, and `]u` / `[u` go between the ones it did not reach, so on `T` you see where a test stops
   following the path. A function in a file the run did not cover says nothing, and the calls keep their style: lcov
-  records which lines ran, not which caller led there. Each step is a card: what it returns, how many lines, and folds for its
+  records which lines ran, not which caller led there. On a trace that lists other starts, "Compare with another
+  start" (in the menu, no key) puts this trace beside the one from the start you pick: "same through …", each route's
+  own part ("from <its start>: …"), "both reach …"; every name opens its code, and a route's "from …" opens its trace.
+  Each step is a card: what it returns, how many lines, and folds for its
   parameters (open) and its other callers and callees (Enter on a fold's header opens or closes it). From code, `Space c p` traces
   through the function at the cursor (in the pop-out's map when it shows one). C and C++ have signatures; other
   languages show the lane. `r` reads the page again where it is, as in a

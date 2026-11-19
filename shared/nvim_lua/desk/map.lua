@@ -1188,6 +1188,80 @@ function M.layers(keys, edges)
   return tiers
 end
 
+--- pure: two routes (lists of ids) lined up by the longest run of steps they share, in order (Codex's E6, 2026-11-19):
+--- { { same = ids } | { a = ids, b = ids } }, the parts they share and between them each one's own (one side may be
+--- empty: that route goes straight on).
+function M.compare_routes(a, b)
+  local n, m = #a, #b
+  local L = {}
+  for i = n + 1, 1, -1 do
+    L[i] = {}
+    for j = m + 1, 1, -1 do
+      if i > n or j > m then L[i][j] = 0
+      elseif a[i] == b[j] then L[i][j] = L[i + 1][j + 1] + 1
+      else L[i][j] = math.max(L[i + 1][j], L[i][j + 1]) end
+    end
+  end
+  local out, i, j = {}, 1, 1
+  local function same(id)
+    local last = out[#out]
+    if last and last.same then last.same[#last.same + 1] = id else out[#out + 1] = { same = { id } } end
+  end
+  local function own(side, id)
+    local last = out[#out]
+    if not last or last.same then last = { a = {}, b = {} }; out[#out + 1] = last end
+    table.insert(last[side], id)
+  end
+  while i <= n or j <= m do
+    if i <= n and j <= m and a[i] == b[j] then same(a[i]); i, j = i + 1, j + 1
+    elseif j > m or (i <= n and L[i + 1][j] >= L[i][j + 1]) then own('a', a[i]); i = i + 1
+    else own('b', b[j]); j = j + 1 end
+  end
+  return out
+end
+
+--- Two traces as one page (E6): "same through …", then each route's own part ("from <its start>: …"), "both reach
+--- …". Every name opens its code; a route's "from …" opens that trace. answer: { q = 'routes', a, b, a_args, b_args }.
+function M.routes_page(answer)
+  local by = {}
+  local function ids(r)
+    local out = {}
+    for _, st in ipairs(type(r) == 'table' and r.steps or {}) do
+      if type(st) == 'table' and st.id then by[st.id] = by[st.id] or st; out[#out + 1] = st.id end
+    end
+    return out
+  end
+  local ia, ib = ids(answer.a), ids(answer.b)
+  local function start_of(list) local st = by[list[1] or '']; return st and tostring(st.label) or '?' end
+  local an, bn = start_of(ia), start_of(ib)
+  if an == bn then an, bn = an .. ' (1)', bn .. ' (2)' end
+  local focus = by[(answer.a or {}).focus or ''] or by[(answer.b or {}).focus or '']
+  local sections = { { head = 'two routes to ' .. (focus and tostring(focus.label) or tostring((answer.a or {}).focus)) } }
+  local function row(list, lead, lead_item)
+    local parts = { lead_item and { lead, lead_item } or { lead, nil, nil, 'DeskMapDim' } }
+    if #list == 0 then parts[#parts + 1] = { '(goes straight on)', nil, true, 'DeskMapDim' } end
+    for k, id in ipairs(list) do
+      local st = by[id]
+      parts[#parts + 1] = { tostring(st.label), { name = tostring(st.label), key = 'routes:' .. lead .. id, target = { kind = 'node', node = st } } }
+      if k < #list then parts[#parts + 1] = { ' → ', nil, nil, 'DeskMapDim' } end
+    end
+    return parts
+  end
+  local segs = M.compare_routes(ia, ib)
+  for k, seg in ipairs(segs) do
+    if seg.same then
+      sections[#sections + 1] = { block = { row(seg.same, (k == #segs and k > 1) and 'both reach ' or 'same through ') } }
+    else
+      -- the first part is where each starts: its start is its name already
+      local la, lb = seg.a, seg.b
+      if k == 1 then la, lb = vim.list_slice(la, 2), vim.list_slice(lb, 2) end
+      local function lane(which, name) return { name = 'from ' .. name, key = 'routes:lane:' .. which .. ':' .. k, target = { kind = 'route', which = which } } end
+      sections[#sections + 1] = { block = { row(la, 'from ' .. an .. ': ', lane('a', an)), row(lb, 'from ' .. bn .. ': ', lane('b', bn)) } }
+    end
+  end
+  return { crumbs = { 'two routes' }, sections = sections }
+end
+
 --- A test run's coverage on a page (Codex's E5, 2026-11-19): each function box from a file the run covered says
 --- whether the run ran it, from its recorded functions (FN/FNDA: by its line, else by its name), "ran 3×" or "not run"
 --- (warn, and unrun for ]u); a file the run did not cover, nothing. Calls keep their style: lcov says which lines ran,
@@ -2030,6 +2104,7 @@ function M.level_query(answer, level)
 end
 function M.level_query_plain(answer, level)
   if answer.q == 'trace' then return M.trace_page(answer, level and level.folds, level and level.layouts, level and level.field) end
+  if answer.q == 'routes' then return M.routes_page(answer) end
   if answer.q == 'flow' then return M.flow_page(answer) end
   local sections = {}
   if answer.q == 'changes' then
@@ -2818,6 +2893,11 @@ local function enter(view, ctx)
     ctx = ctx or {}
     ctx.stayed = nil
     M.open_change(view.root, t, ctx.origin or (not view.out and view.origin) or nil)
+  elseif t.kind == 'route' then
+    -- One of two routes compared (E6): its trace, a page of its own.
+    local top = view.stack[#view.stack]
+    local r = top and top.answer and top.answer[t.which]
+    if r then push(view, { kind = 'query', answer = r, args = top.answer[t.which .. '_args'], root = view.root }, item.key) end
   elseif t.kind == 'start' then
     -- Another start of this trace (T3): the trace again from there, the end she chose kept.
     local a = view.stack[#view.stack] and view.stack[#view.stack].answer
@@ -4102,6 +4182,42 @@ local ROWS = actions.add({
     'Move this map to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as this tab, as it was',
     function(_, ctx) pop().show('map', ctx) end, function() return pop().can_pop() end, HERE),
   moving('down', 'j', 'The box below', nil, 'The box below / above (the nearest one in that row)'),
+  -- Two routes (E6): this trace beside the one from another of its starts, where they part and meet; a menu row
+  row('compare-route', nil, 'Compare with another start',
+    'This trace beside the one from another start it could have begun at: what they share, where they part, where they meet again',
+    function(view, ctx)
+      local top = view.stack[#view.stack]
+      local a = top.answer
+      local args = { '--q', 'trace', '--from', a.focus, '--start', tostring(ctx.choice) }
+      if a.to then vim.list_extend(args, { '--to', a.to }) end
+      local full = vim.list_extend({ 'map', 'query', '--root', view.root }, args)
+      if view.excluded and #view.excluded > 0 then
+        vim.list_extend(full, { '--exclude', table.concat(vim.tbl_map(function(x) return x.id end, view.excluded), '\n') })
+      end
+      -- in turn with the map's other questions: one asked before it (the trace following the cursor) is dropped
+      view.asked = (view.asked or 0) + 1
+      local asked = view.asked
+      M.desk_work(full, function(b, out)
+        if asked ~= view.asked or not valid(view) or view.stack[#view.stack] ~= top then return end
+        if not b or b.ok == false then return tell(refusal(b, out), vim.log.levels.WARN) end
+        push(view, { kind = 'query', answer = { ok = true, q = 'routes', a = a, b = b, a_args = top.args, b_args = args }, root = view.root })
+      end)
+    end, function(ctx)
+      local view = ctx and ctx.map
+      local top = valid(view) and view.stack[#view.stack]
+      local a = top and top.kind == 'query' and top.answer
+      if not (a and a.q == 'trace') then return 'on a trace (t)' end
+      if type(a.starts) ~= 'table' or #a.starts == 0 then return 'this trace has no other start' end
+      return true
+    end, { remote = true, input = { choices = function(ctx)
+      local view = ctx and ctx.map
+      local top = valid(view) and view.stack[#view.stack]
+      local out = {}
+      for _, st in ipairs(top and top.answer and type(top.answer.starts) == 'table' and top.answer.starts or {}) do
+        out[#out + 1] = { id = st.id, name = tostring(st.label) }
+      end
+      return out
+    end } }),
   -- A test run's coverage on the page (E5): gc picks the run (or takes it off), ]u / [u go between what it did not reach
   row('coverage', 'gc', "A test run's coverage on this page",
     "Each function on the page marked with whether one test run ran it (\"ran 3×\" or \"not run\"), from the run's recorded coverage; `]u` and `[u` go between the ones it did not reach",
@@ -4294,6 +4410,8 @@ function M.strip_text(item, G)
     return { tostring(item.name), line('zoom into', keys({ { 'back', 'out' } }), tostring(item.name)) }
   elseif t.kind == 'start' then
     return { G.said('another start · ') .. tostring(item.name), line('trace from here', tostring(item.name)) }
+  elseif t.kind == 'route' then
+    return { G.said('one route · ') .. tostring(item.name), line('open it as its trace', tostring(item.name)) }
   elseif t.kind == 'change' then
     return { tostring(item.name) .. ' · ' .. t.file .. (t.line and (':' .. t.line) or ''),
       line(t.side == 'removed' and 'open it as the build before read it' or 'open it', tostring(item.name)) }
