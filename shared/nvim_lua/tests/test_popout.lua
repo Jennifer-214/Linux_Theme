@@ -297,7 +297,8 @@ ok(wait(5000, function() return not exists(dir .. '/pop.floating') and vim.trim(
 s = state()
 eq({ s.tabs, s.tab, s.header:find('^ 1 calls · M.alpha ') ~= nil, s.header:find('H/L views · Space Space menu $') ~= nil }, { 1, 1, true, true },
   "one view, one tab page; the header names it by its tab's number and kind, then the keys that switch: " .. s.header)
-eq(s.keyline, ' j/k/h/l move · Enter go · f go+focus · p pin · ? keys ', "the key line: the graph's five keys, as typed")
+eq(s.keyline, ' Enter go to M.alpha (sample.lua:2)     · f go+focus · t trace · p pin · ? keys ',
+  "the key line: Enter's destination first, in a slot of one width (Codex's #9), then the graph's keys, as typed")
 ok(not popped():find('Enter go', 1, true) and not popped():find('PINNED', 1, true), '… and neither is in the drawing')
 eq(pop("return { vim.o.showtabline, vim.o.laststatus }"), { 2, 2 }, '… the tab line always shown, a status line per window')
 

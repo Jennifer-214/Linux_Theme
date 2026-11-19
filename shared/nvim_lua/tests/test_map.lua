@@ -1544,12 +1544,19 @@ do
   -- The key line says what the selected thing is and what its keys do: a C++ function, a fold, a handoff, a pick.
   local G = Map.glyphs(false)
   local fn = { name = "tick", target = { kind = "node", node = { id = "e.cpp::tick", label = "tt::tick", file = "e.cpp", line = 11, returns = "bool" } } }
-  eq(Map.strip_text(fn, G), { "tt::tick · e.cpp:11 → bool", "Enter source · t trace · c calls · D reach · U callers · gs inspect" },
+  eq(Map.strip_text(fn, G), { "tt::tick · e.cpp:11 → bool", "Enter open tt::tick (e.cpp:11)         · t trace · c calls · D reach · U callers · gs inspect" },
     "a function: what it is, then Enter source · t trace · c calls …, gs where symdeps can look (C and C++)")
-  eq(Map.strip_text({ name = "layout (2)", open = false, target = { kind = "fold", fold = "x|layout" } }, G), { "layout (2)", "Enter opens it" }, "a fold: Enter opens it")
-  eq(Map.strip_text({ name = "tick ring", target = { kind = "handoff", by_hand = false } }, G)[2], "Enter opens its producer or consumer · x drops it (it is wrong)", "a handoff: Enter either side, x drops it")
+do
+  -- the first slot is one width: what follows Enter starts in the same column for every kind of item (Codex's #9)
+  local G = Map.glyphs(false)
+  local a = Map.strip_text({ target = { kind = "node", node = { id = "x", label = "x", file = "x.lua", line = 1 } } }, G)[2]
+  local b = Map.strip_text({ name = "ring", target = { kind = "handoff", by_hand = false } }, G)[2]
+  eq(vim.fn.strdisplaywidth(a:match("^(.-) · ")), vim.fn.strdisplaywidth(b:match("^(.-) · ")), "Enter's slot: the same width on a function and on a handoff")
+end
+  eq(Map.strip_text({ name = "layout (2)", open = false, target = { kind = "fold", fold = "x|layout" } }, G), { "layout (2)", "Enter open it" }, "a fold: Enter opens it")
+  eq(Map.strip_text({ name = "tick ring", target = { kind = "handoff", by_hand = false } }, G)[2], "Enter open producer or consumer        · x drops it (it is wrong)", "a handoff: Enter either side, x drops it")
   eq(Map.strip_text({ name = "a → b", target = { kind = "call", caller = "a", callee = "b", sites = { { line = 3 }, { line = 9 } } } }, G),
-    { "a → b — 2 calls", "Enter lists them, each with its line" }, "a call with two sites: Enter lists them")
+    { "a → b — 2 calls", "Enter open call site (2: pick)" }, "a call with two sites: Enter lists them")
   local payload = P._payload(pv)
   ok(vim.iter(payload.items):any(function(i) return type(i.keys) == "string" and i.keys:find(" — Enter ", 1, true) ~= nil end), "the pop-out's items carry their line")
   local line = P._keyline({ id = "v", copy = { index = 1 }, items = { { keys = "tt::tick · e.cpp:11 — Enter source · t trace" } }, footer = {} })

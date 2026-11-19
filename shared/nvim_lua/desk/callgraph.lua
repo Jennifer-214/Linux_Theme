@@ -2303,7 +2303,12 @@ local function render_view(view, width, style)
   local drawn = M.layout(graph, math.max(16, width - 2), style == 'retro')
   local items = {}
   for i, box in ipairs(drawn.boxes) do
+    -- the key line's first slot says where Enter goes (Codex's #9), the same width for every box
+    local said = actions.voice(style == 'retro')
+    local enter = 'Enter ' .. said('go to ') .. tostring(box.item.name or '') .. (box.item.detail and box.item.detail ~= '' and (' (' .. box.item.detail .. ')') or '')
+    enter = vim.fn.strdisplaywidth(enter) > 38 and (fit(enter, 38, style == 'retro' and '..' or '…')) or (enter .. string.rep(' ', 38 - vim.fn.strdisplaywidth(enter)))
     items[i] = { key = box_key(box), kind = 'box', line = box.line, x = box.x, w = box.w, name_col = box.name_col, spans = box.spans, near = box.near,
+      keys = enter .. ' · f ' .. said('go+focus') .. ' · t ' .. said('trace') .. ' · p ' .. said('pin'),
       centre = box.centre, gauge = box.gauge, gauge_band = box.gauge_band, gauge_col = box.gauge_col, name = tostring(box.item.name or ''), ref = box.item }
   end
   local center = graph.center

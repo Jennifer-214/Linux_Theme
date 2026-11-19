@@ -3436,6 +3436,22 @@ end
 
 -- What the selected thing is, then what its keys do there (the pop-out's key line while it is selected) — a function's, a fold's, a handoff's, a step on a pick page. Words in the theme's voice, code and
 -- keys as typed. nil: nothing to say.
+--- The first slot of a key line (Codex's #9): what Enter does with the selected thing, named, padded to one width so
+--- the rest of the line stays put as the selection moves.
+M.ENTER_SLOT = 38
+function M.enter_slot(G, words)
+  local text = typed('in') .. ' ' .. G.said(words)
+  local w = vim.fn.strdisplaywidth(text)
+  if w > M.ENTER_SLOT then
+    local chars, out = vim.fn.split(text, '\\zs'), ''
+    for _, ch in ipairs(chars) do
+      if vim.fn.strdisplaywidth(out .. ch) > M.ENTER_SLOT - 1 then break end
+      out = out .. ch
+    end
+    return out .. G.ellipsis
+  end
+  return text .. string.rep(' ', M.ENTER_SLOT - w)
+end
 function M.strip_text(item, G)
   G = G or M.glyphs(false)
   local t = item and item.target
@@ -3445,33 +3461,40 @@ function M.strip_text(item, G)
     for _, k in ipairs(list) do out[#out + 1] = typed(k[1]) .. ' ' .. G.said(k[2]) end
     return table.concat(out, ' · ')
   end
+  local function line(enter, rest)
+    local slot = M.enter_slot(G, enter)
+    return rest and rest ~= '' and (slot .. ' · ' .. rest) or vim.trim(slot)
+  end
   if t.kind == 'node' and t.node then
     local n = t.node
-    local list = { { 'in', 'source' }, { 'trace', 'trace' }, { 'centre', 'calls' }, { 'reach', 'reach' }, { 'callers', 'callers' } }
+    local list = { { 'trace', 'trace' }, { 'centre', 'calls' }, { 'reach', 'reach' }, { 'callers', 'callers' } }
     if n.file and ({ c = true, cpp = true })[vim.filetype.match({ filename = n.file }) or ''] then list[#list + 1] = { 'symdeps', 'inspect' } end
-    return { tostring(n.label) .. ' · ' .. where(n) .. (n.returns and (' → ' .. n.returns) or ''), keys(list) }
+    return { tostring(n.label) .. ' · ' .. where(n) .. (n.returns and (' → ' .. n.returns) or ''),
+      line('open ' .. tostring(n.label) .. ' (' .. where(n) .. ')', keys(list)) }
   elseif t.kind == 'module' or t.kind == 'file' or t.kind == 'class' then
-    return { tostring(item.name), keys({ { 'in', 'zoom in' }, { 'back', 'out' } }) }
+    return { tostring(item.name), line('zoom into ' .. tostring(item.name), keys({ { 'back', 'out' } })) }
   elseif t.kind == 'walk' then
     return { G.said(t.q == 'callers' and 'what comes before ' or 'what comes after ') .. tostring(t.node and t.node.label or ''),
-      typed('in') .. ' ' .. G.said('opens its page, 3 levels (+ and - change it)') }
+      line(t.q == 'callers' and 'open what comes before' or 'open what comes after', G.said('3 levels (+ and - change it)')) }
   elseif t.kind == 'fold' then
-    return { tostring(item.name), typed('in') .. ' ' .. G.said(item.open and 'closes it' or 'opens it') }
+    return { tostring(item.name), line(item.open and 'close it' or 'open it') }
   elseif t.kind == 'handoff' then
     return { G.said('handoff ') .. tostring(item.name) .. G.said(t.by_hand and ' — added by you' or ' — inferred from the code'),
-      typed('in') .. ' ' .. G.said('opens its producer or consumer') .. ' · ' .. typed('handoff-drop') .. ' ' .. G.said(t.by_hand and 'forgets it' or 'drops it (it is wrong)') }
+      line('open producer or consumer', typed('handoff-drop') .. ' ' .. G.said(t.by_hand and 'forgets it' or 'drops it (it is wrong)')) }
   elseif t.kind == 'field' then
-    return { tostring(item.name), typed('in') .. ' ' .. G.said('follows it: its declaration, who writes it, or on this route') }
+    return { tostring(item.name), line('inspect field ' .. tostring(t.field or item.name), G.said('its declaration, who writes it, or on this route')) }
   elseif t.kind == 'result' then
-    return { tostring(item.name), typed('in') .. ' ' .. G.said('shows where the result goes in each caller: checked, returned, kept or dropped') }
+    return { tostring(item.name), line('show where its result goes', G.said('checked, returned, kept or dropped')) }
   elseif t.kind == 'crossings' then
-    return { tostring(item.name), typed('in') .. ' ' .. G.said('shows the calls that cross, by the entry function they reach') }
+    return { tostring(item.name), line('show the calls that cross', G.said('by the entry function they reach')) }
   elseif t.kind == 'call' then
     local n = #(t.sites or {})
     return { tostring(t.caller) .. ' → ' .. tostring(t.callee) .. G.said(n > 1 and (' — ' .. n .. ' calls') or ''),
-      typed('in') .. ' ' .. G.said(n > 1 and 'lists them, each with its line' or 'opens the call') }
+      line(n > 1 and ('open call site (' .. n .. ': pick)') or 'open call site') }
+  elseif t.kind == 'correction' then
+    return { tostring(item.name), line('forget, rebind or open it') }
   elseif t.kind == 'pick' then
-    return { tostring(item.name), typed('in') .. ' ' .. G.said('uses this one') }
+    return { tostring(item.name), line('use this one') }
   end
 end
 
