@@ -94,6 +94,17 @@ local function identity(item)
   if start and item.uri then return table.concat({ item.uri, start.line, item.name or '' }, '\0') end
   return item.map_id or tostring(item.name or '')
 end
+-- Who calls whom between two levels, as each level is read (a level keeps each function once, at its nearest depth,
+-- so the rows alone cannot say which box below belongs to which above): graph.links[a][b], both ways.
+local function link(graph, a, b)
+  local x, y = identity(a), identity(b)
+  if x == y then return end
+  graph.links = graph.links or {}
+  graph.links[x] = graph.links[x] or {}
+  graph.links[y] = graph.links[y] or {}
+  graph.links[x][y], graph.links[y][x] = true, true
+end
+M._link = link
 
 -- ─── layout (pure) ─────────────────────────────────────────────────────────────────────────────────────────────
 -- graph: { center = item?, callers = {item}?, callees = {item}?, more = {callers, callees}?, message = text?,
@@ -216,7 +227,9 @@ function M.layout(graph, width, retro)
       left = not graph.all_layers and math.max(0, #items - M.MAX) or 0
       if left > 0 then items = vim.list_slice(items, 1, M.MAX) end
     end
+    local before = #boxlist
     group(depth == 1 and side or (side .. ' ' .. depth), items, left, none, role)
+    for i = before + 1, #boxlist do boxlist[i].level = sign * depth end
     bands[#bands + 1] = { first = first, last = #lines, level = sign * depth }
   end
   for d = #above, 1, -1 do
@@ -227,6 +240,7 @@ function M.layout(graph, width, retro)
     if #above > 0 then centred(G.down, 'DeskCallGraphBox') end
     local first = #lines + 1
     boxes({ graph.center }, G.double, 'DeskCallGraphCentre', 'DeskCallGraphCentre', 'centre')
+    boxlist[#boxlist].level = 0
     bands[#bands + 1] = { first = first, last = #lines, level = 0 }
   end
   for d, list in ipairs(below) do
@@ -234,6 +248,7 @@ function M.layout(graph, width, retro)
     tier('callees', list, d, 1, 'calls nothing found', 'callee')
   end
   local drawn = { lines = lines, boxes = boxlist, marks = marks, left_out = left_out }
+  M.neighbours(graph, boxlist)
   if gauge then M.gauge(drawn, bands, retro); width = width + M.GAUGE_WIDTH end
   if graph.message then
     if #lines > 0 then add('') end
@@ -279,6 +294,27 @@ function M.layout(graph, width, retro)
   return drawn
 end
 
+--- pure: each box's real neighbours (box.near, indexes), when some level has more than one box (a wide graph, where the
+--- nearest box in the next row can look like the callee and is not): the centre and its first level on each side,
+--- and between deeper levels the calls read (graph.links). A narrow graph sets none (nothing to dim).
+function M.neighbours(graph, boxlist)
+  local per = {}
+  for _, box in ipairs(boxlist) do if box.level then per[box.level] = (per[box.level] or 0) + 1 end end
+  local wide = false
+  for _, n in pairs(per) do if n > 1 then wide = true end end
+  if not wide then return end
+  local links = graph.links or {}
+  for i, a in ipairs(boxlist) do
+    a.near = {}
+    for j, b in ipairs(boxlist) do
+      if i ~= j and a.level and b.level and math.abs(a.level - b.level) == 1 and (a.level == 0 or b.level == 0
+          or (links[identity(a.item)] or {})[identity(b.item)]) then
+        a.near[#a.near + 1] = j
+      end
+    end
+  end
+end
+
 -- The box at a buffer position (1-based line, byte column), by index.
 function M.box_at(drawn, lnum, col)
   for i, box in ipairs(drawn and drawn.boxes or {}) do
@@ -321,7 +357,7 @@ end
 
 local function highlights()
   for name, link in pairs({ DeskCallGraphCentre = 'Title', DeskCallGraphBox = 'FloatBorder', DeskCallGraphName = 'Function',
-    DeskCallGraphDim = 'Comment', DeskCallGraphHead = 'Comment', DeskCallGraphKey = 'Special' }) do
+    DeskCallGraphDim = 'Comment', DeskCallGraphHead = 'Comment', DeskCallGraphKey = 'Special', DeskCallGraphFaint = 'NonText' }) do
     api.nvim_set_hl(0, name, { link = link, default = true })
   end
   -- The selected box: inverse in retro (amber on black turned over, as a DOS list does), the selection colour elsewhere.
@@ -379,6 +415,18 @@ local function paint(s)
   local box = s.index and s.drawn and s.drawn.boxes[s.index]
   for _, span in ipairs(box and box.spans or {}) do
     pcall(api.nvim_buf_set_extmark, s.buf, M.sel_ns, span[1] - 1, span[2], { end_col = span[3], hl_group = 'DeskCallGraphSelected', priority = 300 })
+  end
+  -- A wide graph: the selected box's real callers and callees stay lit, every other box dims.
+  if box and type(box.near) == 'table' then
+    local keep = { [s.index] = true }
+    for _, j in ipairs(box.near) do keep[j] = true end
+    for j, other in ipairs(s.drawn.boxes) do
+      if not keep[j] then
+        for _, span in ipairs(other.spans or {}) do
+          pcall(api.nvim_buf_set_extmark, s.buf, M.sel_ns, span[1] - 1, span[2], { end_col = span[3], hl_group = 'DeskCallGraphFaint', priority = 250 })
+        end
+      end
+    end
   end
   if box and box.gauge then
     if M.retro() then
@@ -750,6 +798,7 @@ local function server_layers(graph, side, depth, active, done)
           if raw then
             local found = M.item(raw, client.offset_encoding or 'utf-16')
             local id = identity(found)
+            link(graph, item, found)
             if not visited[id] then visited[id] = true; next_tier[#next_tier + 1] = found end
           end
         end
@@ -846,6 +895,7 @@ local function map_level(graph, side, answer)
     elseif not read[id] then return nil
     else
       for _, far in ipairs(outward[id] or {}) do
+        link(graph, item, items[far])
         local here = places(items[far], real)
         if not seen[far] and not vim.iter(here):any(function(p) return shown[p] end) then
           level[#level + 1] = items[far]
@@ -1922,7 +1972,7 @@ local function restore_view(view, saved)
   if win then view.followed, view.win = win, win; follow_update(view) end
 end
 
-local GROUPS = { 'DeskCallGraphCentre', 'DeskCallGraphBox', 'DeskCallGraphName', 'DeskCallGraphDim', 'DeskCallGraphHead',
+local GROUPS = { 'DeskCallGraphCentre', 'DeskCallGraphBox', 'DeskCallGraphName', 'DeskCallGraphDim', 'DeskCallGraphHead', 'DeskCallGraphFaint',
   'DeskCallGraphKey', 'DeskCallGraphSelected' }
 -- Its key line in the pop-out (the header shows PINNED; ? lists every key); m while the drawing leaves boxes out.
 local function footer(pinned, more)
@@ -1950,7 +2000,7 @@ local function render_view(view, width, style)
   local drawn = M.layout(graph, math.max(16, width - 2), style == 'retro')
   local items = {}
   for i, box in ipairs(drawn.boxes) do
-    items[i] = { key = box_key(box), kind = 'box', line = box.line, x = box.x, w = box.w, name_col = box.name_col, spans = box.spans,
+    items[i] = { key = box_key(box), kind = 'box', line = box.line, x = box.x, w = box.w, name_col = box.name_col, spans = box.spans, near = box.near,
       centre = box.centre, gauge = box.gauge, gauge_band = box.gauge_band, name = tostring(box.item.name or ''), ref = box.item }
   end
   local center = graph.center

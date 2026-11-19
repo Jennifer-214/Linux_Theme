@@ -487,7 +487,9 @@ do
     '… and the one chosen is selected: ' .. tostring(state().selected) .. ' (was ' .. tostring(before) .. ')')
   find(before)
   ok(wait(2000, function() return state().selected == before end), '… and back to ' .. tostring(before))
-  -- One box a level: the rest under "+N more", still found by /, and drawn once chosen.
+  -- One box a level: the rest under "+N more", still found by /, and drawn once chosen. (The graph's pin is put back as
+  -- it was found at the end: r while following reads again, and the menu test below toggles from that state.)
+  local was_pinned = host("return require('desk.popout').view_of('graph').pinned == true")
   host("require('desk.callgraph').MAX = 1; _G.popout_test.extra = 2")
   press('r')
   ok(wait(5000, function() return (state().hidden or 0) > 0 end), 'MAX 1 and read again: boxes under "+N more" (' .. tostring(state().hidden) .. ')')
@@ -499,6 +501,14 @@ do
   ok(wait(4000, function() return state().selected == name and state().hidden == 0 end),
     '… and the one chosen is drawn and selected: ' .. tostring(state().selected) .. ' (wanted ' .. tostring(name) .. ')')
   ok(shown_before > 0 and not popped():find('%+%d+ more'), '… every box drawn now, no "+N more" left')
+  -- three callees on one level: a wide graph; the selected callee's real neighbour (the centre) lit, the caller dimmed
+  ok(wait(2000, function()
+    return pop([[local G = require('desk.callgraph'); local n = 0
+      for _, m in ipairs(vim.api.nvim_buf_get_extmarks(0, G.sel_ns, 0, -1, { details = true })) do
+        if m[4].hl_group == 'DeskCallGraphFaint' and vim.api.nvim_buf_get_lines(0, m[2], m[2] + 1, false)[1]:find('caller_of_gamma', 1, true) then n = n + 1 end
+      end
+      return n]]) > 0
+  end), 'in the pop-out too: a wide graph dims what the selected box does not call or get called by')
   host("require('desk.callgraph').MAX = 24; _G.popout_test.extra = 0")
   press('r')
   ok(wait(5000, function() return (state().hidden or 0) == 0 and not popped():find('extra_', 1, true) end), 'MAX back')
@@ -508,6 +518,14 @@ do
   end), '… read to the end')
   find(before)
   ok(wait(2000, function() return state().selected == before end), '… and ' .. tostring(before) .. ' selected again')
+  host(("local P = require('desk.popout'); local v = P.view_of('graph'); v.pinned = %s; P.redraw(v)"):format(tostring(was_pinned)))
+  ok(wait(2000, function() return state().pinned == was_pinned end), '… pinned as it was (' .. tostring(was_pinned) .. ')')
+  -- … and every redraw it caused drawn there (a late one arriving under the next test's menu took its Enter)
+  ok(wait(3000, function()
+    local h = host("local v = require('desk.popout').view_of('graph'); return { v.gen, v.queued == true }")
+    return h[2] == false and state().gen == h[1]
+  end), '… the pop-out caught up')
+  vim.wait(300, function() return false end)
 end
 
 -- ─── Space Space in the pop-out: the editor's rows for that box ─────────────────────────────────────────────────

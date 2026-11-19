@@ -688,6 +688,17 @@ do
   key('+')
   ok(vim.wait(2000, function() return layered.graph.layer_source.callees == 'server' end), 'the language server fills the next tier when the map is unavailable')
   eq(vim.tbl_map(function(i) return i.name end, layered.graph.layers.callees[2]), { 'gamma' }, 'the next tier excludes the centre cycle and duplicates')
+  do
+    -- who calls whom, kept as the level is read: gamma under callee_of_M.alpha (the call back to the centre too)
+    local linked = {}
+    local function name_of(id) local parts = vim.split(id, '\0', { plain = true }); return parts[#parts] end
+    for a, to in pairs(layered.graph.links or {}) do
+      if name_of(a) == 'gamma' then for b in pairs(to) do linked[name_of(b)] = true end end
+    end
+    linked = vim.tbl_keys(linked)
+    table.sort(linked)
+    eq(linked, { 'callee_of_M.alpha' }, "a level the server reads: each function linked to the one that calls it")
+  end
   key('+')
   ok(vim.wait(2000, function() return layered.graph.exhausted.callees end), 'a level of only previously seen nodes stops expansion')
   local pending
@@ -799,6 +810,35 @@ do
     "callers: the map's level under the server's (caller_of_M.alpha is gamma's place), read from the caller's end")
   G.close_view(v.buf)
   G.transport = transport
+end
+
+-- ─── a wide graph: the selected box's real callers and callees lit, the rest dimmed (Codex's #1) ───────────────
+do
+  local function at(name, line) return { name = name, detail = 'e.cpp:' .. line, uri = 'file:///w/e.cpp', range = { start = { line = line, character = 0 } } } end
+  local tick, apply, check = at('Engine::tick', 118), at('Book::apply', 40), at('Risk::check', 77)
+  local insert, cancel, limit = at('Book::insert', 52), at('Book::cancel', 61), at('Risk::limit', 90)
+  local g = { center = tick, layers = { callees = { { apply, check }, { insert, cancel, limit } } } }
+  G._link(g, apply, insert); G._link(g, apply, cancel); G._link(g, check, limit)
+  local d = G.layout(g, 100, false)
+  local idx = {}
+  for i, b in ipairs(d.boxes) do idx[b.item.name] = i end
+  local function names_of(list) local out = {}; for _, j in ipairs(list or {}) do out[#out + 1] = d.boxes[j].item.name end; table.sort(out); return out end
+  eq(names_of(d.boxes[idx['Risk::limit']].near), { 'Risk::check' }, 'Risk::limit: its one caller, not the box nearest above it')
+  eq(names_of(d.boxes[idx['Book::apply']].near), { 'Book::cancel', 'Book::insert', 'Engine::tick' }, 'Book::apply: the centre above, its two callees below')
+  eq(G.layout({ center = tick, layers = { callees = { { apply }, { insert } } } }, 100, false).boxes[2].near, nil, 'a straight chain: nothing to dim')
+  -- drawn: everything not linked to the selection takes the faint colour
+  local buf = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(buf, 0, -1, false, d.lines)
+  local s = { buf = buf, drawn = d }
+  G.select(s, idx['Risk::limit'])
+  local faint = {}
+  for _, m in ipairs(api.nvim_buf_get_extmarks(buf, G.sel_ns, 0, -1, { details = true })) do
+    if m[4].hl_group == 'DeskCallGraphFaint' then faint[(m[2] + 1) .. ':' .. m[3]] = true end
+  end
+  local function dimmed(name) local sp = d.boxes[idx[name]].spans[2]; return faint[sp[1] .. ':' .. sp[2]] == true end
+  eq({ dimmed('Book::insert'), dimmed('Book::apply'), dimmed('Engine::tick'), dimmed('Risk::check'), dimmed('Risk::limit') },
+    { true, true, true, false, false }, 'Risk::limit selected: its caller stays lit, the others dim')
+  api.nvim_buf_delete(buf, { force = true })
 end
 
 -- ─── gl: the graph's functions in a window's location list ───────────────────────────────────────────────────────

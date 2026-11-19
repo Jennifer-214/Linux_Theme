@@ -568,6 +568,13 @@ local function mirror_slice(lines, first, last)
 end
 
 M.MAX_HIDDEN = 2000   -- loaded but not drawn, findable with /
+-- A box's real neighbours (indexes of other items), for the dimming of a wide graph; nil when it has none.
+local function plain_near(near)
+  if type(near) ~= 'table' then return nil end
+  local out = {}
+  for _, j in ipairs(near) do if #out < M.MAX_ITEMS and type(j) == 'number' and j >= 1 and j <= M.MAX_ITEMS and j == math.floor(j) then out[#out + 1] = j end end
+  return out
+end
 local function payload(view)
   local kind = kinds[view.kind]
   local ok, drawn = pcall(kind.render, view, pop_of(view).width or 80, vim.g.desk_style or 'paper')
@@ -593,6 +600,7 @@ local function payload(view)
       name = tostring(item.name or ''):sub(1, 200), mark = cut(item.mark, 16),
       strip = type(item.strip) == 'table' and { cut(item.strip[1], 400) or '', cut(item.strip[2], 400) or '' } or nil,
       keys = cut(item.keys, 300),
+      near = plain_near(item.near),
       zones = plain_zones(item.zones) }
   end
   local hidden = {}
@@ -2322,6 +2330,12 @@ local function valid_hidden(raw)
   end
   return out
 end
+local function valid_near(raw)
+  if type(raw) ~= 'table' then return nil end
+  local out = {}
+  for _, j in ipairs(raw) do if #out < M.MAX_ITEMS and type(j) == 'number' and j >= 1 and j <= M.MAX_ITEMS and j == math.floor(j) then out[#out + 1] = j end end
+  return out
+end
 local function valid_items(raw)
   local items = {}
   for i, item in ipairs(type(raw) == 'table' and raw or {}) do
@@ -2334,6 +2348,7 @@ local function valid_items(raw)
       name = type(item.name) == 'string' and item.name:sub(1, 200) or '', mark = short(item.mark, 16),
       strip = type(lines[1]) == 'string' and type(lines[2]) == 'string' and { lines[1]:sub(1, 400), lines[2]:sub(1, 400) } or nil,
       keys = type(item.keys) == 'string' and item.keys:sub(1, 300) or nil,
+      near = valid_near(item.near),
       zones = valid_zones(item.zones) }
   end
   return items
