@@ -296,6 +296,7 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `j` / `k` in a graph | The box below / above (the nearest one in that row) |
 | `h` / `l` in a graph | The box to the left / right in the same row |
 | `Tab` / `Shift+Tab` / `gg` / `G` in a graph | Every box in order, wrapping; the first / last box |
+| `gj` / `gk` in a graph | Along a real call: to what the box calls / to what calls it, again for the next |
 | `s` in a graph | Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; `Enter` still goes |
 | `Enter` in a graph, a double click | Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it) |
 | `<BS>` in the graph tab | Back to that code window as it was, the graph left open |

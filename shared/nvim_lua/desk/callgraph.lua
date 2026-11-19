@@ -233,6 +233,17 @@ local function link(graph, a, b)
   graph.links[x][y], graph.links[y][x] = true, true
 end
 M._link = link
+-- Where a caller calls a callee (Codex's E7): the call's place as the language server gave it (its fromRanges, in the
+-- caller's file), the first and how many, kept per pair as each level is read.
+local function site(graph, caller, callee, uri, ranges)
+  if not (uri and type(ranges) == 'table' and ranges[1] and ranges[1].start) then return end
+  graph.sites = graph.sites or {}
+  local key = identity(caller) .. '\1' .. identity(callee)
+  local got = graph.sites[key] or { uri = uri, line = ranges[1].start.line + 1, count = 0 }
+  got.count = got.count + #ranges
+  graph.sites[key] = got
+end
+M._site = site
 
 -- ─── layout (pure) ─────────────────────────────────────────────────────────────────────────────────────────────
 -- graph: { center = item?, callers = {item}?, callees = {item}?, more = {callers, callees}?, message = text?,
@@ -448,6 +459,7 @@ function M.layout(graph, width, retro)
   if dropped then centred(G.said('narrow: places in the key line'), 'DeskCallGraphDim') end
   local drawn = { lines = lines, boxes = boxlist, marks = marks, heads = heads }
   M.neighbours(graph, boxlist)
+  M.connect(graph, boxlist)
   if gauge then M.gauge(drawn, bands, retro); width = width + M.GAUGE_WIDTH end
   if graph.message then
     if #lines > 0 then add('') end
@@ -511,6 +523,59 @@ function M.neighbours(graph, boxlist)
         a.near[#a.near + 1] = j
       end
     end
+  end
+end
+
+--- pure: each box's real calls, by direction (Codex's E7): box.down, the boxes it calls (the next level down the
+--- drawing), box.up, those that call it, each with the call's place when one was read (down_sites, up_sites:
+--- "e.cpp:15", or "e.cpp:122 · 2 calls"). The centre and its first level on each side always; deeper, the calls read
+--- (graph.links). Every graph, wide or not; level by level, so 2500 boxes on one level are 2500 pairs, not millions.
+function M.connect(graph, boxlist)
+  local links, sites, by_level = graph.links or {}, graph.sites or {}, {}
+  for i, box in ipairs(boxlist) do
+    box.down, box.up, box.down_sites, box.up_sites = {}, {}, {}, {}
+    if box.level then by_level[box.level] = by_level[box.level] or {}; table.insert(by_level[box.level], i) end
+  end
+  for level, list in pairs(by_level) do
+    for _, i in ipairs(list) do
+      local a = boxlist[i]
+      for _, j in ipairs(by_level[level + 1] or {}) do
+        local b = boxlist[j]
+        if level == 0 or level + 1 == 0 or (links[identity(a.item)] or {})[identity(b.item)] then
+          local got = sites[identity(a.item) .. '\1' .. identity(b.item)]
+          local said = got and (vim.fn.fnamemodify(vim.uri_to_fname(got.uri), ':t') .. ':' .. got.line .. (got.count > 1 and (' · ' .. got.count .. ' calls') or '')) or ''
+          a.down[#a.down + 1], a.down_sites[#a.down + 1] = j, said
+          b.up[#b.up + 1], b.up_sites[#b.up + 1] = i, said
+        end
+      end
+    end
+  end
+end
+
+-- gj / gk (Codex's E7): to a function the selected box calls (down) or one that calls it (up), even rows away; again,
+-- the next of them from the box it began on (wrapping), until another move. When the box it began on has only one
+-- that way, again walks on from where it landed (a chain is walked, a branch is cycled). The call's place beside it.
+local along_ns = api.nvim_create_namespace('desk_callgraph_along')
+function M.along(s, dir)
+  local boxes = s and s.drawn and s.drawn.boxes or {}
+  if not (s.index and boxes[s.index]) then return end
+  local st = s.along
+  local cycling = st and st.dir == dir and st.at == s.index and boxes[st.anchor] and #(boxes[st.anchor][dir] or {}) > 1
+  if not cycling then st = { anchor = s.index, dir = dir, pos = 0 } end
+  local anchor = boxes[st.anchor]
+  local list = anchor[dir] or {}
+  if #list == 0 then return end
+  st.pos = st.pos % #list + 1
+  local j = list[st.pos]
+  M.select(s, j, true)
+  st.at, s.along = j, st
+  local said = actions.voice(vim.g.desk_style == 'retro')
+  local place = (anchor[dir .. '_sites'] or {})[st.pos] or ''
+  local text = '  ' .. (dir == 'down' and '↓ ' or '↑ ') .. (place ~= '' and (said('called at ') .. place .. ' · ') or '')
+    .. st.pos .. said(' of ') .. #list
+  local box = boxes[j]
+  if s.buf and api.nvim_buf_is_valid(s.buf) and box.line then
+    pcall(api.nvim_buf_set_extmark, s.buf, along_ns, box.line - 1, 0, { virt_text = { { text, 'DeskCallGraphDim' } }, virt_text_pos = 'eol', priority = 300 })
   end
 end
 
@@ -640,6 +705,7 @@ local function paint(s)
   if next(api.nvim_get_hl(0, { name = 'DeskCallGraphSelected' })) == nil then highlights() end
   api.nvim_buf_clear_namespace(s.buf, M.sel_ns, 0, -1)
   api.nvim_buf_clear_namespace(s.buf, M.gauge_ns, 0, -1)
+  api.nvim_buf_clear_namespace(s.buf, along_ns, 0, -1)   -- gj/gk's call place, gone with any other move
   local box = s.index and s.drawn and s.drawn.boxes[s.index]
   for _, span in ipairs(box and box.spans or {}) do
     pcall(api.nvim_buf_set_extmark, s.buf, M.sel_ns, span[1] - 1, span[2], { end_col = span[3], hl_group = 'DeskCallGraphSelected', priority = 300 })
@@ -953,8 +1019,14 @@ function M.fetch(client, target, done)
     if file_buf > 0 then graph.read_at = { buf = file_buf, tick = api.nvim_buf_get_changedtick(file_buf) } end
     step('callHierarchy/incomingCalls', { item = raw }, function(incoming)
       graph.callers = calls(incoming, 'from', enc)
+      for _, call in ipairs(incoming or {}) do
+        if call.from then site(graph, M.item(call.from, enc), graph.center, call.from.uri, call.fromRanges) end
+      end
       step('callHierarchy/outgoingCalls', { item = raw }, function(outgoing)
         graph.callees = calls(outgoing, 'to', enc)
+        for _, call in ipairs(outgoing or {}) do
+          if call.to then site(graph, graph.center, M.item(call.to, enc), raw.uri, call.fromRanges) end
+        end
         graph.layers = {}
         done(graph)
       end)
@@ -1067,6 +1139,8 @@ local function server_layers(graph, side, depth, active, done)
             local found = M.item(raw, client.offset_encoding or 'utf-16')
             local id = identity(found)
             link(graph, item, found)
+            if field == 'from' then site(graph, found, item, raw.uri, call.fromRanges)
+            else site(graph, item, found, item.uri, call.fromRanges) end
             if not visited[id] then visited[id] = true; next_tier[#next_tier + 1] = found end
           end
         end
@@ -1819,6 +1893,15 @@ local ROWS = actions.add({
   moving('prev', '<S-Tab>', 'The previous box', 'The previous box, wrapping', 'next'),
   moving('first', 'gg', 'The first box', 'The first box', 'next'),
   moving('last', 'G', 'The last box', 'The last box', 'next'),
+  -- gj / gk: j and k along a real call (Codex's E7); h/j/k/l stay for browsing the drawing
+  { id = 'callgraph.along-down', group = 'Call graph', name = 'Along a call, to what it calls', key = 'gj', on = BOTH, menu = false, drawn = true,
+    about = 'To a function the selected box calls, however far down the drawing; again, the next one it calls (wrapping), or on down when it calls only one; the call\'s place beside it',
+    doc = 'Along a real call: to what the box calls / to what calls it, again for the next',
+    run = function(ctx) M.along(ctx.copy or ctx.graph, 'down') end },
+  { id = 'callgraph.along-up', group = 'Call graph', name = 'Along a call, to what calls it', key = 'gk', on = BOTH, menu = false, drawn = true,
+    line = 'callgraph.along-down',
+    about = 'To a function that calls the selected box, however far up the drawing; again, the next one that calls it (wrapping), or on up when only one does',
+    run = function(ctx) M.along(ctx.copy or ctx.graph, 'up') end },
   { id = 'callgraph.jump', group = 'Call graph', name = 'Jump to a box by its label', key = 's', on = BOTH, menu = false, drawn = true,
     available = function() return require('desk.nav').labels_ready() end,
     about = 'Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; `Enter` still goes',
@@ -2334,7 +2417,8 @@ local function render_view(view, width, style)
     items[i] = { key = box_key(box), kind = 'box', line = box.line, x = box.x, w = box.w, name_col = box.name_col, spans = box.spans, near = box.near,
       keys = enter .. ' · f ' .. said('go+focus') .. ' · t ' .. said('trace') .. ' · p ' .. said('pin'),
       centre = box.centre, gauge = box.gauge, gauge_band = box.gauge_band, gauge_col = box.gauge_col, name = tostring(box.item.name or ''),
-      where = box.item.detail ~= '' and box.item.detail or nil, ref = box.item }
+      where = box.item.detail ~= '' and box.item.detail or nil, ref = box.item,
+      down = box.down, up = box.up, down_sites = box.down_sites, up_sites = box.up_sites }
   end
   local center = graph.center
   return { title = 'call graph' .. (center and center.name and (' · ' .. center.name) or ''), state = '',

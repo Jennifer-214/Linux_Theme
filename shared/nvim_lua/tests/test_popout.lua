@@ -491,6 +491,17 @@ do
     '… and the one chosen is selected: ' .. tostring(state().selected) .. ' (was ' .. tostring(before) .. ')')
   find(before)
   ok(wait(2000, function() return state().selected == before end), '… and back to ' .. tostring(before))
+  -- gj / gk in the pop-out (Codex's E7): along a real call, on its own copy, from the connections the editor sent
+  find('caller_of_gamma')
+  ok(wait(2000, function() return state().selected == 'caller_of_gamma' end), 'gj: from the caller')
+  press('gj')
+  ok(wait(2000, function() return state().selected == 'gamma' end), '… to the function it calls, the centre: ' .. tostring(state().selected))
+  press('gj')
+  ok(wait(2000, function() return state().selected == 'callee_of_gamma' end), '… on down the chain (the caller calls only the centre): ' .. tostring(state().selected))
+  press('gk')
+  ok(wait(2000, function() return state().selected == 'gamma' end), 'gk: back up the call: ' .. tostring(state().selected))
+  find(before)
+  ok(wait(2000, function() return state().selected == before end), '… and back to ' .. tostring(before))
   -- The choice is the box, not its place (Codex's E13, 2026-11-19): the view read again while the picker is open (two
   -- callees named a_extra_ sort in ahead of callee_of_gamma), then the choice made: the box chosen is selected, not the
   -- one now at its old place.

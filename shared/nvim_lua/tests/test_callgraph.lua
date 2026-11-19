@@ -130,9 +130,10 @@ local function answer(method, params)
     local name = names[params.position.line]
     return name and { { name = name, kind = 12, uri = uri, range = at(params.position.line), selectionRange = at(params.position.line) } } or {}
   elseif method == "callHierarchy/incomingCalls" then
-    return { { from = { name = "caller_of_" .. params.item.name, kind = 12, uri = uri, range = at(7), selectionRange = at(7) }, fromRanges = {} } }
+    return { { from = { name = "caller_of_" .. params.item.name, kind = 12, uri = uri, range = at(7), selectionRange = at(7) }, fromRanges = { at(8) } } }
   end
-  return { { to = { name = "callee_of_" .. params.item.name, kind = 12, uri = uri, range = at(4), selectionRange = at(4) }, fromRanges = {} } }
+  -- where the function calls its callee: two calls (gj's place, Codex's E7)
+  return { { to = { name = "callee_of_" .. params.item.name, kind = 12, uri = uri, range = at(4), selectionRange = at(4) }, fromRanges = { at(2), at(3) } } }
 end
 local fake = { id = 77, name = "fakels", offset_encoding = "utf-16" }
 local served = { fake }
@@ -392,6 +393,19 @@ api.nvim_win_set_cursor(origin, { 3, 2 })
 G.panel_moved(origin)
 vim.wait(400)
 ok(text(G.panel.drawn.lines):find("callee_of_callee_of_M.beta", 1, true), "… and it stays there while the cursor moves")
+-- The call places the language server gave are kept (Codex's E7): the panel's graph says where its centre calls its
+-- callee and where its caller calls it.
+do
+  local g, d = G.panel.graph, G.panel.drawn
+  local centre, callee, caller
+  for i, b in ipairs(d.boxes) do
+    if b.item == g.center then centre = i elseif tostring(b.item.name):find("^callee_of_") then callee = i elseif tostring(b.item.name):find("^caller_of_") then caller = i end
+  end
+  local file = vim.fn.fnamemodify(vim.uri_to_fname(uri), ":t")
+  ok(centre and callee and caller, "the panel's centre, caller and callee found")
+  eq(centre and d.boxes[centre].down_sites, { file .. ":3 · 2 calls" }, "the centre calls its callee at line 3, twice")
+  eq(caller and d.boxes[caller].down_sites, { file .. ":9" }, "its caller calls it at line 9")
+end
 -- r in the panel reads it again (2026-11-16: it was Vim's r there, an error on the read-only buffer).
 requests = {}
 api.nvim_set_current_win(G.panel.win)
@@ -511,8 +525,8 @@ eq({ G.target_at(dir .. "/no-such-file.lua", 1) }, { nil, "that file is no longe
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", "I", ">", "r", "q", "gs", "t", "T", "gl", "o" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", "I", ">", "r", "gs", "t", "T", "p", "q", "gl", "o" }, "the panel's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "gj", "gk", "s", "<CR>", "<BS>", "c", "+", "-", "I", ">", "r", "q", "gs", "t", "T", "gl", "o" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "gj", "gk", "s", "<CR>", "c", "+", "-", "I", ">", "r", "gs", "t", "T", "p", "q", "gl", "o" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do
@@ -590,6 +604,67 @@ eq(surface.index, want, "3j moves three boxes down")
 api.nvim_feedkeys("2k", "x", false)
 eq(surface.index, G.nav(laid.boxes, G.nav(laid.boxes, want, "up"), "up"), "… and 2k two up")
 
+-- Along a real call (Codex's E7, 2026-11-19): gj to a function the selected box calls, gk to one that calls it, even
+-- rows away; again cycles through them (wrapping) from the box it began on; the call's place said beside the box.
+do
+  local function at(name, line) return { name = name, detail = 'e.cpp:' .. line, uri = 'file:///w/e.cpp', range = { start = { line = line, character = 0 } } } end
+  local tick = at('Engine::tick', 118)
+  local level1, level2 = {}, {}
+  for i = 1, 6 do level1[i] = at(string.format('step_%d', i), 10 * i) end
+  for i = 1, 6 do level2[i] = at(string.format('deep_%d', i), 200 + i) end
+  local g = { center = tick, layers = { callees = { level1, level2 } } }
+  -- step_1 calls deep_6 and deep_3 (drawn far from it); step_6 calls deep_1
+  G._link(g, level1[1], level2[6]); G._link(g, level1[1], level2[3]); G._link(g, level1[6], level2[1])
+  G._site(g, level1[1], level2[6], 'file:///w/e.cpp', { { start = { line = 14, character = 2 } } })
+  G._site(g, tick, level1[1], 'file:///w/e.cpp', { { start = { line = 121, character = 2 } }, { start = { line = 130, character = 2 } } })
+  local d = G.layout(g, 60, false)
+  local idx = {}
+  for i, b in ipairs(d.boxes) do idx[b.item.name] = i end
+  local function name(i) return d.boxes[i] and d.boxes[i].item.name end
+  local function names(list) local out = {}; for _, j in ipairs(list or {}) do out[#out + 1] = name(j) end; table.sort(out); return out end
+  eq(names(d.boxes[idx.step_1].down), { 'deep_3', 'deep_6' }, 'step_1 calls deep_3 and deep_6')
+  eq(names(d.boxes[idx.deep_6].up), { 'step_1' }, '… deep_6 is called by step_1 only')
+  eq(names(d.boxes[idx['Engine::tick']].down), { 'step_1', 'step_2', 'step_3', 'step_4', 'step_5', 'step_6' }, 'the centre calls its whole first level')
+  local buf = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(buf, 0, -1, false, d.lines)
+  local s = { buf = buf, drawn = d }
+  G.select(s, idx.step_1)
+  local first = d.boxes[idx.step_1].down[1]
+  G.along(s, 'down')
+  eq(s.index, first, 'gj: to the first function step_1 calls (' .. tostring(name(first)) .. '), not the box below it')
+  G.along(s, 'down')
+  ok(s.index ~= first and vim.tbl_contains(d.boxes[idx.step_1].down, s.index), 'gj again: the next one step_1 calls, from step_1')
+  G.along(s, 'down')
+  eq(s.index, first, '… wrapping to the first')
+  local function hint()
+    for _, m in ipairs(api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+      if m[4].virt_text and m[4].virt_text[1][1]:find('called at', 1, true) or (m[4].virt_text and m[4].virt_text[1][1]:find('1 of 2', 1, true)) then return { m[2] + 1, m[4].virt_text[1][1] } end
+    end
+  end
+  G.select(s, idx.step_1)
+  G.along(s, 'down')
+  while name(s.index) ~= 'deep_6' do G.along(s, 'down') end
+  local h = hint()
+  eq(h and h[1], d.boxes[idx.deep_6].line, 'the hint on deep_6\'s line')
+  ok(h and h[2]:find('called at e.cpp:15', 1, true), '… where step_1 calls it: ' .. tostring(h and h[2]))
+  G.move(s, 'next')
+  eq(hint(), nil, 'another move: the hint gone')
+  -- gk from deep_6: up the call, to step_1; a fresh gj after another move starts from where it is
+  G.select(s, idx.deep_6)
+  G.along(s, 'up')
+  eq(name(s.index), 'step_1', 'gk: deep_6 → step_1, the one that calls it')
+  G.along(s, 'up')
+  eq(name(s.index), 'Engine::tick', 'gk again: deep_6 has one caller, so on up the chain: the centre, which calls step_1')
+  local said
+  for _, m in ipairs(api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+    if m[4].virt_text and m[4].virt_text[1][1]:find('↑', 1, true) then said = m[4].virt_text[1][1] end
+  end
+  ok(said and said:find('called at e.cpp:122', 1, true) and said:find('2 calls', 1, true), 'the centre calls step_1 at 122 (and once more): ' .. tostring(said))
+  G.select(s, idx.deep_2)
+  G.along(s, 'up')
+  eq(name(s.index), 'deep_2', 'gk where nothing calls it here: it stays')
+  api.nvim_buf_delete(buf, { force = true })
+end
 -- Where you are once a level's heading has scrolled away (Codex's E8, 2026-11-19: every box is drawn now, so one level
 -- can fill several screens): "callers of Submit · 17 of 43", over the right of the top line; nothing while it shows.
 do

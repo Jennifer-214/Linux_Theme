@@ -599,6 +599,10 @@ local function payload(view)
       strip = type(item.strip) == 'table' and { cut(item.strip[1], 400) or '', cut(item.strip[2], 400) or '' } or nil,
       keys = cut(item.keys, 300),
       near = plain_near(item.near),
+      -- gj / gk's real calls (Codex's E7): the boxes it calls and that call it, and each call's place
+      down = plain_near(item.down), up = plain_near(item.up),
+      down_sites = type(item.down_sites) == 'table' and vim.tbl_map(function(x) return cut(x, 120) or '' end, vim.list_slice(item.down_sites, 1, M.MAX_ITEMS)) or nil,
+      up_sites = type(item.up_sites) == 'table' and vim.tbl_map(function(x) return cut(x, 120) or '' end, vim.list_slice(item.up_sites, 1, M.MAX_ITEMS)) or nil,
       zones = plain_zones(item.zones) }
   end
   -- headings, for the pop-out's own "where am I" once one has scrolled away (Codex's E8)
@@ -2386,6 +2390,12 @@ local function valid_heads(raw)
   end
   return out
 end
+local function valid_sites(raw)
+  if type(raw) ~= 'table' then return nil end
+  local out = {}
+  for i, x in ipairs(raw) do if i > M.MAX_ITEMS then break end; out[i] = type(x) == 'string' and x:sub(1, 120) or '' end
+  return out
+end
 local function valid_near(raw)
   if type(raw) ~= 'table' then return nil end
   local out = {}
@@ -2406,6 +2416,8 @@ local function valid_items(raw)
       strip = type(lines[1]) == 'string' and type(lines[2]) == 'string' and { lines[1]:sub(1, 400), lines[2]:sub(1, 400) } or nil,
       keys = type(item.keys) == 'string' and item.keys:sub(1, 300) or nil,
       near = valid_near(item.near),
+      down = valid_near(item.down), up = valid_near(item.up),
+      down_sites = valid_sites(item.down_sites), up_sites = valid_sites(item.up_sites),
       zones = valid_zones(item.zones) }
   end
   return items
