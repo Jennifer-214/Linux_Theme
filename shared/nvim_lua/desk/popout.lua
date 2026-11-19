@@ -596,7 +596,7 @@ local function payload(view)
     refs[i], keys[i] = item.ref, tostring(item.key or i):sub(1, 120)
     items[i] = { key = keys[i], kind = item.kind == 'row' and 'row' or 'box', line = num(item.line), name_col = num(item.name_col), x = num(item.x),
       w = num(item.w), spans = plain_spans(item.spans), centre = item.centre == true, gauge = item.gauge == true,
-      gauge_band = gauge_band(item.gauge_band, item.line),
+      gauge_band = gauge_band(item.gauge_band, item.line), gauge_col = num(item.gauge_col),
       name = tostring(item.name or ''):sub(1, 200), mark = cut(item.mark, 16),
       strip = type(item.strip) == 'table' and { cut(item.strip[1], 400) or '', cut(item.strip[2], 400) or '' } or nil,
       keys = cut(item.keys, 300),
@@ -2345,6 +2345,7 @@ local function valid_items(raw)
     items[i] = { key = item.key, kind = item.kind == 'row' and 'row' or 'box', line = item.line, name_col = tonumber(item.name_col) or 0,
       x = tonumber(item.x) or 0, w = tonumber(item.w) or 1, spans = item.spans, centre = item.centre == true, gauge = item.gauge == true,
       gauge_band = gauge_band(item.gauge_band, item.line),
+      gauge_col = type(item.gauge_col) == 'number' and item.gauge_col >= 0 and item.gauge_col <= M.LINE_BYTES and math.floor(item.gauge_col) or nil,
       name = type(item.name) == 'string' and item.name:sub(1, 200) or '', mark = short(item.mark, 16),
       strip = type(lines[1]) == 'string' and type(lines[2]) == 'string' and { lines[1]:sub(1, 400), lines[2]:sub(1, 400) } or nil,
       keys = type(item.keys) == 'string' and item.keys:sub(1, 300) or nil,

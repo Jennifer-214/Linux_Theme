@@ -650,7 +650,8 @@ do
     G.select(layered, named(layered, name), true)
     local band = layered.drawn.boxes[layered.index].gauge_band
     local expected = {}
-    for row = band[1], band[2] do expected[#expected + 1] = { row, 1, { { '█', 'Title' } } } end
+    local rail = layered.drawn.boxes[layered.index].gauge_col + 1   -- the rail's bar, beside the drawing (D1)
+    for row = band[1], band[2] do expected[#expected + 1] = { row, rail, { { '█', 'Title' } } } end
     local solid = api.nvim_buf_get_extmarks(layered.buf, G.gauge_ns, 0, -1, { details = true })
     eq(vim.tbl_map(function(mark) return { mark[2] + 1, mark[3], mark[4].virt_text } end, solid), expected,
       'retro lights the full selected bar for ' .. name)
@@ -810,6 +811,25 @@ do
     "callers: the map's level under the server's (caller_of_M.alpha is gamma's place), read from the caller's end")
   G.close_view(v.buf)
   G.transport = transport
+end
+
+-- ─── the depth rail beside the drawing, not at the window's edge (Codex's #1) ───────────────────────────────────
+do
+  local function at(name, line) return { name = name, detail = 'chain.lua:' .. line, uri = 'file:///w/c.lua', range = { start = { line = line, character = 0 } } } end
+  local chain = { center = at('M.entry', 7), layers = { callees = { { at('M.one', 6) }, { at('M.two', 5) } } } }
+  local d = G.layout(chain, 160, true)
+  local centre = d.boxes[1]
+  local rail_at = (d.lines[centre.line]:find('█', 1, true) or 0) - 2   -- its marker column, then the shade
+  eq({ rail_at, centre.gauge_col }, { d.gauge_col, d.gauge_col }, 'the rail starts where the drawing says')
+  local gap = math.huge
+  for _, line in ipairs(d.lines) do
+    local rest = line:sub(d.gauge_col + G.GAUGE_WIDTH + 1)
+    if rest:find('%S') then gap = math.min(gap, #rest:match('^ *')) end
+  end
+  eq(gap, 2, 'two columns between the rail and the leftmost thing drawn, on a 160-column window')
+  ok(rail_at > 40, 'the rail moved in from the edge (at column ' .. rail_at .. ')')
+  local narrow = G.layout(chain, 40, true)
+  eq(narrow.gauge_col <= 2, true, 'a narrow window: the rail stays at the edge')
 end
 
 -- ─── a wide graph: the selected box's real callers and callees lit, the rest dimmed (Codex's #1) ───────────────

@@ -318,8 +318,10 @@ ok(pop([=[
   local marks = vim.api.nvim_buf_get_extmarks(0, G.gauge_ns, 0, -1, { details = true })
   if #marks < 4 then return false end
   local first = vim.api.nvim_buf_get_lines(0, marks[1][2], marks[1][2] + 1, false)[1]
-  return first:find('+2', 1, true) ~= nil and vim.iter(marks):all(function(mark)
-    return mark[3] == 1 and vim.deep_equal(mark[4].virt_text, { { '█', 'Title' } })
+  -- on the rail's shade, wherever the rail is drawn (beside the drawing: D1)
+  local rail = (first:find('[█▓▒░]') or 0) - 1
+  return first:find('+2', 1, true) ~= nil and rail >= 1 and vim.iter(marks):all(function(mark)
+    return mark[3] == rail and vim.deep_equal(mark[4].virt_text, { { '█', 'Title' } })
   end)
 ]=]), 'the full selected Retro bar reaches the pop-out')
 pop("vim.g.desk_style = 'paper'")

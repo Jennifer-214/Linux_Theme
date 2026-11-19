@@ -65,9 +65,18 @@ function M.gauge(drawn, bands, retro, group, active_group)
       if retro and band.active then active[line] = true end
     end
   end
+  -- The rail beside the drawing, not at the window's edge (Codex's #1, 2026-11-18: on a wide monitor matching "+3" to
+  -- its box took a trip across the screen): it starts two columns left of the leftmost thing drawn, the drawing as
+  -- far right as before, so every line keeps its width and every column past the rail moves by the rail alone.
+  local shift
+  for _, line in ipairs(drawn.lines) do
+    if line:find('%S') then shift = math.min(shift or math.huge, #line:match('^ *')) end
+  end
+  shift = math.max(0, (shift or 0) - 2)
+  drawn.gauge_col = shift
   for i, line in ipairs(drawn.lines) do
     local prefix = rail[i] or string.rep(' ', M.GAUGE_WIDTH)
-    offsets[i], drawn.lines[i] = #prefix, prefix .. line
+    offsets[i], drawn.lines[i] = #prefix, string.rep(' ', shift) .. prefix .. line:sub(shift + 1)
   end
   for _, m in ipairs(drawn.marks) do m[2], m[3] = m[2] + offsets[m[1]], m[3] + offsets[m[1]] end
   for line, hits in pairs(drawn.hits or {}) do
@@ -76,12 +85,13 @@ function M.gauge(drawn, bands, retro, group, active_group)
   for _, box in ipairs(drawn.boxes) do
     local band = selectable[box.line]
     box.gauge = band ~= nil
+    box.gauge_col = shift
     if band then box.gauge_band = { band.first, band.last } end
     box.x, box.name_col = box.x + M.GAUGE_WIDTH, box.name_col + offsets[box.line]
     for _, span in ipairs(box.spans) do span[2], span[3] = span[2] + offsets[span[1]], span[3] + offsets[span[1]] end
   end
-  for i, prefix in pairs(rail) do drawn.marks[#drawn.marks + 1] = { i, 0, #prefix, group or 'DeskCallGraphDim' } end
-  for i in pairs(active) do drawn.marks[#drawn.marks + 1] = { i, 1, 1 + #'█', active_group or 'DeskCallGraphCentre', 1 } end
+  for i, prefix in pairs(rail) do drawn.marks[#drawn.marks + 1] = { i, shift, shift + #prefix, group or 'DeskCallGraphDim' } end
+  for i in pairs(active) do drawn.marks[#drawn.marks + 1] = { i, shift + 1, shift + 1 + #'█', active_group or 'DeskCallGraphCentre', 1 } end
 end
 
 local SIDES = { 'callers', 'callees' }
@@ -396,9 +406,10 @@ function M.gauge_edges(s)
   if not range then return end
   local top, bottom = vim.fn.line('w0', s.win), vim.fn.line('w$', s.win)
   local selected = s.index and s.drawn.boxes[s.index]
+  local col = s.drawn.gauge_col or (s.drawn.boxes[1] and s.drawn.boxes[1].gauge_col) or 0
   local function arrow(row, text)
     if row <= 0 or (selected and row == selected.line) then return end
-    pcall(api.nvim_buf_set_extmark, s.buf, edge_ns, row - 1, 0,
+    pcall(api.nvim_buf_set_extmark, s.buf, edge_ns, row - 1, col,
       { virt_text = { { text, 'DeskCallGraphDim' } }, virt_text_pos = 'overlay', priority = 290 })
     s.gauge_edges_drawn = true
   end
@@ -433,10 +444,10 @@ local function paint(s)
       local band = box.gauge_band or { box.line, box.line }
       local opts = { virt_text = { { '█', 'Title' } }, virt_text_pos = 'overlay', priority = 300 }
       for line = band[1], math.min(band[2], api.nvim_buf_line_count(s.buf)) do
-        pcall(api.nvim_buf_set_extmark, s.buf, M.gauge_ns, line - 1, 1, opts)
+        pcall(api.nvim_buf_set_extmark, s.buf, M.gauge_ns, line - 1, (box.gauge_col or 0) + 1, opts)
       end
     else
-      pcall(api.nvim_buf_set_extmark, s.buf, M.gauge_ns, box.line - 1, 0,
+      pcall(api.nvim_buf_set_extmark, s.buf, M.gauge_ns, box.line - 1, box.gauge_col or 0,
         { virt_text = { { '›', 'DeskCallGraphSelected' } }, virt_text_pos = 'overlay', priority = 300 })
     end
   end
@@ -2001,7 +2012,7 @@ local function render_view(view, width, style)
   local items = {}
   for i, box in ipairs(drawn.boxes) do
     items[i] = { key = box_key(box), kind = 'box', line = box.line, x = box.x, w = box.w, name_col = box.name_col, spans = box.spans, near = box.near,
-      centre = box.centre, gauge = box.gauge, gauge_band = box.gauge_band, name = tostring(box.item.name or ''), ref = box.item }
+      centre = box.centre, gauge = box.gauge, gauge_band = box.gauge_band, gauge_col = box.gauge_col, name = tostring(box.item.name or ''), ref = box.item }
   end
   local center = graph.center
   -- What "+N more" leaves out, findable with / in the pop-out: by the key its box will have once drawn.
