@@ -967,6 +967,16 @@ end
 -- centred comes back read. At most M.MAX_STEPS; a new step drops the ones ahead of it.
 local function push_step(p, step)
   local h = p.history
+  -- where Back goes, said (Codex's E14): the code spot an Enter left, the view a switch left, a view's title before it changed
+  if not step.label then
+    if step.type == 'enter' and step.before then
+      local name = api.nvim_buf_is_valid(step.before.buf) and api.nvim_buf_get_name(step.before.buf) or ''
+      step.label = (name ~= '' and vim.fs.basename(name) or 'the editor') .. ':' .. tostring(step.before.cursor and step.before.cursor[1] or '?')
+    else
+      local v = p.views[step.type == 'switch' and step.from or step.view]
+      step.label = v and (v.named_as or v.kind) or nil
+    end
+  end
   for i = #h.steps, h.at + 1, -1 do h.steps[i] = nil end
   h.steps[#h.steps + 1] = step
   while #h.steps > M.MAX_STEPS do table.remove(h.steps, 1) end
@@ -1058,6 +1068,35 @@ function M.history_back(p)
   end
   tell('Nothing further back.')
   return false
+end
+--- Where Back goes next in pop-out p (the first by default): its step's label, or nil (Codex's E14).
+function M.back_said(p)
+  p = p or H
+  local h = p and p.history
+  local step = h and h.steps[h.at]
+  return step and step.label or nil
+end
+--- The recent steps back, nearest first, at most 10: { { id = its place in the history, name = its label } }.
+function M.back_steps(p)
+  p = p or H
+  local h, out = p and p.history, {}
+  for i = (h and h.at or 0), math.max(1, (h and h.at or 0) - 9), -1 do
+    out[#out + 1] = { id = tostring(i), name = h.steps[i].label or h.steps[i].type }
+  end
+  return out
+end
+--- Back to step k at once: every step from the nearest down to k undone (the editor too, as Back does each).
+function M.history_back_to(p, k)
+  p = p or H
+  local h = p and p.history
+  k = tonumber(k)
+  if not (h and k and k >= 1 and k <= h.at) then return false end
+  while h.at >= k do
+    local step = h.steps[h.at]
+    h.at = h.at - 1
+    apply(p, step, false)
+  end
+  return true
 end
 function M.history_forward(p)
   p = p or H
@@ -3181,7 +3220,14 @@ local ROWS = actions.add({
     run = function() pcall(vim.cmd, 'tabprevious ' .. vim.v.count1) end },
   remote({ id = 'popout.history-back', group = 'Pop-out', name = 'Back', key = '<C-o>', on = ON,
     about = 'Back where you were: the view before, the graph before a centre, the code spot before `Enter` (the editor goes back too)',
+    -- where it goes, said in the menus (E14)
+    subject = function(ctx) local said = M.back_said(pressed_in(ctx)); return said and ('to ' .. said) or nil end,
     available = back_there }, function(ctx) M.history_back(pressed_in(ctx)) end),
+  -- a pick of the recent steps (E14): one detour undone without counting Ctrl+o presses; no key of its own
+  remote({ id = 'popout.history-pick', group = 'Pop-out', name = 'Back to an earlier step', on = ON,
+    about = 'The last steps back, each by where it goes (a code spot, a view, a graph before a centre): the one picked, and everything since, undone at once',
+    input = { choices = function(ctx) return M.back_steps(pressed_in(ctx)) end },
+    available = back_there }, function(ctx) M.history_back_to(pressed_in(ctx), ctx.choice) end),
   remote({ id = 'popout.history-back-bs', group = 'Pop-out', name = 'Back', key = '<BS>', on = ON, line = 'popout.history-back', menu = false,
     fallback = 'popout.history-back', available = back_there }, function(ctx) M.history_back(pressed_in(ctx)) end),
   remote({ id = 'popout.history-forward', group = 'Pop-out', name = 'Forward', key = '<C-r>', on = ON,

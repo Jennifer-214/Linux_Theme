@@ -356,6 +356,19 @@ eq(history_at(), at_enter, '… one H for the whole Enter')
 press('<C-r>')
 ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]') == 5 end), 'L: forward again, where Enter went')
 ok(wait(3000, function() return state().title == 'call graph · M.beta' end), '… the graph too')
+-- Back says where it goes (Codex's E14, 2026-11-19): the Enter's step names the code spot the editor goes back to, in
+-- Back's description in the menus; and a pick of the recent steps goes back that far at once.
+local file = host("return vim.fs.basename(vim.api.nvim_buf_get_name(0))")
+eq(host("return require('desk.popout').back_said()"), file .. ':3', "Back's next step: the code spot Enter left from")
+ok(host("return require('desk.actions').about_of(require('desk.actions').get('popout.history-back'), { pop = 1 })"):find('to ' .. file .. ':3', 1, true),
+  '… said in its description')
+local offered = host("return require('desk.actions').offered(require('desk.actions').get('popout.history-pick').input, { pop = 1 }).choices")
+ok(offered and offered[1] and offered[1].name == file .. ':3', 'the recent steps offered, the nearest first: ' .. vim.inspect(offered))
+host("require('desk.popout').history_back_to(nil, tonumber(...))", offered[1].id)
+ok(wait(3000, function() return vim.deep_equal(host('return vim.api.nvim_win_get_cursor(0)'), { 3, 2 }) end), '… picked: the editor back there')
+ok(wait(3000, function() return state().title == 'call graph · M.alpha' end), '… the graph with it')
+press('<C-r>')
+ok(wait(3000, function() return state().title == 'call graph · M.beta' end), '… and forward again as before')
 
 -- ─── what an act may name ───────────────────────────────────────────────────────────────────────────────────────
 local gen = state().gen
