@@ -2726,8 +2726,8 @@ function M.coverage_of_symbol(pick)
     local run = choice.run
     vim.cmd('tabedit ' .. vim.fn.fnameescape(f.path))
     pcall(api.nvim_win_set_cursor, 0, { a, 0 })
-    W.show_coverage(api.nvim_get_current_buf(), r.root, f.rel, run.cov, { head = run.head, id = run.id, said = run.said,
-      name = 'run ' .. tostring(run.id):sub(1, 8) .. (run.head and (' (' .. run.head:sub(1, 7) .. ')') or '') })
+    W.show_coverage(api.nvim_get_current_buf(), r.root, f.rel, run.cov, { head = run.head, id = run.id, said = run.said, name = run.name,
+      tested = 'run ' .. tostring(run.id):sub(1, 8) .. (run.head and (' (' .. run.head:sub(1, 7) .. ')') or '') })
   end
   if #runs == 1 then return show(runs[1]) end
   pick = pick or function(items, done) vim.ui.select(items, { prompt = 'Coverage of which run', format_item = function(x) return x.label end }, done) end

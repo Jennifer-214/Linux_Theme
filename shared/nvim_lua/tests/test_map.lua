@@ -616,6 +616,70 @@ do
   R.covered_known[f.path] = nil
   vim.fn.delete(dir, "rf")
 end
+do
+  -- Two runs in one gutter (Codex's E3, 2026-11-19): a second run chosen used to replace the first; now it can be
+  -- compared with it: both ran █, only the first ▌, only the second ▐, an executable line neither ran · (each distinct
+  -- in monochrome retro, and code page 437 has all four), each run's lines moved onto today's file through its commit.
+  local W = require("desk.work")
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "a", "b", "c", "d", "e", "f" })
+  local counts = W.compare_marks(buf, { [1] = 3, [2] = 0, [3] = 2, [4] = 0 }, { [1] = 1, [2] = 4, [3] = 0, [5] = 0 }, { "reconnect", "startup" })
+  local function gutter(b)
+    local at = {}
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(b, W.cover_ns, 0, -1, { details = true })) do
+      if m[4].sign_text then at[m[2] + 1] = { vim.trim(m[4].sign_text), m[4].sign_hl_group } end
+    end
+    return at
+  end
+  eq(gutter(buf), { { "█", "DeskCoverBoth" }, { "▐", "DeskCoverB" }, { "▌", "DeskCoverA" }, { "·", "DeskCoverNot" }, { "·", "DeskCoverNot" } },
+    "both ran █, only the second ▐, only the first ▌, neither · (a line one run has not counted as not run by it)")
+  eq(counts, { both = 1, a = 1, b = 1, neither = 2 }, "… and the counts")
+  vim.api.nvim_buf_delete(buf, { force = true })
+  -- two runs at two commits, lined up on today's file
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  local function git(...) return vim.system({ "git", "-C", dir, ... }, { text = true }):wait() end
+  local function commit(lines)
+    vim.fn.writefile(lines, dir .. "/f.c")
+    git("add", "f.c")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "f")
+    return vim.trim(git("rev-parse", "HEAD").stdout)
+  end
+  git("init", "-q")
+  local body = { "int tick() {", "  if (x) return 1;", "  return 0;", "}" }
+  local first = commit(body)
+  local ten = {}
+  for i = 1, 10 do ten[i] = "// " .. i end
+  local second = commit(vim.list_extend(vim.deepcopy(ten), body))
+  local today = vim.list_extend(vim.list_extend(vim.deepcopy(ten), { "// one more" }), body)
+  vim.fn.writefile(today, dir .. "/f.c")
+  vim.cmd("edit " .. vim.fn.fnameescape(dir .. "/f.c"))
+  local code = vim.api.nvim_get_current_buf()
+  local A = { id = "ra", name = "reconnect", head = first, cov = { lines = { ["1"] = 2, ["2"] = 2, ["3"] = 0 }, functions = { { name = "tick", line = 1, count = 2 } } } }
+  local B = { id = "rb", name = "startup", head = second, cov = { lines = { ["11"] = 1, ["12"] = 0, ["13"] = 1 }, functions = { { name = "tick", line = 11, count = 1 } } } }
+  local said = W.compare_coverage(code, dir, "f.c", A, B)
+  eq(gutter(code), { [12] = { "█", "DeskCoverBoth" }, [13] = { "▌", "DeskCoverA" }, [14] = { "▐", "DeskCoverB" } },
+    "each run's lines through its own commit: tick at 1 in the first, at 11 in the second, at 12 today")
+  eq(said, "Comparing reconnect (▌) with startup (▐): both ran 1 line · only reconnect 1 · only startup 1 · neither 0.", "… the summary")
+  local eol
+  for _, m in ipairs(vim.api.nvim_buf_get_extmarks(code, W.cover_ns, 0, -1, { details = true })) do
+    if m[4].virt_text then eol = { m[2] + 1, m[4].virt_text[1][1] } end
+  end
+  eq(eol, { 12, "  reconnect 2× · startup 1×" }, "… and the function's line says both counts")
+  -- the choice: with one run's marks shown, another chosen asks compare or replace; compare draws both, replace one
+  W.show_coverage(code, dir, "f.c", A.cov, { head = A.head, id = A.id, said = "run ra", name = "reconnect" }, function(choices, done) done(choices[2]) end)
+  local asked
+  W.place_run(code, dir, "f.c", B, function(choices, done) asked = vim.tbl_map(function(c) return c.label end, choices); done(choices[1]) end)
+  eq(asked, { "Compare with the marks shown (reconnect)", "Replace them" }, "a second run: compare or replace")
+  eq(gutter(code)[14], { "▐", "DeskCoverB" }, "… compare: both runs in the gutter")
+  W.place_run(code, dir, "f.c", B, function(choices, done) asked = choices end)
+  eq(vim.tbl_count(gutter(code)), 0, "the shown run chosen again: its marks taken off")
+  W.show_coverage(code, dir, "f.c", A.cov, { head = A.head, id = A.id, said = "run ra", name = "reconnect" }, function(choices, done) done(choices[2]) end)
+  W.place_run(code, dir, "f.c", B, function(choices, done) done(choices[2]) end)
+  eq(gutter(code)[14], { "▎", "DeskCoverRan" }, "replace: the second run alone, as before")
+  vim.cmd("bwipeout!")
+  vim.fn.delete(dir, "rf")
+end
 -- The trace page: a box per step (the function itself double), its parameters under it, the call between steps with
 -- each argument → the parameter it lands in, and the other callers and callees, Enter-able.
 local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16,
