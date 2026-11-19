@@ -2484,9 +2484,13 @@ end
 local function finish_snapshot(view)
   if view.loading then return end
   M.mark_partner(view)
-  local place = view.saved_scroll
-  view.saved_scroll = nil
-  if view.pinned and place and view.win and api.nvim_win_is_valid(view.win) then
+  local place, drawn_at = view.saved_scroll, view.drawn_at
+  view.saved_scroll, view.drawn_at = nil, nil
+  local win = view.win and api.nvim_win_is_valid(view.win) and view.win
+  -- a move made while the snapshot loaded is the reader's: the place from before it comes back only when there was none
+  local moved = win and drawn_at and not vim.deep_equal(api.nvim_win_get_cursor(win), drawn_at)
+  if moved then return end
+  if view.pinned and place and win then
     api.nvim_win_call(view.win, function() vim.fn.winrestview(place) end)
   else
     mirror_cursor(view)
@@ -2680,6 +2684,7 @@ local function handle(msg)
     -- A view the editor sends anew, or asks to show, comes to the front; one drawn again behind another stays behind.
     if (fresh and not got.behind) or got.front or not shown() then show(view) else vim.cmd('redrawtabline') end
     if got.tick then
+      view.drawn_at = view.saved_scroll and view.win and api.nvim_win_is_valid(view.win) and api.nvim_win_get_cursor(view.win) or nil
       finish_snapshot(view)
       watch_chunk(view)
     end

@@ -4,7 +4,7 @@
   "nvim.move.p95": { "max": 16, "unit": "ms", "why": "the slow moves still inside one frame" },
   "review.unread": { "max": 700, "unit": "ms", "why": "next unread in a 300-file review, every file read: 280 ms on her laptop (2026-11-18), 1.4 s with a git show per file" },
   "review.unread.again": { "max": 40, "unit": "ms", "why": "pressed again, nothing changed: 25 ms on her laptop; vim.fn.bufnr per file took 49 ms here with 4 buffers, more with hers" },
-  "review.cycles.heap": { "max": 2048, "unit": "KB", "why": "a review opened, read and closed 19 times keeps little once its waits end: 654 KB on her laptop (2026-11-18); a planted leak of each closed review read 15.6 MB" },
+  "review.cycles.heap": { "max": 2048, "unit": "KB", "why": "a review opened, read and closed 19 times keeps little once its waits end: 654 KB on her laptop (2026-11-18); a planted leak of each closed review read 15.6 MB. Read 1.2 MB on 2026-11-19: not a leak, a one-time step of ~650 KB then ~1 KB per cycle (40 cycles: 8181, 9271, 8821, 8836, 8847 KB)" },
   "nvim.scroll": { "max": 8, "unit": "ms", "why": "Ctrl+e and the mouse wheel well under one frame; 0.3 ms on her laptop" },
   "graph.layout": { "max": 25, "unit": "ms", "why": "a wide call graph (3 levels of 40, linked) laid out: 7 ms here (2026-11-19, the trader's sweep running)" },
   "graph.select": { "max": 8, "unit": "ms", "why": "j in a wide graph repaints the selection and dims the unrelated boxes: 1.5 ms here; a key must stay under a frame" },

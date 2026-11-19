@@ -1721,6 +1721,24 @@ do
   ok(wait(3000, function() return state().state == '' end), 'code: writing clears the unsaved marker')
   press('p')
   ok(wait(3000, function() return state().pinned == true end), 'code: pins')
+  -- A snapshot that reaches a pinned view while it is read: a move made before the snapshot has loaded stays (the
+  -- flake of 2026-11-19: the place from before the snapshot came back at its end, the pop-out at line 4001).
+  pop([[
+    local P = require('desk.popout')
+    local receive = P.receive
+    _G.held, _G.holding = {}, true
+    P.receive = function(msg)
+      if _G.holding and msg.type == 'view.lines' then table.insert(_G.held, msg); return true end
+      return receive(msg)
+    end
+    _G.release = function() _G.holding = false; P.receive = receive; for _, m in ipairs(_G.held) do receive(m) end end
+  ]])
+  local before = state().received
+  host("local P = require('desk.popout'); P.redraw(P.view_of('code'))")
+  ok(wait(3000, function() return state().received > before and pop('return #_G.held') > 0 end), 'code: a snapshot for the pinned view, held half-loaded')
+  pop('vim.api.nvim_win_set_cursor(0, { 40, 0 }); _G.release()')
+  ok(wait(3000, same), '… loads in full')
+  eq(pop('return vim.api.nvim_win_get_cursor(0)[1]'), 40, '… and the line moved to while it loaded stays')
   pop('vim.api.nvim_win_set_cursor(0, { 40, 0 })')
   host("vim.api.nvim_win_set_cursor(0, { 120, 0 }); vim.api.nvim_exec_autocmds('CursorMoved', {})")
   press('<CR>')
