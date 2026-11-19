@@ -1762,6 +1762,7 @@ local function page_of(view)
   if level.kind == 'query' then return M.level_query(level.answer, level.all, level) end
   if level.kind == 'pick' then return M.level_pick(level) end
   if level.kind == 'findings' then return M.level_findings(level) end
+  if level.kind == 'stack' then return M.level_stack(level) end
   local answer = cached(view, 'module:' .. level.module)
   if not answer then return nil end
   if level.kind == 'files' then return M.level_files(answer, level.module, level.all) end
@@ -2498,6 +2499,77 @@ local function adopt(to, from) for _, k in ipairs(STATE) do to[k] = from[k] end 
 -- Space c p: the trace through the function at the cursor, by its file and line (desk-work finds the function whose
 -- lines hold it): in the pop-out's map when the pop-out shows this checkout's map, else in the map's tab.
 function M.trace_here() return M.trace_at(api.nvim_buf_get_name(0), api.nvim_win_get_cursor(0)[1]) end
+
+-- The debugger's stack where it stopped (nvim-dap's stopped thread, innermost first): { name, path, line }, or nil, why.
+function M.dap_frames()
+  local ok, dap = pcall(require, 'dap')
+  local session = ok and dap.session and dap.session()
+  if not session then return nil, 'not debugging (F5 starts the debugger)' end
+  local thread = session.stopped_thread_id and session.threads and session.threads[session.stopped_thread_id]
+  if not (thread and thread.frames and #thread.frames > 0) then return nil, 'the program is not stopped' end
+  local out = {}
+  for _, f in ipairs(thread.frames) do
+    out[#out + 1] = { name = tostring(f.name or '?'), path = f.source and f.source.path or nil, line = f.line }
+  end
+  return out, nil, session.stopped_thread_id
+end
+-- The stack on the map: each frame, and which of the stopped function's callers in the map are on it (static callers
+-- of replay and live alike; the stack says which one brought it here). Pure but for nothing: frames and the callers
+-- answer are given. → a page.
+function M.level_stack(level)
+  local frames, callers = level.frames or {}, level.callers
+  local short = function(name) return (tostring(name or ''):gsub('%b()', ''):match('([%w_~]+)%s*$')) or tostring(name) end
+  local on = {}
+  for _, f in ipairs(frames) do on[short(f.name)] = true end
+  local sections = { { head = 'the stack where it stopped' .. (level.thread and (' · thread ' .. level.thread) or '') .. ' · ' .. #frames .. (#frames == 1 and ' frame' or ' frames') } }
+  local rows = {}
+  for i, f in ipairs(frames) do
+    local rel = f.rel or (f.path and vim.fs.basename(f.path)) or 'no source'
+    local item = f.rel and node_item({ id = f.rel .. ':' .. tostring(f.line), label = f.name, file = f.rel, line = f.line }) or nil
+    rows[#rows + 1] = { { string.format('#%-2d ', i - 1), nil, nil, 'DeskMapDim' }, { f.name, item },
+      { '  ' .. rel .. (f.line and (':' .. f.line) or '') .. (i == 1 and '  (stopped here)' or ''), nil, nil, i == 1 and 'DeskMapFocus' or 'DeskMapDim' } }
+  end
+  sections[#sections + 1] = { block = rows }
+  if callers then
+    local top = frames[1] and short(frames[1].name) or '?'
+    sections[#sections + 1] = { head = 'what calls ' .. top .. ' in the map' }
+    local list = {}
+    for _, n in ipairs(callers) do
+      local here = on[short(n.label)]
+      list[#list + 1] = { { n.label, node_item(n) }, { '  ' .. where(n) .. (here and '  on this stack' or '  not on this stack'), nil, nil, here and 'DeskMapFocus' or 'DeskMapDim' } }
+    end
+    if #list == 0 then list[1] = { { 'the map knows no caller of it', nil, true, 'DeskMapDim' } } end
+    sections[#sections + 1] = { block = list }
+  end
+  return { crumbs = { 'stack' }, sections = sections }
+end
+-- Space c s while stopped: the stack on the map, in the pop-out's map when it shows this checkout.
+function M.stack_on_map()
+  local frames, why, thread = M.dap_frames()
+  if not frames then return tell('Show the stack: ' .. why .. '.') end
+  local top = frames[1]
+  local root = top.path and vim.fs.root(top.path, '.git')
+  root = root and (uv.fs_realpath(root) or root) or nil
+  if not root then return tell('The stopped frame is not in a git checkout.') end
+  for _, f in ipairs(frames) do
+    local real = f.path and (uv.fs_realpath(f.path) or f.path)
+    if real and real:sub(1, #root + 1) == root .. '/' then f.rel = real:sub(#root + 2) end
+  end
+  local P = package.loaded['desk.popout']
+  local out = P and P.view_of('map')
+  local view = (out and out.out and not out.gone and out.root == root) and out or nil
+  if view then P.show('map', actions.context(), { pop = view.pop }) else view = M.open(root) end
+  local level = { kind = 'stack', frames = frames, thread = thread }
+  push(view, level)
+  if top.rel and top.line then
+    M.desk_work({ 'map', 'query', '--root', root, '--q', 'callers', '--file', top.rel, '--line', tostring(top.line), '--from', '', '--depth', '1' }, function(answer)
+      local callers = {}
+      for _, n in ipairs(answer and answer.nodes or {}) do if (n.depth or 0) == 1 then callers[#callers + 1] = n end end
+      level.callers = callers
+      if valid(view) and view.stack[#view.stack] == level then load(view) end
+    end)
+  end
+end
 -- The trace through the function holding line `line` of file `path` (the call graph's t gives its box's). opts.pop:
 -- the pop-out it was asked from — the answer goes to that pop-out's map (opened there when it has none), never another
 -- screen's. Asked in the editor (no pop): the pop-out's map when one shows this checkout, else a map here.
@@ -2876,6 +2948,10 @@ local function moving(how, key, name, line, doc)
     end }
 end
 local ROWS = actions.add({
+  { id = 'map.debug-stack', group = GROUP, name = 'Show this stack on the map', key = '<leader>cs', on = 'editor', remote = true,
+    about = "While the debugger is stopped: its stack, frame by frame (`Enter` opens each), and which of the stopped function's callers in the map are on it — the live caller or the replay one",
+    available = function() local f, why = M.dap_frames(); return f and true or why end,
+    run = function() M.stack_on_map() end },
   { id = 'map.trace-here', group = GROUP, name = 'Trace a possible path through this function', key = '<leader>cp', on = 'editor', remote = true,
     about = 'The path through the function at the cursor, up to where it starts and down to where it ends, with each step\'s parameters and the arguments it is called with (in the pop-out\'s map when it shows one)',
     run = function() M.trace_here() end },
@@ -2933,7 +3009,7 @@ local ROWS = actions.add({
     'On a trace: this function hands its data on to the one you name (a queue or a callback the map missed), so the trace goes on through it',
     add_handoff, needs_trace_step, { remote = true, input = { prompt = 'Hands off to: ' } }),
   row('findings', 'F', 'Findings on this path',
-    "On a trace: the findings of the checkout's tools (desk-work's, docs/desk-tools.md) that fall inside the route's functions, each with its tool; Enter opens its line",
+    "On a trace: the findings of the checkout's tools (desk-work's, docs/desk-tools.md) that fall inside the route's functions, each with its tool; `Enter` opens its line",
     findings_on_path, needs_trace, THERE),
   row('copy', 'y', 'Copy this investigation as Markdown',
     'On a trace: its question, the checkout\'s revision, each step with its file:line, the handoffs it relies on and a sentence of yours, as Markdown for a review, an issue or the notebook',

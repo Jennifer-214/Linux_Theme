@@ -546,6 +546,24 @@ do
   local r, l = line_with(hit_page.lines, "→ bool")
   eq(r and Map.item_at(hit_page, r, l:find("→ bool", 1, true)).target.kind, "result", "a step's → type is a hit: where its result goes")
 end
+do
+  -- The debugger's stack on the map: its frames, and which of the stopped function's callers in the map are on it.
+  local real_dap = package.loaded["dap"]
+  package.loaded["dap"] = nil
+  local none, why = Map.dap_frames()
+  eq({ none, why }, { nil, "not debugging (F5 starts the debugger)" }, "no debugger: said")
+  eq(require("desk.actions").get("map.debug-stack").available(), "not debugging (F5 starts the debugger)", "… and Space c s says why it cannot run")
+  package.loaded["dap"] = { session = function() return { stopped_thread_id = 3, threads = { [3] = { frames = {
+    { name = "Engine::tick(Tick const&)", source = { path = "/r/e.cpp" }, line = 20 }, { name = "live_feed(int)", source = { path = "/r/f.cpp" }, line = 7 } } } } } end }
+  local frames, _, thread = Map.dap_frames()
+  eq({ #frames, frames[1].name, frames[1].line, thread }, { 2, "Engine::tick(Tick const&)", 20, 3 }, "stopped: the stopped thread's frames, innermost first")
+  frames[1].rel, frames[2].rel = "e.cpp", "f.cpp"
+  local text = table.concat(Map.layout(Map.level_stack({ frames = frames, thread = 3, callers = {
+    { id = "f.cpp::live_feed", label = "live_feed", file = "f.cpp", line = 5 }, { id = "r.cpp::replay", label = "replay", file = "r.cpp", line = 9 } } }), 100, false).lines, "\n")
+  ok(text:find("the stack where it stopped · thread 3 · 2 frames", 1, true) and text:find("Engine::tick(Tick const&)  e.cpp:20  (stopped here)", 1, true), "the frames, the stop said")
+  ok(text:find("live_feed  f.cpp:5  on this stack", 1, true) and text:find("replay  r.cpp:9  not on this stack", 1, true), "… and which caller brought it here: live on the stack, replay not")
+  package.loaded["dap"] = real_dap
+end
 local handed = vim.deepcopy(trace_answer)
 handed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick_ring: push :11 → pop :20", line = 11, to_line = 20 }
 local handed_page = Map.layout(Map.trace_page(handed), 90, false)

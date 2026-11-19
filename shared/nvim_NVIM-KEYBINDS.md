@@ -349,6 +349,7 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 <!-- map-keys:begin · generated from shared/nvim_lua/desk/map.lua: python3 tests/test_nvim_keys.py --write -->
 | Key | Action |
 |---|---|
+| `Space cs` | While the debugger is stopped: its stack, frame by frame (`Enter` opens each), and which of the stopped function's callers in the map are on it — the live caller or the replay one |
 | `Space cp` | The path through the function at the cursor, up to where it starts and down to where it ends, with each step's parameters and the arguments it is called with (in the pop-out's map when it shows one) |
 | `Space cm`, `:ProjectMap` | The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was, or the map out in the pop-out back as the tab |
 | `Enter` in the map | Zoom into the part, file or class under the cursor; on a function, go to its code (the map stays open) |
@@ -362,7 +363,7 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `S` in the map | On a trace: up from the function you name (a thread body, the live path) instead of the farthest start |
 | `x` in the map | On a trace, on a `══[ handoff ]══`: the map inferred it wrongly, so it is dropped (one you added is forgotten). Kept by desk-work outside the checkout, in `~/.config/foxml/desk.d/` |
 | `a` in the map | On a trace: this function hands its data on to the one you name (a queue or a callback the map missed), so the trace goes on through it |
-| `F` in the map | On a trace: the findings of the checkout's tools (desk-work's, docs/desk-tools.md) that fall inside the route's functions, each with its tool; Enter opens its line |
+| `F` in the map | On a trace: the findings of the checkout's tools (desk-work's, docs/desk-tools.md) that fall inside the route's functions, each with its tool; `Enter` opens its line |
 | `y` in the map | On a trace: its question, the checkout's revision, each step with its file:line, the handoffs it relies on and a sentence of yours, as Markdown for a review, an issue or the notebook |
 | `gs` in the map | The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph |
 | `P` in the map | Every way from one function to another, shortest first |
@@ -685,6 +686,7 @@ which-key its words.
 | home menu: This function in symdeps | symdeps' card for the unit at the cursor: its layout, uses, callers and calls |
 | `Space cc`, `:CallGraph` | Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected. One tab: pressed again anywhere, it brings that tab back on the function under the cursor |
 | `Space co`, `:CallGraphPanel` | Live call graph panel: a narrow split on the right that follows the cursor and redraws when the function under it changes. It never takes the focus (`Ctrl+w l` goes into it); `p` in it pins it to the graph it shows (`PINNED`), `p` again follows the cursor |
+| `Space cs` | While the debugger is stopped: its stack, frame by frame (`Enter` opens each), and which of the stopped function's callers in the map are on it — the live caller or the replay one |
 | `Space cp` | The path through the function at the cursor, up to where it starts and down to where it ends, with each step's parameters and the arguments it is called with (in the pop-out's map when it shows one) |
 | `Space cm`, `:ProjectMap` | The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was, or the map out in the pop-out back as the tab |
 | `Space Cw` | Changes tree: working changes (including unsaved drafts), live sessions and the most recent 80 commits |
