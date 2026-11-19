@@ -108,6 +108,9 @@ class Map(unittest.TestCase):
         self.build("--provider", "syntax")
         lane = lambda t: [st["label"] for st in t["steps"]]
         self.assertEqual(lane(self.query("--q", "trace", "--from", "leaf")), ["main", "middle", "leaf"])
+        whole = self.query("--q", "flow", "--from", "leaf")
+        self.assertEqual((whole["q"], whole["focus"].split("::")[-1], {n["label"] for n in whole["nodes"] if n["lane"]}),
+                         ("flow", "leaf", {"main", "middle", "leaf"}), "the whole trace through the CLI: its lane marked among its nodes")
         added = self.data("map", "handoff", "add", "--root", self.repo, "--from", "leaf", "--to", "M.beta", "--label", "a queue")
         self.assertEqual(added["did"], "added")
         file = Path(added["file"])

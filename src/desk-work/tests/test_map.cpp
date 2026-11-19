@@ -356,6 +356,41 @@ int main(int, char** argv) {
         CHECK(lane(to_x).back() == "x" && to_x["reached"] == true, "--to: down the shortest way to the chosen function");
         const auto to_s = desk_map::trace(g, g.at.at("F"), 16, static_cast<long>(g.at.at("s")));
         CHECK(lane(to_s).back() == "F" && to_s["reached"] == false, "… and says so when it is not below");
+        // The whole trace (her ask, 2026-11-19: "an entire trace would be nice"): every way through F in one picture,
+        // what leads to it and what it leads to. A way round F (a → g → b) is not through it; nor is what F's callers
+        // call besides F.
+        J wide = doc;
+        wide["nodes"].push_back(J{{"id", "g"}, {"label", "g"}, {"kind", "function"}, {"file", "g.cpp"}, {"line", 3}});
+        wide["edges"].push_back(J{{"from", "a"}, {"to", "g"}, {"kind", "call-by-name"}});
+        wide["edges"].push_back(J{{"from", "g"}, {"to", "b"}, {"kind", "call-by-name"}});
+        wide["edges"].push_back(J{{"from", "s"}, {"to", "x"}, {"kind", "call-by-name"}});   // s calls x itself, not through F
+        const desk_map::Graph wg(wide);
+        const auto ids = [](const J& f, bool lane_only) {
+            std::set<std::string> out;
+            for (const auto& n : f["nodes"]) if (!lane_only || n.value("lane", false)) out.insert(n["id"]);
+            return out;
+        };
+        const auto calls_of = [](const J& f) {
+            std::set<std::string> out;
+            for (const auto& e : f["edges"]) out.insert(e["from"].get<std::string>() + ">" + e["to"].get<std::string>());
+            return out;
+        };
+        const auto fl = desk_map::flow(wg, wg.at.at("F"), 16);
+        CHECK(fl["q"] == "flow" && fl["focus"] == "F", "flow: the whole trace through F");
+        CHECK(ids(fl, false) == std::set<std::string>({"entry", "entry2", "mid", "a", "s", "F", "b", "x", "c", "end"}),
+              "… every caller up to every start (entry and entry2, s), every call down to every end (x and end); g, round F, not");
+        CHECK(ids(fl, true) == std::set<std::string>({"entry2", "mid", "a", "F", "b", "c", "end"}), "… the trace's own lane marked");
+        const auto e = calls_of(fl);
+        CHECK(e.count("s>F") && e.count("F>x") && e.count("c>b") && e.count("entry>a") && !e.count("a>g") && !e.count("g>b")
+              && !e.count("s>x"), "… and the calls on those ways, the cycle's too; none round F, none from a caller past it (s → x)");
+        for (const auto& n : fl["nodes"])
+            if (n["id"] == "entry2") CHECK(n["at"] == -3, "… a caller's place: 3 calls above F");
+        const auto fl_x = desk_map::flow(wg, wg.at.at("F"), 16, static_cast<long>(wg.at.at("x")));
+        CHECK(fl_x["to"] == "x" && ids(fl_x, false) == std::set<std::string>({"entry", "entry2", "mid", "a", "s", "F", "x"}),
+              "--to x: below F only the ways that reach x");
+        const auto fl_s = desk_map::flow(wg, wg.at.at("F"), 16, -1, static_cast<long>(wg.at.at("s")));
+        CHECK(fl_s["start"] == "s" && ids(fl_s, false) == std::set<std::string>({"s", "F", "b", "x", "c", "end"}),
+              "--start s: above F only what s leads through");
         // A handoff (end → consumer, through a ring): walked like a call, said as a handoff with its label.
         J handed = doc;
         handed["nodes"].push_back(J{{"id", "consumer"}, {"label", "consumer"}, {"kind", "function"}, {"file", "f.cpp"}, {"line", 40}});

@@ -341,6 +341,32 @@ ok(crowded_ok, "forty callers of mixed weights lay out: " .. tostring(not crowde
 local drawn_callers = crowded_ok and #vim.tbl_filter(function(b) return tostring(b.item and b.item.name or ""):find("^caller%d") end, crowded.boxes) or 0
 ok(crowded_ok and line_with(crowded.lines, "called from · 41") and drawn_callers == 40 and not line_with(crowded.lines, "more"),
   "forty-one callers on a side: every one drawn (" .. drawn_callers .. " of the 40 callerNN)")
+-- The whole trace (T, 2026-11-19, her "an entire trace would be nice"): every function on some way between the trace's
+-- ends as boxes in layers, the trace's own lane in double frames, F (the function asked about) where the selection starts.
+do
+  local function n(id, lane, at) return { id = id, label = id, file = "f.cpp", line = at + 1, kind = "function", lane = lane, at = at } end
+  local whole = { ok = true, q = "flow", focus = "F", from = "entry2", to = "end", depth = 16,
+    nodes = { n("entry2", true, 0), n("a", true, 1), n("F", true, 2), n("g", false, 2), n("b", true, 3), n("end", true, 4) },
+    edges = { { from = "entry2", to = "a" }, { from = "a", to = "F" }, { from = "a", to = "g" }, { from = "F", to = "b" },
+              { from = "g", to = "b" }, { from = "b", to = "end" } },
+    lane = { "entry2", "a", "F", "b", "end" } }
+  for _, retro_style in ipairs({ false, true }) do
+    local G = Map.glyphs(retro_style)
+    local page = Map.layout(Map.level_query(whole), 100, retro_style)
+    local style = retro_style and "retro" or "paper"
+    ok(line_with(page.lines, G.double.v .. " F ") and line_with(page.lines, G.double.v .. " entry2 ") and line_with(page.lines, G.double.v .. " end "),
+      "the whole trace: the lane's functions in double frames (" .. style .. ")")
+    ok(line_with(page.lines, G.single.v .. " g ") and not line_with(page.lines, G.double.v .. " g "), "… g, on another way round F, in a single one")
+    ok(line_with(page.lines, G.said("whole trace through")) and line_with(page.lines, "6 " .. G.said("functions")), "… its heading says what and how many")
+    local _, a_line = line_with(page.lines, "│ a ")
+    local a_row, g_row = line_with(page.lines, " a "), line_with(page.lines, " g ")
+    ok(a_row and g_row and a_row < g_row, "… callers above what they call: a above g")
+    local centres = vim.tbl_filter(function(b) return b.centre end, page.boxes)
+    eq(vim.tbl_map(function(b) return b.item.name end, centres), { "F" }, "… only F is where the selection starts")
+    local _, gl = line_with(page.lines, G.single.v .. " g ")
+    eq(Map.item_at(page, (line_with(page.lines, G.single.v .. " g ")), gl:find("g ", 1, true) - 1).target.node.id, "g", "… a box is a hit: Enter goes to its code")
+  end
+end
 local reach = { ok = true, q = "reach", depth = 2, from = contents.nodes[5],
   nodes = { vim.tbl_extend("force", contents.nodes[5], { depth = 0 }), vim.tbl_extend("force", contents.nodes[1], { depth = 1 }), vim.tbl_extend("force", contents.nodes[2], { depth = 2 }) },
   steps = { { from = "lua/other.lua::use", to = "lua/mod.lua::M.alpha", depth = 1, mark = "follow" },
@@ -820,7 +846,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "gP", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "T", "x", "a", "F", "K", "y", "gs", "P", "gP", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -1641,7 +1667,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.avoid", "map.callers", "map.centre", "map.changes", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.in-binary", "map.include", "map.left", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up", "map.why" },
+eq(remote_ids, { "map.avoid", "map.callers", "map.centre", "map.changes", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.in-binary", "map.include", "map.left", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-all", "map.trace-from", "map.trace-to", "map.up", "map.why" },
   "the pop-out keeps its navigation keys (no m: nothing is left out)")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do
@@ -1827,6 +1853,27 @@ do
   ok(vim.wait(1000, function() return pv.stack[#pv.stack].kind == "query" and #pv.stack == 3 end), "Enter on one: its answer in the page's place")
   ok(asked[#asked]:find("--from e.cpp::tick --to other", 1, true) == nil and asked[#asked]:find("--to b.cpp::dup", 1, true) ~= nil,
     "… asked with the one chosen as the end: " .. tostring(asked[#asked]))
+  pv.stack, Map.desk_work, P.host.history = stack, inner, history
+  pv.pinned = false
+end
+-- T on a trace: the whole trace, asked with that trace's question (its function, and the end and start she chose).
+do
+  local stack, inner, asked, history = pv.stack, Map.desk_work, {}, vim.deepcopy(P.host.history)
+  local routed = vim.deepcopy(trace_answer)
+  routed.to = "e.cpp::submit"
+  pv.stack = { { kind = "modules" }, { kind = "query", answer = routed, args = { "--q", "trace", "--from", "e.cpp::tick", "--to", "e.cpp::submit" } } }
+  Map.desk_work = function(args, done)
+    asked[#asked + 1] = table.concat(args, " ")
+    if args[2] == "query" then return vim.defer_fn(function() done({ ok = true, q = "flow", focus = "e.cpp::tick", nodes = {}, edges = {}, lane = {} }, { code = 0 }) end, 5) end
+    return inner(args, done)
+  end
+  eq(act("map.trace-all", nil), { true }, "T on a trace, from the pop-out")
+  ok(vim.wait(1000, function() return #pv.stack == 3 end), "… its answer a page of its own")
+  ok(asked[#asked] and asked[#asked]:find("--q flow --from e.cpp::tick --to e.cpp::submit", 1, true), "… asked with the trace's function and end: " .. tostring(asked[#asked]))
+  local fn = { ref = { target = { kind = "node", node = { id = "e.cpp::drain", label = "drain", file = "e.cpp", line = 40 } } } }
+  pv.stack = { { kind = "modules" } }
+  act("map.trace-all", fn)
+  ok(vim.wait(1000, function() return asked[#asked]:find("--q flow --from e.cpp::drain", 1, true) ~= nil end), "T on a function: the whole trace through it")
   pv.stack, Map.desk_work, P.host.history = stack, inner, history
   pv.pinned = false
 end

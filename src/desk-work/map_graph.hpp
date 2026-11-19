@@ -1007,6 +1007,61 @@ inline J trace(const Graph& g, size_t focus, int depth, long to = -1, long start
     return out;
 }
 
+// The whole trace (2026-11-19, her "an entire trace would be nice"): every way THROUGH a function in one picture:
+// everything that leads to it (up its callers) and everything it leads to (down its calls), within depth each way. A
+// chosen start keeps only the callers it reaches; a chosen end, only the calls that reach it. Each node says whether it
+// is on the trace's lane and its side ("at": negative above, positive below); a call is kept when it is on a way
+// through the function, a cycle's too (the drawing breaks it once).
+inline J flow(const Graph& g, size_t focus, int depth, long to = -1, long start = -1) {
+    const J t = trace(g, focus, depth, to, start);
+    const auto walk = [&](size_t from, bool backwards) {
+        std::vector<int> dist(g.nodes.size(), -1);
+        std::deque<size_t> queue{from};
+        dist[from] = 0;
+        while (!queue.empty()) {
+            const auto v = queue.front();
+            queue.pop_front();
+            if (dist[v] >= depth) continue;
+            for (const auto& [w, mask] : backwards ? g.in[v] : g.out[v]) {
+                (void)mask;
+                if (dist[w] >= 0) continue;
+                dist[w] = dist[v] + 1;
+                queue.push_back(w);
+            }
+        }
+        return dist;
+    };
+    auto up = walk(focus, true), down = walk(focus, false);
+    if (start >= 0) {
+        const auto from_start = walk(static_cast<size_t>(start), false);
+        for (size_t v = 0; v < up.size(); ++v) if (from_start[v] < 0) up[v] = -1;
+    }
+    if (to >= 0) {
+        const auto to_end = walk(static_cast<size_t>(to), true);
+        for (size_t v = 0; v < down.size(); ++v) if (to_end[v] < 0) down[v] = -1;
+    }
+    up[focus] = down[focus] = 0;
+    std::set<std::string> lane_ids;
+    J lane = J::array();
+    for (const auto& st : t["steps"]) { lane_ids.insert(text(st, "id")); lane.push_back(text(st, "id")); }
+    J nodes = J::array(), edges = J::array();
+    for (size_t v = 0; v < g.nodes.size(); ++v) {
+        if (up[v] < 0 && down[v] < 0) continue;
+        J node = g.node(v);
+        node["lane"] = lane_ids.count(text(g.nodes[v], "id")) > 0;
+        node["at"] = down[v] >= 0 ? down[v] : -up[v];
+        nodes.push_back(node);
+    }
+    for (size_t v = 0; v < g.nodes.size(); ++v)
+        for (const auto& [w, mask] : g.out[v])
+            if ((up[v] >= 0 && up[w] >= 0 && v != focus) || (down[v] >= 0 && down[w] >= 0 && w != focus))
+                edges.push_back(J{{"from", text(g.nodes[v], "id")}, {"to", text(g.nodes[w], "id")}, {"kind", mask ? kinds_of(mask) : "none"}});
+    J out{{"ok", true}, {"q", "flow"}, {"focus", text(g.nodes[focus], "id")}, {"depth", depth}, {"nodes", nodes}, {"edges", edges}, {"lane", lane}};
+    if (to >= 0) { out["to"] = text(g.nodes[static_cast<size_t>(to)], "id"); out["reached"] = t["reached"]; }
+    if (start >= 0) { out["start"] = text(g.nodes[static_cast<size_t>(start)], "id"); out["start_reached"] = t["start_reached"]; }
+    return out;
+}
+
 inline J paths(const Graph& g, size_t from, size_t to, int depth, size_t max) {
     std::vector<int> left(g.nodes.size(), -1);   // calls from here to the end
     std::deque<size_t> queue{to};

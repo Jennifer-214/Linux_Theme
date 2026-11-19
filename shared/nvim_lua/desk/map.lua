@@ -787,13 +787,16 @@ function M.layout(page, width, retro)
       local left = string.rep(' ', math.max(0, math.floor((width - total) / 2)))
       local texts, first = { left, left, left, left }, #lines + 1
       for i, b in ipairs(row) do
+        -- a box may ask for its own frame (the whole trace draws its lane double); the centre is then the one it names
+        local own = b.item.frame == 'double'
+        local f, edge, name_hl = own and G.double or frame, own and 'DeskMapFocus' or border, own and 'DeskMapFocus' or name_group
         local parts = {
-          frame.tl .. string.rep(frame.h, b.inner + 2) .. frame.tr,
-          frame.v .. ' ' .. pad(b.name, b.inner) .. ' ' .. frame.v,
-          frame.v .. ' ' .. pad(b.detail, b.inner) .. ' ' .. frame.v,
-          frame.bl .. string.rep(frame.h, b.inner + 2) .. frame.br,
+          f.tl .. string.rep(f.h, b.inner + 2) .. f.tr,
+          f.v .. ' ' .. pad(b.name, b.inner) .. ' ' .. f.v,
+          f.v .. ' ' .. pad(b.detail, b.inner) .. ' ' .. f.v,
+          f.bl .. string.rep(f.h, b.inner + 2) .. f.br,
         }
-        local box = { item = b.item, spans = {}, line = first + 1, w = b.w, centre = frame == G.double }
+        local box = { item = b.item, spans = {}, line = first + 1, w = b.w, centre = (not own and frame == G.double) or b.item.focus == true }
         for k = 1, 4 do
           if i > 1 then texts[k] = texts[k] .. ' ' end
           if k == 1 then box.x = width_of(texts[1]) end
@@ -803,12 +806,12 @@ function M.layout(page, width, retro)
           hits[lnum] = hits[lnum] or {}
           table.insert(hits[lnum], { s = s, e = #texts[k], item = b.item })
           box.spans[k] = { lnum, s, #texts[k] }
-          marks[#marks + 1] = { lnum, s, #texts[k], border }
+          marks[#marks + 1] = { lnum, s, #texts[k], edge }
           if k == 2 then
-            box.name_col = s + #frame.v + 1
-            marks[#marks + 1] = { lnum, box.name_col, box.name_col + #b.name, name_group, 1 }
+            box.name_col = s + #f.v + 1
+            marks[#marks + 1] = { lnum, box.name_col, box.name_col + #b.name, name_hl, 1 }
           end
-          if k == 3 then marks[#marks + 1] = { lnum, s + #frame.v + 1, s + #frame.v + 1 + #b.detail, b.item.warn and 'DeskMapStale' or 'DeskMapDim', 1 } end
+          if k == 3 then marks[#marks + 1] = { lnum, s + #f.v + 1, s + #f.v + 1 + #b.detail, b.item.warn and 'DeskMapStale' or 'DeskMapDim', 1 } end
         end
         placed[#placed + 1] = box
       end
@@ -1844,6 +1847,33 @@ function M.trace_page(answer, folds, layouts, field)
   return { crumbs = { 'trace' }, sections = sections }
 end
 
+-- T: the whole trace (desk-work map query --q flow): every way through a function in one picture, what leads to it
+-- above and what it leads to below, in layers by their calls; the trace's own lane in double frames, the function
+-- asked about where the selection starts. A start or end she chose (S, e) narrows it, and the page says so.
+function M.flow_page(answer)
+  local by, keys = {}, {}
+  for _, n in ipairs(answer.nodes or {}) do by[n.id] = n; keys[#keys + 1] = n.id end
+  table.sort(keys, function(a, b)
+    if (by[a].at or 0) ~= (by[b].at or 0) then return (by[a].at or 0) < (by[b].at or 0) end
+    return a < b
+  end)
+  local label = function(id) return (by[id] and by[id].label) or (tostring(id or '?'):gsub('^.*::', '')) end
+  local sections = { { head = 'whole trace through ' .. code(label(answer.focus)) .. ' · ' .. #keys .. (#keys == 1 and ' function' or ' functions') } }
+  local said = 'what leads to it above, what it leads to below; double: the lane `t` follows'
+  if answer.start then said = 'from ' .. code(label(answer.start)) .. ' (your choice) · ' .. said end
+  if answer.to then said = said .. ' · to ' .. code(label(answer.to)) .. ' (your choice)' end
+  sections[#sections + 1] = { parts = { { said, nil, true } }, group = 'DeskMapDim' }
+  if answer.to and answer.reached == false then
+    sections[#sections + 1] = { parts = { { label(answer.focus) .. ' does not reach ' .. label(answer.to) .. ' within ' .. (answer.depth or '?') .. ' calls', nil, true } }, group = 'DeskMapDim' }
+  end
+  local function item(id)
+    local n = by[id]
+    return node_item(n, { frame = n.lane and 'double' or nil, focus = id == answer.focus or nil })
+  end
+  layered(sections, keys, answer.edges or {}, item)
+  return { crumbs = { 'whole trace' }, sections = sections }
+end
+
 function M.level_query(answer, level)
   local page = M.level_query_plain(answer, level)
   -- What this answer was asked without, said where the answer is read: one line, and the key that brings them back.
@@ -1856,6 +1886,7 @@ function M.level_query(answer, level)
 end
 function M.level_query_plain(answer, level)
   if answer.q == 'trace' then return M.trace_page(answer, level and level.folds, level and level.layouts, level and level.field) end
+  if answer.q == 'flow' then return M.flow_page(answer) end
   local sections = {}
   if answer.q == 'changes' then
     -- What the last rebuild changed against the build before it, and why as far as the builds can say.
@@ -2914,6 +2945,21 @@ local function add_handoff(view, ctx)
   ask('Hands off to: ', '', go)
 end
 local function trace_start(view, ctx) trace_end(view, ctx, '--start', 'Trace from: ') end
+-- T: the whole trace (every way between a trace's two ends). On a trace: asked as that trace was (its function, the
+-- end and start she chose); elsewhere: through the selected function.
+local function whole_trace(view, ctx)
+  local answer = on_trace(view)
+  if answer then
+    local args = { '--q', 'flow', '--from', answer.focus }
+    if answer.to then vim.list_extend(args, { '--to', answer.to }) end
+    if answer.start then vim.list_extend(args, { '--start', answer.start }) end
+    return query(view, args)
+  end
+  local item = about_item(view, ctx)
+  local node = item and item.target and item.target.node
+  if not node then return tell('Put the cursor on a function first.') end
+  query(view, { '--q', 'flow', '--from', node.id }, item.key)
+end
 
 -- gs: the function in symdeps' card (C and C++), as gs in the call graph: its code, the cursor on its NAME, then the
 -- card. On the line's first text (`int norm(…)`) symdeps would read the return type.
@@ -3750,6 +3796,8 @@ local ROWS = actions.add({
     trace_to, needs_trace, { remote = true, input = { prompt = 'Trace to: ' } }),
   row('trace-from', 'S', 'Trace from a chosen start', 'On a trace: up from the function you name (a thread body, the live path) instead of the farthest start',
     trace_start, needs_trace, { remote = true, input = { prompt = 'Trace from: ' } }),
+  row('trace-all', 'T', 'The whole trace', "Every way through the function in one picture: what leads to it above and what it leads to below, as boxes in layers, the lane `t` follows in double frames (on a trace: within the start and end you chose)",
+    whole_trace, function(ctx) if needs_trace(ctx) == true then return true end return needs_function(ctx) end, ON_IT),
   row('handoff-drop', 'x', 'Drop this handoff',
     'On a trace, on a handoff (its `══ handoff ══` break): the map inferred it wrongly, so it is dropped (one you added is forgotten). Kept by desk-work outside the checkout, in `~/.config/foxml/desk.d/`',
     drop_handoff, needs_handoff, { remote = true, input = { prompt = 'Drop this handoff? y/n: ' } }),

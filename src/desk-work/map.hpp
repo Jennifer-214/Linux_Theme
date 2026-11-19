@@ -566,7 +566,7 @@ J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
     };
     J out;
     long a = -1, b = -1;
-    if (q == "reach" || q == "callers" || q == "trace") {
+    if (q == "reach" || q == "callers" || q == "trace" || q == "flow") {
         if (opts["--file"].empty()) {
             const auto refusal = pick(!opts["--from"].empty() ? opts["--from"] : opts["--of"], "", a);
             if (!refusal.is_null()) return refusal;
@@ -595,8 +595,9 @@ J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
             }
             if (a < 0) return refuse("No function in the map matches this location");
         }
-        if (q == "trace") {
-            // Through the function, up to where it starts and down to where it ends (or to --to): at most 16 calls each way.
+        if (q == "trace" || q == "flow") {
+            // Through the function, up to where it starts and down to where it ends (or to --to): at most 16 calls each way;
+            // flow: every way between those two ends, the whole trace.
             if (!opts["--to"].empty()) {
                 const auto refusal = pick(opts["--to"], "To: ", b);
                 if (!refusal.is_null()) return refusal;
@@ -606,7 +607,8 @@ J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
                 const auto refusal = pick(opts["--start"], "Start: ", c);
                 if (!refusal.is_null()) return refusal;
             }
-            out = desk_map::trace(g, static_cast<size_t>(a), std::clamp(map_number(opts["--depth"], 16), 1, 16), b, c);
+            const int depth = std::clamp(map_number(opts["--depth"], 16), 1, 16);
+            out = q == "trace" ? desk_map::trace(g, static_cast<size_t>(a), depth, b, c) : desk_map::flow(g, static_cast<size_t>(a), depth, b, c);
         } else
             out = desk_map::walk(g, static_cast<size_t>(a), std::max(1, map_number(opts["--depth"], 3)), q == "callers",
                                  static_cast<size_t>(std::clamp(map_number(opts["--cap"], 300), 1, 3000)));
