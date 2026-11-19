@@ -474,6 +474,17 @@ function M.rows(root)
   end
   rows[#rows + 1] = { kind = "working", sid = "working", name = "Working changes", short = "Working changes",
     files = working_paths, label = "Working changes · " .. #working_paths .. " files" }
+  -- The commit about to be made, apart from what stays here (Codex's C26): only when both have something, else the
+  -- working changes already say it.
+  local R = require("desk.review")
+  local staged, unstaged = R.staged_files(root) or {}, R.unstaged_files(root) or {}
+  if #staged > 0 and #unstaged > 0 then
+    local function paths(list) return vim.tbl_map(function(f) return f.path end, list) end
+    rows[#rows + 1] = { kind = "staged", sid = "staged", name = "Staged", short = "Staged", files = paths(staged),
+      label = "Staged · " .. #staged .. " files · the next commit" }
+    rows[#rows + 1] = { kind = "unstaged", sid = "unstaged", name = "Not staged", short = "Not staged", files = paths(unstaged),
+      label = "Not staged · " .. #unstaged .. " files · stays here" }
+  end
   for _, p in ipairs(M.in_repo(root, M.live)) do
     local files = M.live_files(p, dirty)
     if #files > 0 then

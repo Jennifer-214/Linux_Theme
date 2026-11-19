@@ -287,6 +287,36 @@ ok(strip_of("parse"):find("callers: not in the project map", 1, true),
   "the map's only parse is another file's, so these are not this one's callers:\n" .. strip_of("parse"))
 C.close()
 
+-- ─── staged apart from unstaged (Codex's C26): which calls the next commit adds, and what stays here ────────────
+do
+  write("sa.lua", "local function f()\n  return base()\nend\nreturn f\n")
+  git("add", "sa.lua")
+  git("commit", "-qm", "staged base")
+  write("sa.lua", "local function f()\n  staged_call()\n  return base()\nend\nreturn f\n")
+  git("add", "sa.lua")
+  write("sa.lua", "local function f()\n  staged_call()\n  loose_call()\n  return base()\nend\nreturn f\n")
+  write("loose.lua", "return 1\n")
+  local function rels(list) return vim.tbl_map(function(f) return f.rel end, list or {}) end
+  eq({ rels(R.staged_files(root)), vim.tbl_contains(rels(R.unstaged_files(root)), "sa.lua"), vim.tbl_contains(rels(R.unstaged_files(root)), "loose.lua") },
+    { { "sa.lua" }, true, true }, "staged: sa.lua; not staged: sa.lua's rest and the untracked loose.lua")
+  local kinds = vim.tbl_map(function(row) return row.kind end, C.rows(root))
+  ok(vim.tbl_contains(kinds, "staged") and vim.tbl_contains(kinds, "unstaged"), "the changes list offers both halves when both have something: " .. table.concat(kinds, " "))
+  local function calls_of(kind)
+    C.open_review({ kind = kind, sid = kind, short = kind }, root)
+    local f = file_of("sa.lua")
+    for i, x in ipairs(R.current.files) do if x == f then R.select(i) end end
+    vim.wait(3000, function() return f.structure ~= nil and f.structure.signature == f.signature end)
+    local got = f.structure and f.structure.calls and f.structure.calls.f
+    C.close()
+    return got and got.added
+  end
+  eq(calls_of("staged"), { "staged_call" }, "staged: the call the next commit adds, and not the one left out of it")
+  eq(calls_of("unstaged"), { "loose_call" }, "not staged: the call that stays on this machine")
+  git("reset", "-q", "sa.lua")
+  git("checkout", "--", "sa.lua")
+  os.remove(root .. "/loose.lua")
+end
+
 -- ─── a review of the working changes: files edited in the background ───────────────────────────────────────────
 vim.cmd("bwipeout! " .. working)   -- the typing test's draft: a review of the working changes lists unsaved drafts too
 write("wa.lua", "local function one()\n  return 1\nend\nreturn one\n")

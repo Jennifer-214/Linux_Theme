@@ -79,9 +79,46 @@ local function relative(root, path)
 end
 local function escaped(text) return text:gsub('[\r\n\t]', ' '):gsub('%%', '%%%%') end
 
+-- `git diff --name-status -z` read into the review's files (renames as their two names).
+local function name_status(root, data)
+  local files, parts, i = {}, vim.split(data or '', '\0', { plain = true, trimempty = true }), 1
+  while i <= #parts do
+    local status, old, path = parts[i], parts[i + 1], parts[i + 1]
+    if status:match('^[RC]') then path = parts[i + 2]; i = i + 1 end
+    if path then files[#files + 1] = { path = root .. '/' .. path, rel = path, old = old, status = status:sub(1, 1) } end
+    i = i + 2
+  end
+  return files
+end
+M.STAGED = { 'diff', '--cached', '--name-status', '-z', '--find-renames', '--' }
+M.UNSTAGED = { 'diff', '--name-status', '-z', '--find-renames', '--' }
+-- The two halves of the working changes (Codex's C26): what the next commit adds (HEAD against the index) and what
+-- stays on this machine (the index against the working copy, untracked files too). nil when git could not say.
+function M.staged_files(root)
+  local data = git(root, M.STAGED)
+  return data and name_status(root, data) or nil
+end
+function M.unstaged_files(root)
+  local data = git(root, M.UNSTAGED)
+  if not data then return nil end
+  local files = name_status(root, data)
+  for _, rel in ipairs(vim.split(git(root, { 'ls-files', '--others', '--exclude-standard', '-z' }) or '', '\0', { plain = true, trimempty = true })) do
+    files[#files + 1] = { path = root .. '/' .. rel, rel = rel, old = rel, status = 'A' }
+  end
+  table.sort(files, function(a, b) return a.rel < b.rel end)
+  return files
+end
+-- A file as the index holds it ('' for one the index does not have, when absent says so); nil when git failed.
+local function index_blob(r, rel, absent)
+  if absent then return '' end
+  return git(r.root, { 'show', ':' .. rel })
+end
+
 function M.files(row, root)
   local files = {}
   if row.kind == 'working' then return M.working_files(root) end
+  if row.kind == 'staged' then return M.staged_files(root) end
+  if row.kind == 'unstaged' then return M.unstaged_files(root) end
   if row.kind == 'commit' then
     local data = git(root, { 'diff', '--name-status', '-z', '--find-renames', row.parent, row.sha, '--' })
     if not data then return nil, 'Could not read this commit; the review was left unopened.' end
@@ -328,6 +365,10 @@ local function load_file(r, file, refresh)
   elseif r.row.kind == 'commit' then
     left = blob(r, r.row.parent, file.old, file.status == 'A')
     right = blob(r, r.row.sha, file.rel, file.status == 'D')
+  elseif r.row.kind == 'staged' then
+    -- what the next commit adds: HEAD against the index
+    left = blob(r, 'HEAD', file.old, file.status == 'A')
+    right = index_blob(r, file.rel, file.status == 'D')
   else
     -- Whether each side exists, apart from its text: an emptied file is changed, not deleted, and text added to an
     -- empty one is changed, not added.
@@ -337,7 +378,11 @@ local function load_file(r, file, refresh)
     if dir and copy and copy:match('^%d+%.txt$') and (r.row.sid or ''):match('^[%w_-]+$') then
       left = read(dir .. '/foxml-claude/edits/' .. r.row.sid .. '/before/' .. copy)
     end
-    if not copy then
+    if r.row.kind == 'unstaged' then
+      -- what stays on this machine: the index against the working copy (an untracked file: nothing staged)
+      left = index_blob(r, file.old, file.status == 'A')
+      left_absent = file.status == 'A'
+    elseif not copy then
       left = blob(r, 'HEAD', r.row.kind == 'working' and file.old or file.rel, false)
       -- A new/untracked file (or an unborn repository) has no HEAD copy.
       if left == nil then
@@ -358,7 +403,7 @@ local function load_file(r, file, refresh)
     else right = read(file.path) end
     local right_absent = right == nil and uv.fs_stat(file.path) == nil
     if right_absent and left ~= nil then right = '' end
-    if r.row.kind ~= 'working' then file.status = left_absent and 'A' or right_absent and 'D' or 'M' end
+    if r.row.kind ~= 'working' and r.row.kind ~= 'unstaged' then file.status = left_absent and 'A' or right_absent and 'D' or 'M' end
   end
   file.error = left == nil or right == nil
   file.binary = (left or ''):find('\0', 1, true) ~= nil or (right or ''):find('\0', 1, true) ~= nil
@@ -894,6 +939,8 @@ local function describe(r, entry)
   if set then
     local row = set.row
     if row.kind == 'working' then return { 'Working changes · everything not committed yet', 'staged, unstaged, untracked and unsaved drafts' } end
+    if row.kind == 'staged' then return { 'Staged · what the next commit adds', 'HEAD against the index: the calls it adds and removes are the commit\'s' } end
+    if row.kind == 'unstaged' then return { 'Not staged · what stays on this machine', 'the index against the working copy, untracked files too' } end
     if row.kind == 'live' then return { (row.name or 'a live session') .. ' · edits it has made', 'f follows that session' } end
     local tested = row.tests == 'passed' and 'tests passed at this commit' or row.tests == 'failed' and 'tests FAILED at this commit' or 'no test run on exactly this commit'
     return { (row.short or '') .. ' · ' .. (row.subject or ''),
@@ -1030,8 +1077,10 @@ local function build(r, w)
     local group
     for _, set in ipairs(r.sets) do
       local row = set.row
-      local own = row.kind == 'working' or row.kind == 'live' or row.kind == 'external'
-      local label = row.kind == 'working' and 'Working changes' or row.kind == 'live' and 'Live sessions' or (row.task or 'Other changes')
+      local own = row.kind == 'working' or row.kind == 'staged' or row.kind == 'unstaged' or row.kind == 'live' or row.kind == 'external'
+      local listed = row.kind == 'working' or row.kind == 'staged' or row.kind == 'unstaged'
+      local label = row.kind == 'working' and 'Working changes' or row.kind == 'staged' and 'Staged · the next commit'
+        or row.kind == 'unstaged' and 'Not staged · stays here' or row.kind == 'live' and 'Live sessions' or (row.task or 'Other changes')
       if label ~= group then
         if group then push('') end
         group = label
@@ -1047,9 +1096,9 @@ local function build(r, w)
         end
         local rl = push(rule(label, right, w))
         paint(rl, 0, -1, 'head')
-        if row.kind == 'working' then entries[rl] = { set = set } end
+        if listed then entries[rl] = { set = set } end
       end
-      if row.kind == 'working' then
+      if listed then
         if set.expanded then
           for i, f in ipairs(set.files or {}) do file_row(i, f, '   ', set) end
           if #(set.files or {}) == 0 then paint(push('     the working tree is clean'), 0, -1, 'dim') end
@@ -1999,9 +2048,11 @@ function M.select(index, refresh, keep)
   end
   side_buffer(r, 'before', file, left); side_buffer(r, 'after', file, right)
   local before = file.since and 'What you reviewed' or r.row.before_label or (r.row.kind == 'commit' and ('Before · ' .. r.row.parent:sub(1, 8))
-    or r.row.kind == 'working' and 'HEAD · last commit' or 'Before session · captured baseline')
+    or (r.row.kind == 'working' or r.row.kind == 'staged') and 'HEAD · last commit' or r.row.kind == 'unstaged' and 'Index · staged'
+    or 'Before session · captured baseline')
   local after = file.since and 'Now · only what is new since then' or r.row.after_label or (r.row.kind == 'commit' and ('After · ' .. r.row.sha:sub(1, 8))
-    or r.row.kind == 'working' and 'Working copy · includes drafts' or 'Working copy · captured now')
+    or r.row.kind == 'working' and 'Working copy · includes drafts' or r.row.kind == 'staged' and 'Index · what the next commit holds'
+    or r.row.kind == 'unstaged' and 'Working copy · not staged' or 'Working copy · captured now')
   for _, pair in ipairs({ { r.left_win, r.left_buf, before }, { r.right_win, r.right_buf, after } }) do
     local win, buf, label = unpack(pair)
     if api.nvim_win_get_buf(win) ~= buf then api.nvim_win_set_buf(win, buf) end
@@ -3252,6 +3303,8 @@ local function row_name(r, entry)
   if f then return f.rel end
   local row = entry.set and entry.set.row or r.row
   if row.kind == 'working' then return 'Working changes' end
+  if row.kind == 'staged' then return 'Staged changes' end
+  if row.kind == 'unstaged' then return 'Changes not staged' end
   if row.kind == 'live' then return row.name or 'live session' end
   return (row.short or 'commit') .. ' ' .. (row.subject or '')
 end
