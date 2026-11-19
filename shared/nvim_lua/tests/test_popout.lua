@@ -543,6 +543,16 @@ do
   ok(wait(20000, function() return popped():find('extra_2500', 1, true) ~= nil end), '2500 callees: the last one drawn too')
   print(('  (2500 callees read and drawn in the pop-out in %d ms)'):format((vim.uv.hrtime() - asked_at) / 1e6))
   ok(not popped():find('more lines', 1, true), '… no "more lines" cut')
+  -- scrolled into the middle of that level: the pop-out says where (Codex's E8), from the headings the editor sent
+  pop([[vim.fn.winrestview({ topline = 600, lnum = 600 })]])
+  local function located()
+    return pop([[local ns = vim.api.nvim_get_namespaces().desk_callgraph_gauge_edges
+      for _, m in ipairs(vim.api.nvim_buf_get_extmarks(0, ns, 0, -1, { details = true })) do
+        if m[4].virt_text_pos == 'right_align' then return m[4].virt_text[1][1] end
+      end]])
+  end
+  ok(wait(3000, function() local t = located(); return t and t:match('^ callees of gamma · %d+ of 2501 $') end),
+    '… scrolled to line 600: where, in the pop-out too: ' .. tostring(located()))
   found = find('extra_2500')
   ok(#found.names > 2500 and wait(4000, function() return state().selected == 'extra_2500' end),
     '… / lists every box and selects the last: ' .. #found.names .. ' names, selected ' .. tostring(state().selected))

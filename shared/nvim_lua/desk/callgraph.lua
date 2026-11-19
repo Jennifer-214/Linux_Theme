@@ -246,7 +246,13 @@ M._link = link
 function M.layout(graph, width, retro)
   width = math.max(16, width or 80)
   local G = M.glyphs(retro)
-  local lines, boxlist, marks, bands = {}, {}, {}, {}
+  local lines, boxlist, marks, bands, heads = {}, {}, {}, {}, {}
+  -- each level's heading and the boxes under it, for "where am I" once it has scrolled away (Codex's E8)
+  local centre_name = graph.center and tostring(graph.center.name or '') or nil
+  local function heading(label)
+    return { line = #lines, text = centre_name and (G.said(label .. ' of ') .. centre_name) or G.said(label), of = G.said(' of '), first = #boxlist + 1 }
+  end
+  local function close_heading(h) h.last, h.last_line = #boxlist, #lines; heads[#heads + 1] = h end
   local gauge = graph.layers and width >= 36
   if gauge then width = width - M.GAUGE_WIDTH end
   local function add(text, group, from, to)
@@ -328,7 +334,9 @@ function M.layout(graph, width, retro)
   local function group(label, items, none, role)
     if items == nil then return end
     centred(G.said(label .. (#items > 0 and (' · ' .. #items) or '')), 'DeskCallGraphHead')
+    local h = heading(label)
     if #items == 0 then centred(G.said(none), 'DeskCallGraphDim') else boxes(items, G.single, 'DeskCallGraphBox', 'DeskCallGraphName', role) end
+    close_heading(h)
   end
   local above, below = layers_of(graph, 'callers'), layers_of(graph, 'callees')
   local nearest, used = {}, {}
@@ -391,6 +399,7 @@ function M.layout(graph, width, retro)
     if total > width then wdetail = math.max(0, width - 4 - wname); total = math.min(width, 2 + wname + (wdetail > 0 and (2 + wdetail) or 0)) end
     local left = string.rep(' ', math.max(0, math.floor((width - total) / 2)))
     centred(G.said(side), 'DeskCallGraphHead')
+    local h = heading(side)
     for _, b in ipairs(built) do
       local detail = wdetail > 0 and fit(b.detail, wdetail, G.ellipsis) or ''
       local text = left .. G.single.v .. ' ' .. pad(b.name, wname) .. (wdetail > 0 and ('  ' .. pad(detail, wdetail)) or '')
@@ -407,6 +416,7 @@ function M.layout(graph, width, retro)
         spans = { { ln, s0, #text } }, name_col = name_col, level = sign * b.level.depth, row = true }
       bands[#bands + 1] = { first = ln, last = ln, level = sign * b.level.depth }
     end
+    close_heading(h)
   end
   -- the levels of one side, in drawing order, cut into runs and single levels
   local function pieces(levels, from, to, step)
@@ -436,7 +446,7 @@ function M.layout(graph, width, retro)
     if piece.run then chain('callees', piece.run, 1, 'callee') else tier('callees', piece.level, 1, 'calls nothing found', 'callee') end
   end
   if dropped then centred(G.said('narrow: places in the key line'), 'DeskCallGraphDim') end
-  local drawn = { lines = lines, boxes = boxlist, marks = marks }
+  local drawn = { lines = lines, boxes = boxlist, marks = marks, heads = heads }
   M.neighbours(graph, boxlist)
   if gauge then M.gauge(drawn, bands, retro); width = width + M.GAUGE_WIDTH end
   if graph.message then
@@ -575,15 +585,43 @@ end
 M.sel_ns = api.nvim_create_namespace('desk_callgraph_selected')
 M.gauge_ns = api.nvim_create_namespace('desk_callgraph_gauge')
 local edge_ns = api.nvim_create_namespace('desk_callgraph_gauge_edges')
+--- pure: where the top line `top` is, once the heading it is under has scrolled away (Codex's E8): the heading's words
+--- and, when it counts boxes, the first box on screen of how many ("callers of Submit · 17 of 43"); nil while the
+--- heading is on screen or the top line is under none. drawn.heads: { line, last_line, text, of, first?, last?, count? }
+--- (the graph's, the map's, the pop-out's copy of either).
+function M.location(drawn, top)
+  local best
+  for _, h in ipairs(drawn and drawn.heads or {}) do
+    -- the nearest heading above the top line that still covers it (a step inside a page's heading wins)
+    if h.line < top and (h.last_line or h.line) >= top and (not best or h.line > best.line) then best = h end
+  end
+  if not best then return nil end
+  local text = best.text
+  if best.count ~= false and best.first and best.last and best.last >= best.first then
+    for i = best.first, best.last do
+      local b = drawn.boxes[i]
+      if b and (b.line or 0) >= top then return text .. ' · ' .. (i - best.first + 1) .. (best.of or ' of ') .. (best.last - best.first + 1) end
+    end
+  end
+  return text
+end
 
 function M.gauge_edges(s)
   local range = s and s.drawn and s.drawn.gauge_range
-  if not range and not (s and s.gauge_edges_drawn) then return end
+  local heads = s and s.drawn and s.drawn.heads and #s.drawn.heads > 0
+  if not range and not heads and not (s and s.gauge_edges_drawn) then return end
   if not (s and s.win and api.nvim_win_is_valid(s.win) and api.nvim_win_get_buf(s.win) == s.buf) then return end
   api.nvim_buf_clear_namespace(s.buf, edge_ns, 0, -1)
   s.gauge_edges_drawn = nil
-  if not range then return end
   local top, bottom = vim.fn.line('w0', s.win), vim.fn.line('w$', s.win)
+  -- where you are, once the heading has scrolled away: over the right of the top line (the boxes are centred)
+  local here = heads and M.location(s.drawn, top)
+  if here then
+    pcall(api.nvim_buf_set_extmark, s.buf, edge_ns, top - 1, 0, { virt_text = { { ' ' .. here .. ' ', 'DeskCallGraphDim' } },
+      virt_text_pos = 'right_align', priority = 290 })
+    s.gauge_edges_drawn = true
+  end
+  if not range then return end
   local selected = s.index and s.drawn.boxes[s.index]
   local col = s.drawn.gauge_col or (s.drawn.boxes[1] and s.drawn.boxes[1].gauge_col) or 0
   local function arrow(row, text)
@@ -2301,7 +2339,7 @@ local function render_view(view, width, style)
   local center = graph.center
   return { title = 'call graph' .. (center and center.name and (' · ' .. center.name) or ''), state = '',
     tab = 'calls', subject = center and center.name or nil,
-    lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer(view.pinned),
+    lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer(view.pinned), heads = drawn.heads,
     news = view.news == true }
 end
 

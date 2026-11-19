@@ -601,6 +601,15 @@ local function payload(view)
       near = plain_near(item.near),
       zones = plain_zones(item.zones) }
   end
+  -- headings, for the pop-out's own "where am I" once one has scrolled away (Codex's E8)
+  local heads = {}
+  for _, h in ipairs(type(drawn.heads) == 'table' and drawn.heads or {}) do
+    if #heads >= 400 then break end
+    if type(h) == 'table' and num(h.line) and h.text then
+      heads[#heads + 1] = { line = num(h.line), last_line = num(h.last_line), first = num(h.first), last = num(h.last),
+        text = tostring(h.text):sub(1, 200), of = cut(h.of, 12), count = h.count ~= false }
+    end
+  end
   view.named_as = cut(drawn.title, 200) or kind.title
   return { type = 'view.set', id = view.id, kind = view.kind, surface = kind.surface, title = cut(drawn.title, 200) or kind.title,
     tab = cut(drawn.tab, 24), subject = cut(drawn.subject, 60),
@@ -610,6 +619,7 @@ local function payload(view)
     partner = M.partner_of(view, kind),
     partner_line = view.previewing and M.preview_from and M.preview_from.line or nil,
     state = cut(drawn.state, 200) or '', lines = lines, marks = marks, hl = definitions(drawn.hl), items = items,
+    heads = #heads > 0 and heads or nil,
     footer = plain_footer(drawn.footer), strip = num(drawn.strip), news = drawn.news == true,
     pinned = view.pinned == true, follows = kind.follow ~= nil and (kind.follows ~= false or view.follows == true),
     tick = kind.mirror and (drawn.tick or 0) or nil, total = kind.mirror and #drawn.lines or nil,
@@ -2364,6 +2374,18 @@ local function valid_zones(raw)
   end
   return out
 end
+local function valid_heads(raw)
+  local out = {}
+  for _, h in ipairs(type(raw) == 'table' and raw or {}) do
+    if #out >= 400 then break end
+    if type(h) == 'table' and type(h.line) == 'number' and type(h.text) == 'string' and #h.text <= 200 then
+      local function n(v) return type(v) == 'number' and v >= 0 and v <= M.MAX_DRAWN and math.floor(v) or nil end
+      out[#out + 1] = { line = n(h.line), last_line = n(h.last_line), first = n(h.first), last = n(h.last), text = h.text,
+        of = type(h.of) == 'string' and #h.of <= 12 and h.of or nil, count = h.count ~= false }
+    end
+  end
+  return out
+end
 local function valid_near(raw)
   if type(raw) ~= 'table' then return nil end
   local out = {}
@@ -2442,7 +2464,7 @@ local function valid_view(msg)
     title = type(msg.title) == 'string' and msg.title:sub(1, 200) or msg.id, state = type(msg.state) == 'string' and msg.state:sub(1, 200) or '',
     tab = short(msg.tab, 24), subject = short(msg.subject, 60), previewed = msg.previewed == true, partner = short(msg.partner, 80),
     partner_line = type(msg.partner_line) == 'number' and msg.partner_line >= 1 and math.floor(msg.partner_line) or nil,
-    lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer),
+    lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer), heads = valid_heads(msg.heads),
     strip = type(msg.strip) == 'number' and msg.strip >= 1 and msg.strip < #lines and math.floor(msg.strip) or nil,
     select = short(msg.select, 120), front = msg.front == true, behind = msg.behind == true, news = msg.news == true, views = valid_ids(msg.views),
     pinned = msg.pinned == true, follows = msg.follows == true,
@@ -2546,7 +2568,7 @@ local function draw(view, lines, keep, held)
   if not pcall(api.nvim_buf_set_name, buf, 'pop-out · ' .. view.title) then pcall(api.nvim_buf_set_name, buf, 'pop-out · ' .. view.title .. ' · ' .. view.id) end
   view.rows_only = #view.items > 0
   for _, item in ipairs(view.items) do if item.kind ~= 'row' then view.rows_only = false end end
-  s.drawn, s.index, s.win, view.strip_for = { boxes = view.items, gauge_range = G.gauge_range(view.items) }, nil, view.win, nil
+  s.drawn, s.index, s.win, view.strip_for = { boxes = view.items, gauge_range = G.gauge_range(view.items), heads = view.heads }, nil, view.win, nil
   local first = keep and index_of(view, keep)
   for i, item in ipairs(view.items) do if not first and item.centre then first = i end end
   first = first or (view.items[1] and 1)
@@ -2642,7 +2664,7 @@ local function handle(msg)
     local held = before and view.win and api.nvim_win_is_valid(view.win) and api.nvim_win_get_buf(view.win) == view.buf
       and { line = before.line, top = vim.fn.line('w0', view.win) } or nil
     for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'tab', 'subject', 'state', 'marks', 'hl', 'items', 'footer', 'strip', 'pinned',
-      'follows', 'tick', 'total', 'cursor', 'previewed', 'partner', 'partner_line' }) do view[field] = got[field] end
+      'follows', 'tick', 'total', 'cursor', 'previewed', 'partner', 'partner_line', 'heads' }) do view[field] = got[field] end
     M.mark_partner(view)
     if got.tick then
       if not view.loading and got.pinned and view.win and api.nvim_win_is_valid(view.win) then

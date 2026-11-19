@@ -590,6 +590,45 @@ eq(surface.index, want, "3j moves three boxes down")
 api.nvim_feedkeys("2k", "x", false)
 eq(surface.index, G.nav(laid.boxes, G.nav(laid.boxes, want, "up"), "up"), "… and 2k two up")
 
+-- Where you are once a level's heading has scrolled away (Codex's E8, 2026-11-19: every box is drawn now, so one level
+-- can fill several screens): "callers of Submit · 17 of 43", over the right of the top line; nothing while it shows.
+do
+  local callers = {}
+  for i = 1, 43 do callers[i] = item(string.format("caller_%02d", i)) end
+  local drawn = G.layout({ center = item("Submit"), callers = callers }, 40, false)
+  local head = line_with(drawn.lines, "callers · 43")
+  eq(G.location(drawn, head), nil, "the heading on screen: nothing")
+  local function first_box_from(top)
+    for i, b in ipairs(drawn.boxes) do if b.line >= top then return i, b end end
+  end
+  local top = head + 9
+  local k = first_box_from(top)
+  eq(G.location(drawn, top), "callers of Submit · " .. k .. " of 43", "scrolled past it: which level, of what, and how far in")
+  local centre_line = line_with(drawn.lines, "║ Submit")
+  eq(G.location(drawn, centre_line - 1), nil, "… past the level, at the centre: nothing")
+  local retro = G.layout({ center = item("Submit"), callers = callers }, 40, true)
+  eq(G.location(retro, line_with(retro.lines, "CALLERS · 43") + 9), "CALLERS OF Submit · " .. k .. " OF 43", "retro: the words in capitals, the name as typed")
+  -- drawn in a scrolled window: over the right of its top line
+  local buf = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(buf, 0, -1, false, drawn.lines)
+  local win = api.nvim_open_win(buf, false, { relative = "editor", row = 0, col = 0, width = 40, height = 8 })
+  api.nvim_win_call(win, function() vim.fn.winrestview({ topline = top, lnum = top }) end)
+  local s = { buf = buf, win = win, drawn = drawn }
+  G.gauge_edges(s)
+  local said
+  for _, m in ipairs(api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+    if m[4].virt_text_pos == "right_align" then said = { m[2] + 1, m[4].virt_text[1][1] } end
+  end
+  eq(said, { top, " callers of Submit · " .. k .. " of 43 " }, "… on the top line of the window, right-aligned (a space either side)")
+  api.nvim_win_call(win, function() vim.fn.winrestview({ topline = 1, lnum = 1 }) end)
+  G.gauge_edges(s)
+  said = nil
+  for _, m in ipairs(api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+    if m[4].virt_text_pos == "right_align" then said = m end
+  end
+  eq(said, nil, "… and gone when scrolled back to the heading")
+  api.nvim_win_close(win, true)
+end
 -- Every box drawn, in name order; the key lines never offer m (2026-11-19).
 do
   local callers = {}

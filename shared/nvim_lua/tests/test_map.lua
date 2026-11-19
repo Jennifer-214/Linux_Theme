@@ -934,6 +934,31 @@ do
   eq(row and Map.item_at(page, row, l:find("publish", 1, true)).target.node.id, "a.cpp::publish", "… each a function to open")
 end
 do
+  -- Where you are once a heading has scrolled away (Codex's E8): the map's pages as the graph's.
+  local G = require("desk.callgraph")
+  local page = Map.layout(Map.level_query(trace_answer), 90, false)
+  local steps = vim.tbl_filter(function(h) return h.count == false end, page.heads)
+  eq(#steps, 3, "a trace: each step a heading")
+  local second = steps[2]
+  ok(second.last_line > second.line, "… covering its card")
+  eq(G.location(page, second.line + 1), "step 2 of 3 · " .. trace_answer.steps[2].label, "inside step 2's card, its heading gone: which step")
+  eq(G.location(page, second.line), steps[1] and G.location(page, second.line) or nil, "… on its own heading line: the step above it, or nothing")
+  local retro_page = Map.layout(Map.level_query(trace_answer), 90, true)
+  local rsteps = vim.tbl_filter(function(h) return h.count == false end, retro_page.heads)
+  eq(G.location(retro_page, rsteps[2].line + 1), "STEP 2 OF 3 · " .. trace_answer.steps[2].label, "… retro: capitals, the name as typed")
+  -- a heading's section: its words without the count, then how far in
+  local crowded = Map.layout(Map.level_nodes(crowd, "lua", "lua/mod.lua"), 120, false)
+  local from = line_with(crowded.lines, "called from · 41")
+  local function first_box(drawn, top) for i, b in ipairs(drawn.boxes) do if b.line >= top then return i end end end
+  local at = G.location(crowded, from + 9)
+  ok(at and at:match("^called from · %d+ of 41$"), "a section scrolled past its heading: \"called from · k of 41\": " .. tostring(at))
+  -- a page with no heading: its title
+  local titled = Map.level_modules(many)
+  titled.header = { { "PROJECT MAP · eng", "DeskMapTitle" } }
+  local drawn = Map.layout(titled, 100, false)
+  ok(G.location(drawn, 20) and G.location(drawn, 20):find("^PROJECT MAP · eng · %d+ of 70$"), "no heading: the page's title: " .. tostring(G.location(drawn, 20)))
+end
+do
   -- y on a trace: the investigation as Markdown, for another person.
   local routed = vim.tbl_extend("force", vim.deepcopy(trace_answer), { to = "e.cpp::submit" })
   routed.calls[2] = { from = "e.cpp::tick", to = "e.cpp::submit", kind = "handoff", label = "tick ring", by_hand = false }

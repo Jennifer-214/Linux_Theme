@@ -856,14 +856,26 @@ function M.layout(page, width, retro)
     marks[#marks + 1] = { #lines, lit[1], lit[2] + (retro and 0 or #'›'), 'DeskMapFocus', 1 }
     add('')
   end
+  -- headings and the boxes under them, for "where am I" once one has scrolled away (Codex's E8): a section's heading
+  -- (its count dropped: the location says it) up to the next arrow or heading, each trace step, and the page's title
+  -- around them all, counting the page's layers of boxes
+  local heads, open_head, steps_total, step_n, layer_first, layer_last = {}, nil, 0, 0, nil, nil
+  for _, s in ipairs(page.sections or {}) do if s.card and s.card.column then steps_total = steps_total + 1 end end
+  local function close_head()
+    if open_head then open_head.last, open_head.last_line = #placed, #lines; heads[#heads + 1] = open_head end
+    open_head = nil
+  end
   for _, s in ipairs(page.sections or {}) do
     local first = #lines + 1
-    if s.head then centred(G.said(s.head), 'DeskMapHead')
+    if s.head then
+      centred(G.said(s.head), 'DeskMapHead')
+      close_head()
+      open_head = { line = #lines, text = G.said((tostring(s.head):gsub(' · %d+$', ''))), of = G.said(' of '), first = #placed + 1 }
     elseif s.boxes then
       if #s.boxes == 0 and s.none then centred(G.said(s.none), 'DeskMapDim') end
       local double = s.frame == 'double'
       boxes(s.boxes, double and G.double or G.single, double and 'DeskMapFocus' or 'DeskMapBox', double and 'DeskMapFocus' or 'DeskMapName')
-    elseif s.arrow then centred(G.down, 'DeskMapBox')
+    elseif s.arrow then centred(G.down, 'DeskMapBox'); close_head()
     elseif s.parts then
       put_parts(s.parts, '', s.group)
     elseif s.card and s.card.column then
@@ -1037,6 +1049,14 @@ function M.layout(page, width, retro)
       for _, row_ in ipairs(rows) do put_parts(row_.parts, left, row_.group or s.group) end
     elseif s.blank then add('') end
     if s.level and #lines >= first then bands[#bands + 1] = { first = first, last = #lines, level = s.level } end
+    if s.level and s.boxes and #s.boxes > 0 and not open_head then
+      layer_first, layer_last = layer_first or (#placed - #s.boxes + 1), #placed
+    end
+    if s.card and s.card.column then
+      step_n = step_n + 1
+      heads[#heads + 1] = { line = first, last_line = #lines, count = false,
+        text = G.said('step ') .. step_n .. G.said(' of ') .. steps_total .. ' · ' .. tostring(s.card.title or '') }
+    end
   end
   -- Notes wrap at the width (a "requires …" line is worth reading whole), between its " · " parts where it has them,
   -- else between words; only a word wider than the page is cut. A note given as { text } keeps its case in retro
@@ -1057,7 +1077,12 @@ function M.layout(page, width, retro)
       if line ~= '' then add(fit(line, width, G.ellipsis), 'DeskMapDim') end
     end
   end
-  local drawn = { lines = lines, hits = hits, marks = marks, items = placed, boxes = placed }
+  close_head()
+  if page.header and page.header[1] and #lines > 1 then
+    table.insert(heads, 1, { line = 1, text = tostring(page.header[1][1]), of = G.said(' of '), first = layer_first, last = layer_last,
+      count = layer_first ~= nil, last_line = #lines })
+  end
+  local drawn = { lines = lines, hits = hits, marks = marks, items = placed, boxes = placed, heads = heads }
   if gauge then
     graph.gauge(drawn, bands, retro, 'DeskMapDim', 'DeskMapFocus')
     drawn.gauge_range = graph.gauge_range(placed)
@@ -3998,7 +4023,7 @@ local function render_view(view, width, style)
   for _, st in ipairs(traced and traced.answer.steps or {}) do if st.id == traced.answer.focus then focus_label = st.label end end
   return { title = 'project map · ' .. vim.fn.fnamemodify(view.root or '', ':t'), state = '',
     tab = traced and 'trace' or 'map', subject = traced and focus_label or vim.fn.fnamemodify(view.root or '', ':t'),
-    lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer, news = view.news == true }
+    lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer, heads = drawn.heads, news = view.news == true }
 end
 
 -- What the selected thing is, then what its keys do there (the pop-out's key line while it is selected) — a function's, a fold's, a handoff's, a step on a pick page. Words in the theme's voice, code and
