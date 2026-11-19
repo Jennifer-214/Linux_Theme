@@ -2648,38 +2648,50 @@ function M.client_find()
   end)
 end
 
--- Which pop-out a window is: its process, or the Neovim it runs, was started with g:desk_popout=N. Her own processes
--- are readable under hidepid.
+-- Which pop-out a window is, and whose: its process, or the Neovim it runs, was started with g:desk_popout=N and
+-- desk-popout:<the editor's socket>. Her own processes are readable under hidepid. → n, socket (or nil).
 function M.popout_number(pid)
   local function in_cmdline(p)
     local f = io.open('/proc/' .. p .. '/cmdline', 'rb')
     if not f then return nil end
     local text = f:read('*a'); f:close()
-    return tonumber(text:match('g:desk_popout=(%d+)'))
+    return tonumber(text:match('g:desk_popout=(%d+)')), text:match('%zdesk%-popout:(/[^%z]+)')
   end
-  local n = in_cmdline(pid)
-  if n then return n end
+  local n, socket = in_cmdline(pid)
+  if n then return n, socket end
   local f = io.open(('/proc/%d/task/%d/children'):format(pid, pid), 'r')
   if not f then return nil end
   local children = f:read('*a'); f:close()
   for child in children:gmatch('%d+') do
-    n = in_cmdline(child)
-    if n then return n end
+    n, socket = in_cmdline(child)
+    if n then return n, socket end
   end
 end
 
--- Space Tab in a pop-out: the next pop-out by number from Hyprland's own list of windows, else (the last) the editor.
+--- pure: the pid of the next pop-out after number `mine` of the editor at `socket` (windows = { { pid, n, socket } });
+--- another editor's pop-outs (another checkout's, numbered from 1 too) never count. nil: none after it.
+function M.next_pop(windows, mine, socket)
+  local best, best_pid
+  for _, w in ipairs(windows) do
+    if w.socket == socket and w.n > mine and (not best or w.n < best) then best, best_pid = w.n, w.pid end
+  end
+  return best_pid
+end
+
+-- Space Tab in a pop-out: this editor's next pop-out by number from Hyprland's own list of windows, else (the last)
+-- the editor.
 function M.client_swap()
   local mine = tonumber(vim.g.desk_popout) or 1
   hyprctl({ 'clients' }, function(clients)
-    local best, best_pid
+    local windows = {}
     for _, c in ipairs(type(clients) == 'table' and clients or {}) do
       if type(c) == 'table' and c.class == M.CLASS and type(c.pid) == 'number' then
-        local n = M.popout_number(c.pid)
-        if n and n > mine and (not best or n < best) then best, best_pid = n, c.pid end
+        local n, socket = M.popout_number(c.pid)
+        if n then windows[#windows + 1] = { pid = c.pid, n = n, socket = socket } end
       end
     end
-    M.focus(best_pid and { pid = best_pid } or C.host)
+    local next_pid = C.server and M.next_pop(windows, mine, C.server)
+    M.focus(next_pid and { pid = next_pid } or C.host)
   end)
 end
 
@@ -2728,6 +2740,7 @@ function M.client()
   vim.o.shadafile = 'NONE'   -- her history and marks are the editor's to keep
   local server
   for _, arg in ipairs(vim.fn.argv()) do server = server or arg:match('^desk%-popout:(/.+)$') end
+  C.server = server
   local first = api.nvim_get_current_buf()
   pcall(vim.cmd, 'silent! argdelete *')
   C.empty = client_view('', nil)

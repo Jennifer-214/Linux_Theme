@@ -550,6 +550,15 @@ press('f')
 ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]') == 8 end), 'f, as Shift+Enter: the editor goes to the box')
 ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xa1' })", 1, true) end), '… and gets the keyboard')
 
+-- Two editors, each with its own pop-outs numbered from 1: Space Tab in this one's pop-out 1 goes to its own 2.
+eq(pop([[local P = require('desk.popout')
+  local w = { { pid = 11, n = 2, socket = '/run/other' }, { pid = 12, n = 3, socket = '/run/mine' }, { pid = 13, n = 1, socket = '/run/mine' } }
+  return { P.next_pop(w, 1, '/run/mine'), P.next_pop(w, 3, '/run/mine') or false, P.next_pop(w, 1, '/run/other') }]]), { 12, false, 11 },
+  "Space Tab: the next pop-out of this editor only — another checkout's pop-out 2 is not this one's")
+eq(pop("return require('desk.popout').popout_number(vim.fn.getpid()) ~= nil"), true, "… a pop-out's own process says its number")
+eq(pop("local _, s = require('desk.popout').popout_number(vim.fn.getpid()); return s"), host("return vim.v.servername"),
+  "… and whose it is (the editor's socket from its argv)")
+
 -- ─── a pop-out that stops answering ─────────────────────────────────────────────────────────────────────────────
 ok(wait(3000, function() return host("return require('desk.popout').host.stalled") == false end), 'answering its pings')
 -- Asleep for longer than two pings (1 s here), so one of them goes unanswered for a whole ping whenever it was sent.
