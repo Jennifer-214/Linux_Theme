@@ -1654,8 +1654,19 @@ function M.level_query_plain(answer, all, level)
   if answer.q == 'paths' then
     local by = node_index(answer)
     local from, to = answer.from or {}, answer.to or {}
-    sections[#sections + 1] = { head = 'ways from ' .. code(from.label) .. ' to ' .. code(to.label) .. ' · ' .. #(answer.paths or {}) }
-    if #(answer.paths or {}) == 0 then
+    local avoid = type(answer.avoided) == 'table' and answer.avoided or nil
+    sections[#sections + 1] = { head = 'ways from ' .. code(from.label) .. ' to ' .. code(to.label) .. (avoid and (' avoiding ' .. code(avoid.label)) or '') .. ' · ' .. #(answer.paths or {}) }
+    if avoid and #(answer.paths or {}) > 0 then
+      sections[#sections + 1] = { parts = { { #answer.paths .. (#answer.paths == 1 and ' way reaches ' or ' ways reach ') .. (to.label or '?') .. ' without going through ' .. (avoid.label or '?') .. ': each is a bypass to look at' } }, group = 'DeskMapFocus' }
+    elseif avoid then
+      -- A "no" is only as strong as what was searched: said with it (Codex's C3).
+      local sr = type(answer.searched) == 'table' and answer.searched or {}
+      local built = tonumber(sr.built_at) and os.date('%Y-%m-%d %H:%M', tonumber(sr.built_at)) or '?'
+      sections[#sections + 1] = { parts = { { 'No way from ' .. (from.label or '?') .. ' to ' .. (to.label or '?') .. ' avoids ' .. (avoid.label or '?') .. ' in the map.' } }, group = 'DeskMapFocus' }
+      sections[#sections + 1] = { block = { { { 'Searched: the map built ' .. built .. ' · calls, calls matched by name and handoffs · up to ' .. tostring(sr.depth or answer.depth or '?')
+        .. ' calls deep' .. (sr.complete == false and ' · the map is partial: a way may be among what it could not read' or '') .. '. Function pointers, virtual calls and macros the map did not read are not in it.', nil, true } } }, group = 'DeskMapDim' }
+    end
+    if #(answer.paths or {}) == 0 and not avoid then
       sections[#sections + 1] = { parts = { { (from.label or '?') .. ' does not reach ' .. (to.label or '?') .. ' in the map within ' .. (answer.depth or '?') .. ' calls' } }, group = 'DeskMapDim' }
       -- Why, and where to look next: the two sides, each a function to open (a queue's publish on one side and its
       -- consumer on the other is a handoff the map missed: `a` on a trace step adds it).
@@ -2574,6 +2585,19 @@ local function ways(view, ctx)
   end)
 end
 
+-- gP on a function of a ways page: the same question, every way that does not go through it ("can an order reach
+-- submission without validation?"). Asked again by desk-work with --avoid.
+local function avoid_this(view, ctx)
+  local item = about_item(view, ctx)
+  local node = item and item.target and item.target.node
+  local top = view.stack[#view.stack]
+  local a = top and top.answer
+  if not (node and a and a.q == 'paths') then return tell('On a ways page (P), put the cursor on a function of a way first.') end
+  if node.id == (a.from or {}).id or node.id == (a.to or {}).id then return tell('That is an end of the question; pick a function between them.') end
+  query(view, { '--q', 'paths', '--from', a.from.id, '--to', a.to.id, '--avoid', node.id }, item.key)
+end
+M._avoid_this = avoid_this
+
 -- The parts in the menu every desk view uses (symdeps' when it is installed, else the built-in one): / filters them
 -- by name, Enter goes there.
 local function part(view)
@@ -3232,6 +3256,14 @@ local ROWS = actions.add({
     in_symdeps, needs_c_function, ON_IT),
   row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_function,
     { remote = true, input = { prompt = 'Ways to: ' } }),
+  row('avoid', 'gP', 'Ways that avoid this function',
+    'On a ways page: the same two ends, every way that does not go through the selected function (can it be reached without it?); a "no" says what was searched',
+    avoid_this, function(ctx)
+      local why = needs_function(ctx)
+      if why ~= true then return why end
+      local top = ctx.map and ctx.map.stack and ctx.map.stack[#ctx.map.stack]
+      return (top and top.answer and top.answer.q == 'paths') or 'on a ways page (P)'
+    end, ON_IT),
   row('more', 'm', 'Show more boxes and calls',
     'Show the boxes and calls left out of this page', reveal,
     function(ctx) return (ctx.map and ctx.map.has_more) or 'nothing else on this page' end, THERE),

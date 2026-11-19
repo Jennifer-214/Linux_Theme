@@ -508,9 +508,22 @@ J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
     if (!doc.is_object()) return refuse("No project map of this checkout yet; build one with desk-work map build --root " + root);
     // --exclude ID\nID…: functions left out of this one question, as if the map did not have them (a logger, an
     // allocator every path goes through): their calls with them. Said back as `excluded` (the ones the map had).
-    J excluded = J::array();
-    if (!opts["--exclude"].empty()) {
-        std::set<std::string> out_ids;
+    J excluded = J::array(), avoided;
+    std::set<std::string> out_ids;
+    // --avoid NAME (paths): every way that does not go through this function ("can anything reach B without A?"),
+    // a name as --from takes one; several fit: refused with the candidates, under --avoid
+    if (!opts["--avoid"].empty()) {
+        const desk_map::Graph whole(doc);
+        const auto found = desk_map::resolve(whole, opts["--avoid"]);
+        if (found.index < 0) {
+            auto refusal = refuse("Avoid: " + found.message);
+            if (!found.candidates.empty()) { refusal["candidates"] = found.candidates; refusal["flag"] = "--avoid"; }
+            return refusal;
+        }
+        avoided = whole.node(static_cast<size_t>(found.index));
+        out_ids.insert(desk_map::text(avoided, "id"));
+    }
+    if (!opts["--exclude"].empty() || !out_ids.empty()) {
         std::stringstream lines(opts["--exclude"]);
         for (std::string id; std::getline(lines, id) && out_ids.size() < 64;) if (!id.empty()) out_ids.insert(id);
         J kept = J::array(), edges = J::array();
@@ -635,6 +648,15 @@ J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
     J answered = J::array();
     for (const auto& p : desk_map::list(g.doc, "providers")) if (str(p, "state") == "ok") answered.push_back(str(p, "name"));
     out["providers"] = answered;
+    if (!avoided.is_null()) {
+        out["avoided"] = avoided;
+        // what a "no" covers: the map as built, the kinds of edge walked, the bounds (a negative is only that strong)
+        out["searched"] = J{{"built_at", num(g.doc, "built_at")}, {"edges", J::array({"call", "call-by-name", "handoff"})},
+                            {"depth", out.value("depth", 0)}, {"max", out.value("max", 0)}, {"complete", g.doc.value("complete", true)}};
+        J rest = J::array();
+        for (const auto& id : excluded) if (id != desk_map::text(avoided, "id")) rest.push_back(id);
+        excluded = rest;
+    }
     if (!excluded.empty()) out["excluded"] = excluded;
     return out;
 }

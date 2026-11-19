@@ -621,7 +621,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "m", "M", "z", "Z", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "gP", "m", "M", "z", "Z", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -660,7 +660,14 @@ local function fake(args, done)
   elseif args[2] == "query" and args[6] == "module" then answer = modules
   elseif args[2] == "query" and args[6] == "reach" then
     answer = vim.tbl_extend("force", reach, { depth = tonumber(args[10]) or reach.depth })
-  elseif args[2] == "query" and args[6] == "paths" then answer = paths end
+  elseif args[2] == "query" and args[6] == "paths" then
+    answer = paths
+    local at = vim.fn.index(args, "--avoid")
+    if at >= 0 then   -- as desk-work answers --avoid (src/desk-work/tests/test_map.py): here, no way avoids it
+      answer = vim.tbl_extend("force", paths, { paths = {}, avoided = { id = args[at + 2], label = (args[at + 2]:match("::(.+)$")) },
+        searched = { built_at = 1700000000, edges = { "call", "call-by-name", "handoff" }, depth = 10, max = 20, complete = true } })
+    end
+  end
   vim.defer_fn(function() done(answer, { code = 0, stdout = "", stderr = "" }) end, 5)   -- never in the caller's path
 end
 Map.desk_work = fake
@@ -1278,6 +1285,20 @@ press("P")
 eq(prompts, { "Ways from: ", "… to: " }, "P asks for the ways: from the box under the cursor, to a function")
 ok(asked[#asked]:find("--q paths --from lua/other.lua::use --to M.beta", 1, true), "… and asks desk-work for them")
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "ways from use to M.beta") end), "… and shows them")
+-- gP on a function of a way: the same two ends, every way avoiding it (Codex's C3)
+do
+  local row, text = line_with(view.drawn.lines, "use → M.alpha → M.beta")
+  api.nvim_win_set_cursor(view.win, { row, (text:find("M.alpha", 1, true)) })
+  press("gP")
+  ok(asked[#asked]:find("--q paths --from lua/other.lua::use --to lua/mod.lua::M.beta --avoid lua/mod.lua::M.alpha", 1, true), "gP: the ways again, avoiding it: " .. asked[#asked])
+  ok(vim.wait(1000, function() return line_with(view.drawn.lines, "No way from use to M.beta avoids M.alpha in the map.") end), "… none here: said")
+  ok(line_with(view.drawn.lines, "Searched: the map built ") and line_with(view.drawn.lines, "calls, calls matched by name and handoffs"), "… with what was searched")
+  press("<BS>")
+  ok(vim.wait(1000, function() return line_with(view.drawn.lines, "ways from use to M.beta ·") end), "Backspace: the ways again")
+  local some = Map.layout(Map.level_query({ ok = true, q = "paths", from = { id = "a", label = "order" }, to = { id = "b", label = "submit" }, depth = 10,
+    avoided = { id = "v", label = "validate" }, paths = { { nodes = { "a", "c", "b" } } }, nodes = { { id = "c", label = "fast_path" } } }), 120, false)
+  ok(line_with(some.lines, "1 way reaches submit without going through validate: each is a bypass to look at"), "a bypass found: said, and drawn")
+end
 press("<BS>")
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "Backspace leaves the ways")
 -- Enter on a row of the ? list runs it in the map, as the menus run it: P asks its one question, where to, and goes
@@ -1420,7 +1441,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.centre", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.include", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
+eq(remote_ids, { "map.avoid", "map.callers", "map.centre", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.include", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
   "the pop-out can show more and retains its existing navigation keys")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do

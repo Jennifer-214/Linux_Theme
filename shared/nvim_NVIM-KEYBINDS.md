@@ -372,6 +372,7 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `y` in the map | On a trace: its question, the checkout's revision, each step with its file:line, the handoffs it relies on and a sentence of yours, as Markdown for a review, an issue or the notebook |
 | `gs` in the map | The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph |
 | `P` in the map | Every way from one function to another, shortest first |
+| `gP` in the map | On a ways page: the same two ends, every way that does not go through the selected function (can it be reached without it?); a "no" says what was searched |
 | `m` in the map | Show the boxes and calls left out of this page |
 | `M` in the map | Go to a part of the checkout, picked by name |
 | `z` in the map | The selected function left out of the map's answers (a logger, an allocator every path goes through), its calls with it, until `z` again or `Z`; the page says how many are left out |

@@ -192,6 +192,19 @@ class Map(unittest.TestCase):
         self.assertEqual((labels(cut), cut["excluded"]), ([], [middle]),
                          "middle left out of this question: main reaches nothing (leaf only through it); only what the map had is said back")
         self.assertNotIn("excluded", self.query("--q", "reach", "--from", "main", "--depth", "3"), "… and the next question has it back")
+        # --avoid: can main reach leaf without going through middle? No: said with what was searched.
+        ways = self.query("--q", "paths", "--from", "main", "--to", "leaf")
+        self.assertEqual(len(ways["paths"]), 1)
+        none = self.query("--q", "paths", "--from", "main", "--to", "leaf", "--avoid", "middle")
+        self.assertEqual((none["paths"], none["avoided"]["label"], none["searched"]["edges"], none["searched"]["depth"] > 0, "excluded" in none),
+                         ([], "middle", ["call", "call-by-name", "handoff"], True, False),
+                         "no way avoids middle: the avoided function, and what a no covers (the map, the edges, the depth)")
+        self.assertIn("Avoid: Nothing in the map is named nobody", self.query("--q", "paths", "--from", "main", "--to", "leaf", "--avoid", "nobody", code=1)["message"])
+        (self.repo / "csrc/two.c").write_text("int middle(int x) { return x; }\n")
+        self.git("add", "."); self.git("commit", "-qm", "a second middle")
+        self.build("--provider", "syntax")
+        several = self.query("--q", "paths", "--from", "main", "--to", "leaf", "--avoid", "middle", code=1)
+        self.assertEqual((several["flag"], len(several["candidates"])), ("--avoid", 2), "a name that fits several: the candidates, under --avoid")
 
     @unittest.skipUnless(NVIM, "nvim is not installed")
     def test_syntax_build_status_staleness_and_queries(self):
