@@ -648,6 +648,43 @@ freed by thread T0 here:
   ok(npage:find("where the stacks meet · only the same name", 1, true), "… said\n" .. npage)
 end
 do
+  -- A report from another machine (Codex's E17, 2026-11-19): its paths are not under this checkout, so no frame
+  -- opened. The longest tail of a path that is exactly one file here gives the prefix to read as this checkout.
+  local tracked = { "src/ring.cpp", "src/main.cpp", "lib/a/util.cpp", "lib/b/util.cpp" }
+  eq(Map.guess_prefix({ "/usr/include/c++/vector", "/build/ci/w/src/ring.cpp" }, tracked), { prefix = "/build/ci/w/", example = "/build/ci/w/src/ring.cpp", rel = "src/ring.cpp" },
+    "src/ring.cpp is one file here: /build/ci/w/ is this checkout")
+  eq(Map.guess_prefix({ "/ci/util.cpp" }, tracked), nil, "util.cpp is two files here: no guess")
+  eq(Map.guess_prefix({ "/ci/x/lib/a/util.cpp" }, tracked), { prefix = "/ci/x/", example = "/ci/x/lib/a/util.cpp", rel = "lib/a/util.cpp" }, "… its longer tail is one: a guess")
+  eq(Map.guess_prefix({ "/usr/include/c++/vector" }, tracked), nil, "nothing like it here: none")
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir .. "/src", "p")
+  local function git(...) return vim.system({ "git", "-C", dir, ... }, { text = true }):wait() end
+  git("init", "-q")
+  vim.fn.writefile({ "int x;" }, dir .. "/src/ring.cpp")
+  vim.fn.writefile({ "int main() {}" }, dir .. "/src/main.cpp")
+  git("add", ".")
+  local report = [==[
+==1==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020
+READ of size 4 at 0x6020 thread T0
+    #0 0x1 in drain(Ring*) /build/ci/w/src/ring.cpp:41:12
+    #1 0x2 in main /build/ci/w/src/main.cpp:9:5
+    #2 0x3 in __libc_start_main (/usr/lib/libc.so.6+0x27b8a)
+]==]
+  local asked
+  local view = Map.sanitizer_on_map(report, { root = dir, pick = function(choices, done) asked = choices; done(choices[1]) end })
+  ok(asked and asked[1].label:find("Read /build/ci/w/ as this checkout", 1, true), "asked once: " .. vim.inspect(asked))
+  local frames = view and view.stack[#view.stack].report.stacks[1].frames
+  eq(frames and { frames[1].rel, frames[2].rel, frames[3].rel }, { "src/ring.cpp", "src/main.cpp", nil }, "yes: each frame under it opens here")
+  local said = view and table.concat(Map.layout(Map.level_sanitizer(view.stack[#view.stack]), 110, false).lines, "\n")
+  ok(said and said:find("read /build/ci/w/ as this checkout", 1, true), "… the page says so\n" .. tostring(said))
+  pcall(vim.cmd, "tabclose")
+  local no = Map.sanitizer_on_map(report, { root = dir, pick = function(choices, done) done(choices[2]) end })
+  frames = no and no.stack[#no.stack].report.stacks[1].frames
+  eq(frames and frames[1].rel, nil, "no: nothing opens")
+  pcall(vim.cmd, "tabclose")
+  vim.fn.delete(dir, "rf")
+end
+do
   -- A slowdown between two actual runs (Codex's #20): what was measured and how each run was made, then the commits
   -- between them, each a way onto the map; the observed slowdown kept apart from its possible causes.
   local a = { ok = true, job = { id = "j2", command = "make bench", head = "bbbbbbb2", clean = true, ended = 1700000600 },

@@ -3493,6 +3493,7 @@ end
 function M.level_sanitizer(level)
   local report = level.report or { stacks = {} }
   local sections = { { head = (report.kind or 'sanitizer report') .. ' · ' .. #report.stacks .. (#report.stacks == 1 and ' stack' or ' stacks') } }
+  if level.mapped then sections[#sections + 1] = { parts = { { 'from another machine: read ' .. level.mapped .. ' as this checkout' } }, group = 'DeskMapDim' } end
   if #report.stacks == 0 then
     sections[#sections + 1] = { parts = { { 'No sanitizer stack in this text (an AddressSanitizer or ThreadSanitizer report has lines like "#0 0x… in f file.c:12").' } }, group = 'DeskMapDim' }
   end
@@ -3514,7 +3515,36 @@ function M.level_sanitizer(level)
   return { crumbs = { 'sanitizer' }, sections = sections }
 end
 -- The report in this buffer (a test's log, a pasted report) or, with none there, the clipboard: its stacks on the map.
-function M.sanitizer_on_map(text)
+--- pure: a report from another machine (Codex's E17): for its absolute paths, the longest tail of one that is exactly
+--- one tracked file here gives the prefix that machine had for this checkout → { prefix, example, rel } or nil. A tail
+--- two files here share is no guess.
+function M.guess_prefix(paths, tracked)
+  local count = {}
+  for _, t in ipairs(tracked or {}) do
+    local parts = vim.split(t, '/', { plain = true })
+    for k = 1, #parts do
+      local tail = table.concat(parts, '/', k)
+      count[tail] = (count[tail] or 0) + 1
+    end
+  end
+  local known = {}
+  for _, t in ipairs(tracked or {}) do known[t] = true end
+  for _, path in ipairs(paths or {}) do
+    if type(path) == 'string' and path:sub(1, 1) == '/' then
+      local parts = vim.split(path:sub(2), '/', { plain = true })
+      for k = 1, #parts do
+        local tail = table.concat(parts, '/', k)
+        if known[tail] and count[tail] == 1 then
+          return { prefix = path:sub(1, #path - #tail), example = path, rel = tail }
+        end
+        if (count[tail] or 0) > 1 then break end
+      end
+    end
+  end
+end
+
+function M.sanitizer_on_map(text, opts)
+  opts = opts or {}
   text = text or table.concat(api.nvim_buf_get_lines(0, 0, -1, false), '\n')
   local report = M.sanitizer_stacks(text)
   if #report.stacks == 0 then
@@ -3524,17 +3554,46 @@ function M.sanitizer_on_map(text)
   if #report.stacks == 0 then return tell('No sanitizer report in this buffer or the clipboard.') end
   local first
   for _, st in ipairs(report.stacks) do for _, f in ipairs(st.frames) do first = first or (f.path and f.path:sub(1, 1) == '/' and f.path) end end
-  local root = first and vim.fs.root(first, '.git') or vim.fs.root(0, '.git') or vim.fn.getcwd()
+  local root = opts.root or first and vim.fs.root(first, '.git') or vim.fs.root(0, '.git') or vim.fn.getcwd()
   root = uv.fs_realpath(root) or root
+  local outside = {}
   for _, st in ipairs(report.stacks) do
     for _, f in ipairs(st.frames) do
       local real = f.path and (uv.fs_realpath(f.path) or f.path)
-      if real and real:sub(1, #root + 1) == root .. '/' then f.rel = real:sub(#root + 2) end
+      if real and real:sub(1, #root + 1) == root .. '/' then f.rel = real:sub(#root + 2)
+      elseif f.path and f.path:sub(1, 1) == '/' then outside[#outside + 1] = f.path end
     end
   end
-  local view = M.open(root)
-  push(view, { kind = 'sanitizer', report = report })
-  return view
+  local shown
+  local function finish(prefix)
+    local level = { kind = 'sanitizer', report = report, mapped = prefix }
+    if prefix then
+      for _, st in ipairs(report.stacks) do
+        for _, f in ipairs(st.frames) do
+          if not f.rel and f.path and f.path:sub(1, #prefix) == prefix and uv.fs_stat(root .. '/' .. f.path:sub(#prefix + 1)) then f.rel = f.path:sub(#prefix + 1) end
+        end
+      end
+    end
+    local view = M.open(root)
+    push(view, level)
+    shown = view
+  end
+  -- from another machine: the prefix it had for this checkout, guessed from a file only one path here ends with,
+  -- read as this checkout once she says so (once per report)
+  local guess
+  if #outside > 0 then
+    local got = vim.system({ 'git', '-C', root, 'ls-files' }, { text = true, timeout = 10000 }):wait()
+    if got.code == 0 then guess = M.guess_prefix(outside, vim.split(vim.trim(got.stdout or ''), '\n', { plain = true })) end
+  end
+  if not guess then finish(nil); return shown end
+  local pick = opts.pick or function(choices, done)
+    vim.ui.select(choices, { prompt = 'A report from another machine (' .. guess.example .. ' is ' .. guess.rel .. ' here)', format_item = function(c) return c.label end }, done)
+  end
+  pick({ { label = 'Read ' .. guess.prefix .. ' as this checkout (' .. vim.fs.basename(root) .. ')', yes = true },
+         { label = 'No: leave the frames from there unopened' } }, function(choice)
+    finish(choice and choice.yes and guess.prefix or nil)
+  end)
+  return shown
 end
 --- A slowdown between two actual runs (desk-work metrics --job --against; Codex's #20): what was measured and how
 --- each run was made above the change, then the commits between them (Enter: what each changed, on the map) and the
@@ -4064,7 +4123,7 @@ local ROWS = actions.add({
     available = function() local f, why = M.dap_frames(); return f and true or why end,
     run = function() M.stack_on_map() end },
   { id = 'map.sanitizer', group = GROUP, name = "A sanitizer report's stacks on the map", on = 'editor', remote = false,
-    about = "The AddressSanitizer or ThreadSanitizer report in this buffer (a test's log) or the clipboard: the bad access, where the memory was freed, where it was allocated, each a stack of its own, the function where they meet marked; `Enter` on a frame opens it",
+    about = "The AddressSanitizer or ThreadSanitizer report in this buffer (a test's log) or the clipboard: the bad access, where the memory was freed, where it was allocated, each a stack of its own, the function where they meet marked and how they matched (the same line, the same function, only the same name); `Enter` on a frame opens it. A report from another machine: the prefix it had for this checkout is guessed from a file only one path here ends with, and read as this checkout once you say so",
     run = function() M.sanitizer_on_map() end },
   { id = 'map.trace-here', group = GROUP, name = 'Trace a possible path through this function', key = '<leader>cp', on = 'editor', remote = true,
     about = 'The path through the function at the cursor, up to where it starts and down to where it ends, with each step\'s parameters and the arguments it is called with (in the pop-out\'s map when it shows one)',
