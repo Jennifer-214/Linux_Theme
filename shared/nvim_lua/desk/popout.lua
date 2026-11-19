@@ -595,7 +595,7 @@ local function payload(view)
     items[i] = { key = keys[i], kind = item.kind == 'row' and 'row' or 'box', line = num(item.line), name_col = num(item.name_col), x = num(item.x),
       w = num(item.w), spans = plain_spans(item.spans), centre = item.centre == true, gauge = item.gauge == true,
       gauge_band = gauge_band(item.gauge_band, item.line), gauge_col = num(item.gauge_col),
-      name = tostring(item.name or ''):sub(1, 200), mark = cut(item.mark, 16),
+      name = tostring(item.name or ''):sub(1, 200), where = cut(item.where, 120), mark = cut(item.mark, 16),
       strip = type(item.strip) == 'table' and { cut(item.strip[1], 400) or '', cut(item.strip[2], 400) or '' } or nil,
       keys = cut(item.keys, 300),
       near = plain_near(item.near),
@@ -2380,7 +2380,7 @@ local function valid_items(raw)
       x = tonumber(item.x) or 0, w = tonumber(item.w) or 1, spans = item.spans, centre = item.centre == true, gauge = item.gauge == true,
       gauge_band = gauge_band(item.gauge_band, item.line),
       gauge_col = type(item.gauge_col) == 'number' and item.gauge_col >= 0 and item.gauge_col <= M.LINE_BYTES and math.floor(item.gauge_col) or nil,
-      name = type(item.name) == 'string' and item.name:sub(1, 200) or '', mark = short(item.mark, 16),
+      name = type(item.name) == 'string' and item.name:sub(1, 200) or '', where = short(item.where, 120), mark = short(item.mark, 16),
       strip = type(lines[1]) == 'string' and type(lines[2]) == 'string' and { lines[1]:sub(1, 400), lines[2]:sub(1, 400) } or nil,
       keys = type(item.keys) == 'string' and item.keys:sub(1, 300) or nil,
       near = valid_near(item.near),
@@ -2768,10 +2768,17 @@ end
 -- draws. Whether a row can run is the editor's to say, so every key is listed and Enter on one presses it.
 -- /: every box or row of the view in front by its whole name (a box shows it cut with …), filtered as she types in the
 -- menu; Enter selects it here (2026-11-16: Vim's own / missed cut names, and its n is the review's own key).
---- pure: what / offers — the drawn items (every box is drawn), each by its whole name.
+--- pure: what / offers — the drawn items (every box is drawn), each by its whole name, and where it is when another
+--- box has the same name ("push · q.cpp:10"); each keeps its box's key, the choice that holds when the view is read
+--- again while the list is open (Codex's E13, 2026-11-19: it kept the place, and a reread put another box there).
 function M.find_choices(items)
-  local out = {}
-  for i, item in ipairs(items or {}) do out[#out + 1] = { label = item.name ~= '' and item.name or item.key, index = i } end
+  local out, count = {}, {}
+  for _, item in ipairs(items or {}) do count[item.name] = (count[item.name] or 0) + 1 end
+  for i, item in ipairs(items or {}) do
+    local label = item.name ~= '' and item.name or item.key
+    if item.name ~= '' and count[item.name] > 1 and item.where then label = label .. ' · ' .. item.where end
+    out[#out + 1] = { label = label, key = item.key, index = i }
+  end
   return out
 end
 
@@ -2783,7 +2790,11 @@ function M.client_find()
     format_item = function(c) return c.label end }, function(choice)
     if not (choice and C.views[view.id] == view and api.nvim_buf_is_valid(view.buf)) then return end
     if view.win and api.nvim_win_is_valid(view.win) then pcall(api.nvim_set_current_win, view.win) end
-    graphs().select(view.copy, choice.index, true)
+    -- by its key in the items as they are now: the view may have been read again while the list was open
+    local index
+    for i, item in ipairs(view.items or {}) do if item.key == choice.key then index = i; break end end
+    if not index then return say(choice.label .. ' is no longer in this view') end
+    graphs().select(view.copy, index, true)
     strip(view)
   end)
 end

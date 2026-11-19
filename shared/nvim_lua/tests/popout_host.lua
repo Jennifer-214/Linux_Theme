@@ -26,9 +26,10 @@ local function answer(method, params)
     return { { from = { name = 'caller_of_' .. params.item.name, kind = 12, uri = uri, range = at(7), selectionRange = at(7) }, fromRanges = {} } }
   end
   local out = { { to = { name = 'callee_of_' .. params.item.name, kind = 12, uri = uri, range = at(4), selectionRange = at(4) }, fromRanges = {} } }
-  -- _G.popout_test.extra = n: n more callees (the test that every box is drawn)
+  -- _G.popout_test.extra = n: n more callees (the test that every box is drawn); extra_prefix names them (a prefix that
+  -- sorts ahead of callee_of_ moves the boxes after them: / holding its choice)
   for k = 1, _G.popout_test.extra or 0 do
-    out[#out + 1] = { to = { name = 'extra_' .. k, kind = 12, uri = uri, range = at(4), selectionRange = at(4) }, fromRanges = {} }
+    out[#out + 1] = { to = { name = (_G.popout_test.extra_prefix or 'extra_') .. k, kind = 12, uri = uri, range = at(4), selectionRange = at(4) }, fromRanges = {} }
   end
   return out
 end

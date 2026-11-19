@@ -3956,7 +3956,8 @@ local function render_view(view, width, style)
     local key = item_key(p.item, seen)
     p.item.key = key
     items[#items + 1] = { key = key, kind = 'box', line = p.line, name_col = p.name_col, x = p.x, w = p.w, spans = p.spans,
-      centre = p.centre == true, gauge = p.gauge, gauge_band = p.gauge_band, gauge_col = p.gauge_col, name = tostring(p.item.name or ''), ref = p.item }
+      centre = p.centre == true, gauge = p.gauge, gauge_band = p.gauge_band, gauge_col = p.gauge_col, name = tostring(p.item.name or ''),
+      where = type(p.item.detail) == 'string' and p.item.detail ~= '' and p.item.detail or nil, ref = p.item }
   end
   -- The key line says what the selected thing is and what its keys do there (the pop-out shows it while it is selected).
   for _, it in ipairs(items) do

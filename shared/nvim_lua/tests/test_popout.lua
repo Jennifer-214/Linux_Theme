@@ -491,6 +491,42 @@ do
     '… and the one chosen is selected: ' .. tostring(state().selected) .. ' (was ' .. tostring(before) .. ')')
   find(before)
   ok(wait(2000, function() return state().selected == before end), '… and back to ' .. tostring(before))
+  -- The choice is the box, not its place (Codex's E13, 2026-11-19): the view read again while the picker is open (two
+  -- callees named a_extra_ sort in ahead of callee_of_gamma), then the choice made: the box chosen is selected, not the
+  -- one now at its old place.
+  pop([[_G.held_find = nil
+    vim.ui.select = function(items, opts, done) _G.held_find = { items = items, done = done, names = vim.tbl_map(opts.format_item, items) } end]])
+  press('/')
+  ok(wait(3000, function() return pop('return _G.held_find ~= nil') end), '/ open, the choice not made yet')
+  local held = pop('return _G.held_find.names')
+  local target = held[#held]
+  eq(target, 'callee_of_gamma', '… the box to choose: the last, a callee')
+  host("_G.popout_test.extra = 2; _G.popout_test.extra_prefix = 'a_extra_'")
+  press('r')
+  ok(wait(5000, function() return popped():find('a_extra_1', 1, true) ~= nil end), '… the view read again under it, two boxes ahead of the chosen one')
+  pop([[local h = _G.held_find; h.done(h.items[#h.items], #h.items)]])
+  ok(wait(3000, function() return state().selected == target end),
+    '… the box chosen is selected: ' .. tostring(state().selected) .. ' (chose ' .. tostring(target) .. ')')
+  -- a box chosen that the reread took away: said, and the selection left where it is
+  pop([[_G.held_find = nil
+    vim.ui.select = function(items, opts, done) _G.held_find = { items = items, done = done } end]])
+  press('/')
+  ok(wait(3000, function() return pop('return _G.held_find ~= nil') end), '/ open again')
+  local chose = pop([[for i, c in ipairs(_G.held_find.items) do if c.label == 'a_extra_1' then _G.held_find.pick = i end end; return _G.held_find.pick]])
+  host("_G.popout_test.extra = 0; _G.popout_test.extra_prefix = nil")
+  press('r')
+  ok(wait(5000, function() return not popped():find('a_extra_1', 1, true) end), '… a_extra_1 read away under it')
+  local selected_before = state().selected
+  pop([[_G.said_find = {}; local notify = vim.notify
+    vim.notify = function(m, ...) _G.said_find[#_G.said_find + 1] = m; return notify(m, ...) end
+    local h = _G.held_find; h.done(h.items[h.pick], h.pick); vim.notify = notify]])
+  ok(chose and vim.tbl_contains(pop('return _G.said_find') or {}, 'A_extra_1 is no longer in this view.'),
+    '… choosing it says it is gone: ' .. vim.inspect(pop('return _G.said_find')))
+  eq(state().selected, selected_before, '… and the selection stays')
+  -- Two boxes of one name: each said with its place, so the list tells them apart; a name once stays plain.
+  eq(pop([[return vim.tbl_map(function(c) return c.label end, require('desk.popout').find_choices({
+      { key = 'a', name = 'push', where = 'q.cpp:10' }, { key = 'b', name = 'push', where = 'ring.cpp:44' }, { key = 'c', name = 'pop', where = 'q.cpp:20' } }))]]),
+    { 'push · q.cpp:10', 'push · ring.cpp:44', 'pop' }, '/ says where a name shared by two boxes is')
   -- More boxes on a level: every one drawn, none hidden, nothing says "+N more" (2026-11-19: the cap and m went). (The
   -- graph's pin is put back as it was found at the end: r while following reads again, and the menu test below toggles
   -- from that state.)

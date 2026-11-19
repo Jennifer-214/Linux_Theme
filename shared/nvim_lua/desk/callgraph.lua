@@ -2295,7 +2295,8 @@ local function render_view(view, width, style)
     enter = vim.fn.strdisplaywidth(enter) > 38 and (fit(enter, 38, style == 'retro' and '..' or '…')) or (enter .. string.rep(' ', 38 - vim.fn.strdisplaywidth(enter)))
     items[i] = { key = box_key(box), kind = 'box', line = box.line, x = box.x, w = box.w, name_col = box.name_col, spans = box.spans, near = box.near,
       keys = enter .. ' · f ' .. said('go+focus') .. ' · t ' .. said('trace') .. ' · p ' .. said('pin'),
-      centre = box.centre, gauge = box.gauge, gauge_band = box.gauge_band, gauge_col = box.gauge_col, name = tostring(box.item.name or ''), ref = box.item }
+      centre = box.centre, gauge = box.gauge, gauge_band = box.gauge_band, gauge_col = box.gauge_col, name = tostring(box.item.name or ''),
+      where = box.item.detail ~= '' and box.item.detail or nil, ref = box.item }
   end
   local center = graph.center
   return { title = 'call graph' .. (center and center.name and (' · ' .. center.name) or ''), state = '',
