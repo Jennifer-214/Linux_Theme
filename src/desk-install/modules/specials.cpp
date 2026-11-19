@@ -157,6 +157,14 @@ void do_firefox(const Context& ctx) {
             ui::substep(std::string("Firefox ") + css);
         }
     }
+    // Dark Reader's settings from the palette (FF_DARK_READER=on): it reads none from the policy file, so they wait in a
+    // file she imports once, in Dark Reader's own settings (Import settings). Synced by Dark Reader after that.
+    if (palette::get(ctx.palette_path, "FF_DARK_READER", "") == "on") {
+        const fs::path src = ctx.rendered_dir / "firefox/darkreader.json";
+        const fs::path dst = (ctx.config_home.empty() ? ctx.home / ".config" : ctx.config_home) / "foxml/firefox/darkreader-settings.json";
+        if (fs::exists(src) && deploy_file(ctx, src, dst))
+            ui::substep("Dark Reader settings: " + dst.string() + " (import once: Dark Reader's settings, Import settings)");
+    }
     fs::path userjs = profile / "user.js";
     std::ifstream existing(userjs);
     std::string body((std::istreambuf_iterator<char>(existing)),
@@ -225,12 +233,18 @@ void do_firefox_addons(const Context& ctx) {
         try { in >> file; } catch (...) { ui::warn(policy.string() + " does not parse — left as it is, Vimium not added"); return; }
     }
     std::vector<std::string> added;
-    for (const auto& addon : firefox_policies::ADDONS) {
+    const auto addons = firefox_policies::addons_for(palette::get(ctx.palette_path, "FF_DARK_READER", "") == "on");
+    for (const auto& addon : addons) {
         const auto merged = firefox_policies::add_extension(file, addon);
         if (merged == firefox_policies::Merge::Refused) { ui::warn(policy.string() + " has a shape Firefox would not read — left as it is"); return; }
         if (merged == firefox_policies::Merge::Added) added.push_back(addon.name);
     }
-    if (added.empty()) { ui::substep("Firefox add-ons already in its policy (Vimium)"); return; }
+    if (added.empty()) {
+        std::string names;
+        for (const auto& addon : addons) names += (names.empty() ? "" : ", ") + std::string(addon.name);
+        ui::substep("Firefox add-ons already in its policy (" + names + ")");
+        return;
+    }
     const fs::path staged = ctx.home / ".cache/foxml/firefox-policies.json";
     fs::create_directories(staged.parent_path(), ec);
     if (!idem::write_atomic(staged, file.dump(2) + "\n")) { ui::warn("could not stage Firefox policies.json"); return; }
@@ -723,7 +737,7 @@ void run_specials(Context& ctx) {
     ui::section("Special configs");
 
     if (sh::dry_run()) {
-        ui::substep("[dry-run] would: Firefox CSS+user.js, Vimium via /etc/firefox/policies (sudo, merged), Cursor/VS Code theme, "
+        ui::substep("[dry-run] would: Firefox CSS+user.js, Vimium (and Dark Reader when the theme asks, its settings file to import) via /etc/firefox/policies (sudo, merged), Cursor/VS Code theme, "
                     "Bat cache rebuild, Claude settings jq-merge, "
                     "hyprland_scripts + waybar_scripts + hyprland_modules (.conf + .lua) + wallpapers + bin deploy, "
                     "hyprland.lua when Hyprland >= 0.57, "

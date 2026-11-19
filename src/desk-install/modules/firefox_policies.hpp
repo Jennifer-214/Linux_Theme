@@ -7,7 +7,9 @@
 
 #include "../../desk-common/json.hpp"
 
+#include <iterator>
 #include <string>
+#include <vector>
 
 namespace desk_install::firefox_policies {
 
@@ -17,6 +19,16 @@ struct Addon { const char* id; const char* slug; const char* name; };
 inline constexpr Addon ADDONS[] = {
     {"{d7742d87-e61d-4b78-b8a1-b469842139fa}", "vimium-ff", "Vimium"},
 };
+// Dark Reader: every site dark, its text in the theme's colours (retro-amber, FF_DARK_READER=on). Its settings cannot
+// come through the policy file (it reads no managed storage), so the installer leaves them in a file to import once.
+inline constexpr Addon DARK_READER = {"addon@darkreader.org", "darkreader", "Dark Reader"};
+
+// The add-ons this theme expects: Vimium always, Dark Reader when the theme asks for it.
+inline std::vector<Addon> addons_for(bool dark_reader) {
+    std::vector<Addon> out(std::begin(ADDONS), std::end(ADDONS));
+    if (dark_reader) out.push_back(DARK_READER);
+    return out;
+}
 
 inline std::string install_url(const Addon& addon) {
     return std::string("https://addons.mozilla.org/firefox/downloads/latest/") + addon.slug + "/latest.xpi";

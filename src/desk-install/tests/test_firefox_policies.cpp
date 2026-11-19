@@ -37,6 +37,16 @@ int main() {
         json file = json::parse(odd), copy = file;
         check(add_extension(file, vimium) == Merge::Refused && file == copy, std::string("refused, untouched: ") + odd);
     }
+    // Dark Reader: added only when the theme asks for it (retro-amber's FF_DARK_READER=on), beside Vimium.
+    const auto plain = addons_for(false), amber = addons_for(true);
+    check(plain.size() == 1 && std::string(plain[0].id) == vimium.id, "a theme that does not ask: Vimium only");
+    check(amber.size() == 2 && std::string(amber[1].id) == "addon@darkreader.org" && std::string(amber[1].slug) == "darkreader",
+          "a theme that asks: Vimium and Dark Reader (addon@darkreader.org, AMO's darkreader)");
+    check(install_url(amber[1]) == "https://addons.mozilla.org/firefox/downloads/latest/darkreader/latest.xpi", "… from AMO's latest");
+    json both = hers;
+    for (const auto& addon : amber) add_extension(both, addon);
+    check(both["policies"]["ExtensionSettings"]["addon@darkreader.org"]["installation_mode"] == "normal_installed"
+          && both["policies"]["ExtensionSettings"]["uBlock0@raymondhill.net"]["install_url"] == "x", "… merged beside her own, switchable off");
     std::printf("test_firefox_policies: %d passed\n", passes);
     return failures ? 1 : 0;
 }
