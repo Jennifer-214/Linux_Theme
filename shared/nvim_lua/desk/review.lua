@@ -567,16 +567,16 @@ function M.changed_symbols(file, tree)
         if not seen[u.ident] then
           seen[u.ident] = true
           local row, col = u.node:start()
-          local at = { [side] = { row, col } }
+          local at, ends = { [side] = { row, col } }, { [side] = (u.node:end_()) }
           -- The same function on the other side of this hunk (its first line rewritten): its name and class alike, its
           -- parameters too when one has them alike; M.structure finds it through the lines the change left alone otherwise.
           local twin
           for _, t in ipairs(found[other]) do
             if t.label == u.label and t.owner == u.owner and (not twin or t.params == u.params) then twin = t end
           end
-          if twin then at[other] = { twin.node:start() }; seen[twin.ident] = true end
+          if twin then at[other] = { twin.node:start() }; ends[other] = (twin.node:end_()); seen[twin.ident] = true end
           result[#result + 1] = { name = u.label, label = u.label, owner = u.owner, params = u.params, cond = u.cond, kind = u.node:type(), side = side,
-            line = row + 1, signature = file.signature, at = at }
+            line = row + 1, signature = file.signature, at = at, ends = ends }
         end
       end
     end
@@ -761,6 +761,34 @@ local function reach_said(f, s)
   if not (got and got.said) then return 'callers…' end
   return got.said
 end
+-- Which test runs ran a changed function (Codex's E1, 2026-11-19): per file, once, the runs that kept coverage of it
+-- (desk.work.coverage_runs: each read at its commit, its lines moved onto the working copy); each function's count
+-- worked out from them. The strip says it under the function; K in the list opens a run's marks on it.
+local covered = {}   -- path → { pending = r } | { runs = { … } }
+local panel          -- defined below (the list redrawn when a file's runs come back)
+M.covered_known = covered
+local function ask_covered(r, f)
+  if covered[f.path] or not r.root or not f.rel or r.row.kind == 'commit' or not M.work_tool() then return end
+  local ok, W = pcall(require, 'desk.work')
+  if not (ok and type(W) == 'table' and W.coverage_runs) then covered[f.path] = { runs = {} }; return end
+  covered[f.path] = { pending = r }
+  W.coverage_runs(r.root, f.rel, f.right or '', function(runs)
+    covered[f.path] = { runs = runs or {} }
+    if M.current == r and not r.closing and #(runs or {}) > 0 then panel(r) end
+  end, M.work_tool())
+end
+-- A function's lines in the working copy (1-based), when it is there.
+local function lines_today(s)
+  local at, ends = s.at and s.at.after, s.ends and s.ends.after
+  if not (at and ends) then return nil end
+  return at[1] + 1, ends + 1
+end
+function M.coverage_line(f, s)
+  local c = f and covered[f.path]
+  local a, b = lines_today(s)
+  if not (c and c.runs and a) then return nil end
+  return require('desk.work').ran_by_said(c.runs, a, b)
+end
 local function calls_said(f, s)
   local st = structure_of(f)
   if not st then return 'calls: reading…' end
@@ -944,9 +972,14 @@ local function describe(r, entry)
       local st = structure_of(f)
       return { s.name, st and st.why or 'Enter jumps to it in the comparison.' }
     end
-    return { s.name .. ' · ' .. reach_said(f, s), calls_said(f, s) }
+    if f then ask_covered(r, f) end
+    local ran = M.coverage_line(f, s)
+    return { s.name .. ' · ' .. reach_said(f, s) .. (ran and (' · ' .. ran) or ''), calls_said(f, s) }
   end
-  if entry.file and files[entry.file] then return with_calls(describe_file(r, set, files[entry.file]), files[entry.file]) end
+  if entry.file and files[entry.file] then
+    ask_covered(r, files[entry.file])   -- ready by the time its functions are unfolded
+    return with_calls(describe_file(r, set, files[entry.file]), files[entry.file])
+  end
   if set then
     local row = set.row
     if row.kind == 'working' then return { 'Working changes · everything not committed yet', 'staged, unstaged, untracked and unsaved drafts' } end
@@ -1156,7 +1189,7 @@ end
 local popout_redraw   -- while the list is in the pop-out, it is drawn there instead (the end of this file)
 local save_view       -- the view's state for the pop-out's history and layout record (the end of this file)
 local ask_reach      -- who calls the changed functions a drawing shows (below)
-local function panel(r, select_row)
+panel = function(r, select_row)
   if r.popout then return popout_redraw(r, select_row) end
   if not api.nvim_buf_is_valid(r.panel_buf) then return end
   if not api.nvim_win_is_valid(r.panel_win) then r.panel_dirty = true; return end
@@ -1788,6 +1821,19 @@ M.rows = actions.add({
     about = 'The project map\'s trace through the selected changed function, in its working version: where its thread starts, where it leads, each step\'s parameters',
     available = function() return (M.current and M.current.symbol and M.current.symbol.side ~= 'before') or 'select a changed function first' end,
     run = function() M.on_map('trace') end },
+  -- K in the list: which test ran it, its marks on it (Codex's E1), as the map's K is a function's known tests. Not in
+  -- the diff panes, where K is the language server's hover. The strip under the function says the runs and counts.
+  { id = 'review.coverage', group = 'Review', name = 'The test that ran this changed function', key = 'K', on = LIST, remote = false,
+    about = "The coverage of the test run that ran most of the selected changed function (or the one you pick), its marks on the working file, the missed lines among them; when the file changed since that run, the version that ran opens beside it",
+    available = function()
+      local r = M.current
+      local s = r and r.symbol
+      if not (s and s.side ~= 'before') then return 'select a changed function first' end
+      local f = r.files and r.files[r.index]
+      if not (f and covered[f.path] and covered[f.path].runs) then return 'no test run kept coverage of this file' end
+      return M.coverage_line(f, s) and true or 'no recorded test run reaches this function'
+    end,
+    run = function() M.coverage_of_symbol() end },
   { id = 'review.on-map', group = 'Review', name = 'Show this commit on the map', key = 'M', on = BOTH, remote = false,
     about = 'The functions this commit changed, on the project map, by file (a file changed since may have moved its lines)',
     available = function() return (M.current and M.current.row and M.current.row.kind == 'commit' and M.current.row.sha) and true or 'select a commit first' end,
@@ -2656,6 +2702,37 @@ function M.tree(rows)
 end
 
 -- U, T and M: the selected changed function (or commit) on the project map.
+-- K: a test run's coverage on the selected changed function (Codex's E1): the run that ran most of it, or the one she
+-- picks when several did; the working file opened at the function and the run's marks put on it (desk.work's
+-- show_coverage: the version that ran beside it when the file changed since).
+function M.coverage_of_symbol(pick)
+  local r = M.current
+  local f = r and r.files and r.files[r.index]
+  local s = r and r.symbol
+  local a, b
+  if s then a, b = lines_today(s) end
+  local c = f and covered[f.path]
+  if not (a and c and c.runs) then return tell('Select a changed function first; its coverage comes from a test run that kept it.') end
+  local W = require('desk.work')
+  local runs = {}
+  for _, run in ipairs(c.runs) do
+    local h = W.function_hits(run, a, b)
+    if h.total > 0 then runs[#runs + 1] = { run = run, h = h, label = run.name .. ' · ' .. h.ran .. ' of ' .. h.total .. ' lines' } end
+  end
+  if #runs == 0 then return tell('No recorded test run reaches ' .. s.name .. '.') end
+  table.sort(runs, function(x, y) return x.h.ran > y.h.ran end)
+  local function show(choice)
+    if not choice then return end
+    local run = choice.run
+    vim.cmd('tabedit ' .. vim.fn.fnameescape(f.path))
+    pcall(api.nvim_win_set_cursor, 0, { a, 0 })
+    W.show_coverage(api.nvim_get_current_buf(), r.root, f.rel, run.cov, { head = run.head, id = run.id, said = run.said,
+      name = 'run ' .. tostring(run.id):sub(1, 8) .. (run.head and (' (' .. run.head:sub(1, 7) .. ')') or '') })
+  end
+  if #runs == 1 then return show(runs[1]) end
+  pick = pick or function(items, done) vim.ui.select(items, { prompt = 'Coverage of which run', format_item = function(x) return x.label end }, done) end
+  pick(runs, show)
+end
 function M.on_map(what)
   local r = M.current
   if not r then return end

@@ -792,6 +792,7 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `Space dm` | Open symdeps in the working C/C++ file near the reviewed line |
 | `U` | The project map's callers of the selected changed function, up three levels — the callers as they are now (on an older commit the page says so); `Backspace` there comes back here |
 | `T` | The project map's trace through the selected changed function, in its working version: where its thread starts, where it leads, each step's parameters |
+| `K` in the file list | The coverage of the test run that ran most of the selected changed function (or the one you pick), its marks on the working file, the missed lines among them; when the file changed since that run, the version that ran opens beside it |
 | `M` | The functions this commit changed, on the project map, by file (a file changed since may have moved its lines) |
 | `gf` | Open the editable working file in a separate tab |
 | `S` | Compare the current struct's layout with the selected commit's parent |

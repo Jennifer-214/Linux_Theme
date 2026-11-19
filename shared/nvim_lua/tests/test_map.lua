@@ -554,6 +554,68 @@ do
   vim.cmd("bwipeout!")
   vim.fn.delete(dir, "rf")
 end
+do
+  -- Which test ran this changed function (Codex's E1, 2026-11-19): each run that kept coverage of the file, its lines
+  -- moved from the version it ran onto today's file, counted over the function's lines today.
+  local W = require("desk.work")
+  local most = { name = "test_most.py", lines = { [21] = 4, [22] = 0, [23] = 1, [30] = 1 }, mapped = { [21] = true, [22] = true, [23] = true, [30] = true } }
+  local some = { name = "test_some.py", lines = { [21] = 2, [22] = 0, [23] = 0 }, mapped = { [21] = true, [22] = true, [23] = true } }
+  eq(W.function_hits(most, 21, 24), { ran = 2, total = 3, new = 1 }, "function_hits: 2 of its 3 executable lines ran; line 24 is new since the run")
+  eq(W.ran_by_said({ some, most }, 21, 24), "ran by test_most.py 2 of 3 · test_some.py 1 of 3 · 1 line new since",
+    "the review's words: each run's count, the most first, and what is new since")
+  local none = { name = "test_none.py", lines = { [21] = 0, [22] = 0 }, mapped = { [21] = true, [22] = true } }
+  eq(W.ran_by_said({ none }, 21, 24), "no test run with coverage ran it (test_none.py 0 of 2)", "… none ran it: said")
+  eq(W.ran_by_said({ most }, 40, 44), nil, "… no executable line of the run in the function: nothing said")
+  -- the runs, fetched: desk-work's suggestions with coverage, each run's lines read at its commit and moved onto today
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir .. "/bin", "p")
+  local function git(...) return vim.system({ "git", "-C", dir, ... }, { text = true }):wait() end
+  git("init", "-q")
+  local body = { "int tick() {", "  if (x) return 1;", "  return 0;", "}" }
+  vim.fn.writefile(body, dir .. "/f.c")
+  git("add", "f.c")
+  git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "f")
+  local head = vim.trim(git("rev-parse", "HEAD").stdout)
+  local suggest = vim.json.encode({ { id = "r1", label = "python3 'test_most.py'", ran = 2, lines = 3 }, { id = "r2", label = "plain", reason = "inferred" } })
+  local cover = vim.json.encode({ ok = true, head = head, command = "python3 test_most.py", files = { ["f.c"] = { lines = { ["1"] = 4, ["2"] = 0, ["3"] = 1 } } } })
+  vim.fn.writefile({ "#!/bin/sh", 'case "$1" in', "  suggest-tests) cat <<'J'", suggest, "J", ";;", "  coverage) cat <<'J'", cover, "J", ";;", "esac" }, dir .. "/bin/desk-work")
+  vim.fn.setfperm(dir .. "/bin/desk-work", "rwxr-xr-x")
+  local today = {}
+  for i = 1, 20 do today[i] = "// " .. i end
+  vim.list_extend(today, body)
+  local got
+  W.coverage_runs(dir, "f.c", table.concat(today, "\n") .. "\n", function(runs) got = runs end, { "sh", dir .. "/bin/desk-work" })
+  ok(vim.wait(5000, function() return got ~= nil end), "coverage_runs answers")
+  eq(got and #got, 1, "… only the run that kept coverage of the file")
+  eq(got and { got[1].name, got[1].id, got[1].head, got[1].lines[21], got[1].lines[22], got[1].lines[23], got[1].lines[1] },
+    { "test_most.py", "r1", head, 4, 0, 1, nil }, "… its lines moved by the twenty added above the function")
+  eq(got and W.ran_by_said(got, 21, 24), "ran by test_most.py 2 of 3", "… and said for the function")
+  -- the review's line for a changed function: from those runs, the function's lines today
+  local R = require("desk.review")
+  local f = { path = dir .. "/f.c", rel = "f.c" }
+  R.covered_known[f.path] = { runs = got }
+  local s = { name = "tick", at = { after = { 20, 0 } }, ends = { after = 23 } }
+  eq(R.coverage_line(f, s), "ran by test_most.py 2 of 3", "the review: the line under a changed function")
+  eq(R.coverage_line(f, { name = "gone", at = { before = { 3, 0 } } }), nil, "… a function the change removed: nothing")
+  -- K on it (in the list): the working file opened at the function, the run's coverage (as it ran, with its commit) handed to
+  -- show_coverage, which puts it on the version that ran when the file changed since
+  local real_current, real_show, shown = R.current, W.show_coverage, nil
+  W.show_coverage = function(buf, root, rel, cov, info) shown = { vim.api.nvim_buf_get_name(buf), root, rel, cov, info.head, info.id, vim.api.nvim_win_get_cursor(0)[1] } end
+  vim.fn.writefile(today, dir .. "/f.c")   -- the working copy: twenty lines above the function since the run
+  R.current = { files = { f }, index = 1, symbol = s, root = dir, row = { kind = "working" } }
+  eq(require("desk.actions").available(require("desk.actions").get("review.coverage"), {}), true, "K: available on a function a run reached")
+  local tabs = #vim.api.nvim_list_tabpages()
+  R.coverage_of_symbol()
+  eq(shown and { vim.fs.basename(shown[1]), shown[2], shown[3], shown[4], shown[5], shown[6], shown[7] },
+    { "f.c", dir, "f.c", got[1].cov, head, "r1", 21 }, "K: the file at the function, the run's coverage as it ran and its commit to show_coverage")
+  eq(#vim.api.nvim_list_tabpages(), tabs + 1, "… in a tab of its own")
+  vim.cmd("tabclose")
+  R.current = { files = { f }, index = 1, symbol = { name = "far", at = { after = { 40, 0 } }, ends = { after = 44 } }, root = dir, row = { kind = "working" } }
+  eq(require("desk.actions").available(require("desk.actions").get("review.coverage"), {}), "no recorded test run reaches this function", "… greyed where no run reached it")
+  R.current, W.show_coverage = real_current, real_show
+  R.covered_known[f.path] = nil
+  vim.fn.delete(dir, "rf")
+end
 -- The trace page: a box per step (the function itself double), its parameters under it, the call between steps with
 -- each argument → the parameter it lands in, and the other callers and callees, Enter-able.
 local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16,

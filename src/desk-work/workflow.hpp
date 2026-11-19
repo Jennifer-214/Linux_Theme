@@ -80,14 +80,39 @@ J suggested_tests(const std::string& root, const std::string& file) {
         const auto counts = row.value("tests", J::object());
         for (const auto& failure : counts.value("failures", J::array()))
             if (str(failure, "filename") == (fs::path(root) / file).string()) { reason = "The captured result reported a failure in this file"; rank = 0; }
+        // Its recorded coverage, the strongest reason (Codex's E1, 2026-11-19): how many of this file's executable lines
+        // the run ran; one that ran none of them goes last.
+        long long ran = -1, total = 0;
+        const auto cov = json(run_dir(str(row, "id")) / "coverage.json");
+        if (cov.is_object() && cov.value("files", J::object()).is_object() && cov["files"].contains(file)) {
+            ran = 0;
+            const J lines = cov["files"][file].value("lines", J::object());
+            for (const auto& [line, count] : lines.items()) {
+                (void)line;
+                ++total;
+                if (count.is_number() && count.get<long long>() > 0) ++ran;
+            }
+            if (total > 0 && ran > 0) {
+                reason = "Ran " + std::to_string(ran) + " of this file's " + std::to_string(total) + " executable lines (its recorded coverage)";
+                rank = -1;
+            } else if (total > 0) {
+                reason = "Its recorded coverage reached none of this file's " + std::to_string(total) + " executable lines";
+                rank = 3;
+            }
+        }
         auto run = load_run(str(row, "id")); freshness(run, source, &trees);
-        result.push_back(J{{"id", str(row, "id")}, {"root", root}, {"cwd", cwd}, {"command", str(row, "command")},
+        J one{{"id", str(row, "id")}, {"root", root}, {"cwd", cwd}, {"command", str(row, "command")},
             {"label", str(row, "title", str(row, "command"))}, {"reason", reason}, {"rank", rank},
             {"stale", run.value("stale", true)}, {"state", str(row, "state")},
-            {"action", J{{"kind", "suggested-test"}, {"id", str(row, "id")}}}});
+            {"action", J{{"kind", "suggested-test"}, {"id", str(row, "id")}}}};
+        if (ran >= 0 && total > 0) { one["ran"] = ran; one["lines"] = total; }
+        result.push_back(one);
         if (result.size() >= 20) break;
     }
-    std::stable_sort(result.begin(), result.end(), [](const J& a, const J& b) { return num(a, "rank") < num(b, "rank"); });
+    // by rank; among runs with coverage, the one that ran more of the file first
+    std::stable_sort(result.begin(), result.end(), [](const J& a, const J& b) {
+        return num(a, "rank") != num(b, "rank") ? num(a, "rank") < num(b, "rank") : num(a, "ran") > num(b, "ran");
+    });
     if (result.size() > 5) result.erase(result.begin() + 5, result.end());
     return result;
 }

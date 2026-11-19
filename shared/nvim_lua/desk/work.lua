@@ -747,6 +747,83 @@ function M.show_coverage(buf, root, rel, cov, info, pick)
   end)
 end
 
+-- ─── which test ran a changed function (Codex's E1, 2026-11-19) ──────────────────────────────────────────────────
+-- A run: { name, id, head, label, cov (as it ran), lines = { [today's line] = count }, mapped = { [today's line] = true } }
+-- (each line it ran at, moved onto today's file; mapped: today's lines that were there when it ran).
+--- pure: a run's executable lines in today's lines a..b, how many ran, and how many of a..b are new since it ran.
+function M.function_hits(run, a, b)
+  local ran, total, new = 0, 0, 0
+  for line = a, b do
+    local c = run.lines[line]
+    if c ~= nil then total = total + 1; if (tonumber(c) or 0) > 0 then ran = ran + 1 end end
+    if not run.mapped[line] then new = new + 1 end
+  end
+  return { ran = ran, total = total, new = new }
+end
+--- pure: the review's words for today's lines a..b: "ran by test_most.py 8 of 11 · startup 3 of 11 · 2 lines new since",
+--- the run that ran most first; nil when no run has an executable line there.
+function M.ran_by_said(runs, a, b)
+  local counted = {}
+  for _, run in ipairs(runs or {}) do
+    local h = M.function_hits(run, a, b)
+    if h.total > 0 then counted[#counted + 1] = { run = run, h = h } end
+  end
+  if #counted == 0 then return nil end
+  table.sort(counted, function(x, y) return x.h.ran > y.h.ran end)
+  local parts = vim.tbl_map(function(c) return c.run.name .. ' ' .. c.h.ran .. ' of ' .. c.h.total end, counted)
+  if counted[1].h.ran == 0 then return 'no test run with coverage ran it (' .. table.concat(parts, ' · ') .. ')' end
+  local new = counted[1].h.new
+  return 'ran by ' .. table.concat(parts, ' · ') .. (new > 0 and (' · ' .. new .. (new == 1 and ' line' or ' lines') .. ' new since') or '')
+end
+local function run_name(label)
+  local last = tostring(label or ''):match('(%S+)%s*$') or tostring(label or '')
+  return (vim.fs.basename((last:gsub('^[\'"]', ''):gsub('[\'"]$', ''))))
+end
+--- The runs that kept coverage of `rel` (desk-work's suggestions, the one that ran most of the file first, at most 3),
+--- each read at its commit and moved onto `today` (the working copy's text). Quiet: a refusal is no runs. → done(runs)
+--- bin: desk-work's path, or a command to run it ({ 'sh', script } in a test: /tmp is noexec here).
+function M.coverage_runs(root, rel, today, done, bin)
+  local prefix = type(bin) == 'table' and bin or { bin or 'desk-work' }
+  local function ask(args, cb)
+    local ok = pcall(vim.system, vim.list_extend(vim.list_slice(prefix), args), { text = true, timeout = 20000 }, vim.schedule_wrap(function(out)
+      local parsed, value = pcall(vim.json.decode, out.stdout or '')
+      cb(out.code == 0 and parsed and type(value) == 'table' and value or nil)
+    end))
+    if not ok then vim.schedule(function() cb(nil) end) end
+  end
+  local now_lines = vim.split((today or ''):gsub('\n$', ''), '\n', { plain = true })
+  ask({ 'suggest-tests', '--root', root, '--file', rel }, function(list)
+    local with = vim.tbl_filter(function(s) return type(s) == 'table' and (tonumber(s.lines) or 0) > 0 end, list or {})
+    with = vim.list_slice(with, 1, 3)
+    local runs, left = {}, #with
+    if left == 0 then return done({}) end
+    for i, s in ipairs(with) do
+      ask({ 'coverage', '--root', root, '--run', s.id, '--file', rel }, function(doc)
+        local cov = doc and doc.files and doc.files[rel]
+        if cov then
+          local head = doc.head ~= vim.NIL and doc.head or nil
+          local then_lines = head and vim.system({ 'git', '-C', root, 'show', head .. ':' .. rel }, { text = true }):wait()
+          then_lines = then_lines and then_lines.code == 0 and vim.split(then_lines.stdout:gsub('\n$', ''), '\n', { plain = true }) or now_lines
+          local map, lines, mapped = M.map_lines(then_lines, now_lines), {}, {}
+          for _, to in pairs(map) do mapped[to] = true end
+          for n, c in pairs(cov.lines or {}) do
+            local to = map[tonumber(n)]
+            if to then lines[to] = c end
+          end
+          runs[i] = { name = run_name(s.label), label = s.label, id = s.id, head = head, cov = cov, lines = lines, mapped = mapped,
+            said = 'run ' .. tostring(s.id):sub(1, 8) .. ' · ' .. tostring(doc.command or s.label) }
+        end
+        left = left - 1
+        if left == 0 then
+          local out = {}
+          for k = 1, #with do if runs[k] then out[#out + 1] = runs[k] end end
+          done(out)
+        end
+      end)
+    end
+  end)
+end
+
 function M.coverage(root)
   local buf = vim.api.nvim_get_current_buf()
   local path = vim.api.nvim_buf_get_name(buf)

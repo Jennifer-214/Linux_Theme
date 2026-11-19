@@ -1277,6 +1277,28 @@ class Work(unittest.TestCase):
         again = self.data("coverage", "--run", other)
         self.assertEqual((again["executable"], again["files"]["engine.c"]["lines"]["2"]), ("/w/build/app", 0), "… another test's run: another branch")
 
+    def test_suggested_tests_put_the_one_that_ran_the_file_first(self):
+        # Codex's E1 (2026-11-19): a run's recorded coverage is the strongest reason; the suggester said "coverage of this
+        # file is not established" even when a run had kept it.
+        def run_test(name, hits):
+            lines = "".join(f"DA:{n},{c}\n" for n, c in zip((1, 2, 3), hits))
+            (self.repo / name).write_text(f"open('lcov.info', 'w').write({('SF:engine.c' + chr(10) + lines + 'end_of_record' + chr(10))!r})\nprint('1 passed')\n")
+            self.invoke("run", "--", sys.executable, name)
+        run_test("test_most.py", (4, 1, 0))
+        run_test("test_some.py", (2, 0, 0))
+        run_test("test_none.py", (0, 0, 0))
+        (self.repo / "test_plain.py").write_text("print('1 passed')\n")
+        self.invoke("run", "--", sys.executable, "test_plain.py")
+        got = self.data("suggest-tests", "--file", "engine.c")
+        name_of = lambda s: s["label"].split()[-1].strip("'\"")
+        by = {name_of(s): s for s in got}
+        self.assertEqual([name_of(s) for s in got][:2], ["test_most.py", "test_some.py"], "the one that ran most of the file first")
+        self.assertEqual(by["test_most.py"]["reason"], "Ran 2 of this file's 3 executable lines (its recorded coverage)")
+        self.assertEqual((by["test_most.py"]["ran"], by["test_most.py"]["lines"]), (2, 3), "… the counts with it, for the review")
+        self.assertEqual(by["test_none.py"]["reason"], "Its recorded coverage reached none of this file's 3 executable lines")
+        self.assertEqual(name_of(got[-1]), "test_none.py", "… and one that ran none of it last")
+        self.assertIn("not established", by["test_plain.py"]["reason"], "a run with no coverage keeps its old reason")
+
     def agent(self, state, *extra):
         return self.data("agent-update", "--agent", "claude", "--session", "s1", "--pid", os.getpid(), "--state", state,
                          "--title", "Queue work", *extra)
