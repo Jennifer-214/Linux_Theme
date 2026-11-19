@@ -512,8 +512,8 @@ eq({ G.target_at(dir .. "/no-such-file.lua", 1) }, { nil, "that file is no longe
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", "m", "r", "q", "gs", "t", "gl", "o" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", "m", "r", "gs", "t", "p", "q", "gl", "o" }, "the panel's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", ">", "m", "r", "q", "gs", "t", "gl", "o" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", ">", "m", "r", "gs", "t", "p", "q", "gl", "o" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do
@@ -724,7 +724,7 @@ end
 -- levels, so a map that knew the function and none of its calls erased level 1 and said "no more callees").
 do
   local Map = require('desk.map')
-  local transport, outgoing = G.transport, 0
+  local transport, outgoing, asked_for = G.transport, 0, {}
   local function raw(name, line, at_uri)
     local range = { start = { line = line, character = 0 }, ['end'] = { line = line, character = 1 } }
     return { name = name, kind = 12, uri = at_uri or uri, range = range, selectionRange = range }
@@ -734,7 +734,10 @@ do
     if method ~= 'callHierarchy/outgoingCalls' then return transport(client, source_buf, method, params, done) end
     outgoing = outgoing + 1
     local name = params.item and params.item.name
-    local found = name == 'M.alpha' and level1 or name == 'callee_of_M.alpha' and { raw('server_level_2', 7) } or {}
+    asked_for = asked_for or {}
+    asked_for[#asked_for + 1] = name
+    local found = name == 'M.alpha' and level1 or name == 'callee_of_M.alpha' and { raw('server_level_2', 7) }
+      or name == 'other_callee' and { raw('other_level_2', 3) } or {}
     vim.defer_fn(function() done(nil, vim.tbl_map(function(r) return { to = r, fromRanges = {} } end, found)) end, 5)
     return function() end
   end
@@ -770,6 +773,30 @@ do
   ok(named(v, 'gamma') and not text(v.drawn.lines):find('M.beta', 1, true),
     '… each function once, at its nearest depth: M.beta is callee_of_M.alpha, and M.alpha the centre')
   G.close_view(v.buf)
+  -- > on one box of level 1: only its own callees as level 2, the other box kept; + then reads the whole level
+  do
+    local saved_level1 = level1
+    level1 = { raw('callee_of_M.alpha', 4), raw('other_callee', 6) }
+    Map.desk_work = function(_, done) vim.schedule(function() done({ ok = true, root = dir, q = 'reach', nodes = { node('alpha', 'M.alpha', 2, 0) }, steps = {} }) end) end
+    local u = G.open({ buf = buf, row = 1, col = 11, name = 'M.alpha', key = 'C2 unfold' })
+    ok(vim.wait(2000, function() return u.graph and u.graph.callees and #u.graph.callees == 2 end), 'C2: two callees at level 1')
+    api.nvim_set_current_win(u.win)
+    G.select(u, named(u, 'callee_of_M.alpha'), true)
+    asked_for = {}
+    key('>')
+    ok(vim.wait(2000, function() return u.graph.layers and u.graph.layers.callees and #u.graph.layers.callees == 2 and not (u.depth_requests or {}).callees end), '> reads one level')
+    eq({ names(u.graph.layers.callees[1]), names(u.graph.layers.callees[2]), vim.tbl_contains(asked_for, 'other_callee') },
+      { { 'callee_of_M.alpha', 'other_callee' }, { 'server_level_2' }, false },
+      ">: that box's own callees alone, the box beside it kept, nothing asked of it")
+    ok(text(u.drawn.lines):find("callee_of_M.alpha's callees only", 1, true), '… and the page says the level holds one branch: ' .. text(u.drawn.lines))
+    key('+')
+    ok(vim.wait(2000, function() return not (u.depth_requests or {}).callees and #names(u.graph.layers.callees[2]) == 2 end), '+ after >: the whole level read again')
+    eq(names(u.graph.layers.callees[2]), { 'other_level_2', 'server_level_2' }, '… both branches')
+    G.select(u, named(u, 'M.alpha'), true)
+    eq(require('desk.actions').available(require('desk.actions').get('callgraph.unfold'), { graph = u }), 'on the centre `+` reads its next level', '> on the centre: says + does that')
+    G.close_view(u.buf)
+    level1 = saved_level1
+  end
   walk.steps[1].mark = 'capped'
   v, asked = expand(walk, 'not read that far')
   eq({ names(v.graph.layers.callees[1]), names(v.graph.layers.callees[2]), asked > 0 }, { { 'callee_of_M.alpha', 'lib_call' }, { 'server_level_2' }, true },

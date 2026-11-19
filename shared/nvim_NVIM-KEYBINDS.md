@@ -302,6 +302,7 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `c` in a graph | Centre the graph on the selected box: its own callers and callees (in the panel and the pop-out it is pinned there; `p` follows again) |
 | `+` in a graph | Read the next level on the selected side. From the centre, expand callees. |
 | `-` in a graph | Collapse the outermost level on the selected side, or cancel the level being read |
+| `>` in a graph | Read the selected box's own callees (or, above the centre, its callers) as the next level, the boxes beside it kept: one branch, where `+` reads the whole level |
 | `m` in a graph | Draw the callers and callees past the first 24 on each level (where it says "+N more") |
 | `r` in a graph | Ask the language server for the graph again (a graph that follows the cursor: for the function under it) |
 | `q` in the graph tab | Close the graph tab |

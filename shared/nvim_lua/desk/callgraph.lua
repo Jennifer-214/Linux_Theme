@@ -102,6 +102,15 @@ local function layers_of(graph, side)
   return (graph.layers or {})[side] or (graph[side] and { graph[side] } or {})
 end
 
+--- pure: the side whose outermost level holds `item` (where > can unfold it), and that level's depth; nil when it
+--- is the centre or on a level with more below it.
+function M.edge_of(graph, item)
+  for _, side in ipairs(SIDES) do
+    local tiers = (graph.layers or {})[side] or (graph[side] and { vim.list_extend(vim.list_slice(graph[side]), graph.hidden and graph.hidden[side] or {}) }) or {}
+    local last = tiers[#tiers]
+    for _, it in ipairs(last or {}) do if it == item then return side, #tiers end end
+  end
+end
 local function identity(item)
   local start = item.range and item.range.start
   if start and item.uri then return table.concat({ item.uri, start.line, item.name or '' }, '\0') end
@@ -863,6 +872,7 @@ local function server_layers(graph, side, depth, active, done)
     if #tiers >= depth or #last == 0 then return done(tiers) end
     at = at + 1
     local item = last[at]
+    while item and graph.unfold_only and identity(item) ~= graph.unfold_only do at = at + 1; item = last[at] end
     if not item then
       if #next_tier == 0 then return done(tiers) end
       table.sort(next_tier, function(a, b) return a.name < b.name end)
@@ -969,19 +979,21 @@ local function map_level(graph, side, answer)
   end
   local level = {}
   for _, item in ipairs(tiers[#tiers] or { graph.center }) do
-    local id, file = id_of(item), (places(item, real)[1] or ''):match('^(.*):%d+$')
-    if not id then
-      if file and file:sub(1, #root + 1) == root .. '/' then return nil end
-    elseif not read[id] then return nil
-    else
-      for _, far in ipairs(outward[id] or {}) do
-        link(graph, item, items[far])
-        local here = places(items[far], real)
-        if not seen[far] and not vim.iter(here):any(function(p) return shown[p] end) then
-          level[#level + 1] = items[far]
-          for _, p in ipairs(here) do shown[p] = true end
+    if not (graph.unfold_only and identity(item) ~= graph.unfold_only) then
+      local id, file = id_of(item), (places(item, real)[1] or ''):match('^(.*):%d+$')
+      if not id then
+        if file and file:sub(1, #root + 1) == root .. '/' then return nil end
+      elseif not read[id] then return nil
+      else
+        for _, far in ipairs(outward[id] or {}) do
+          link(graph, item, items[far])
+          local here = places(items[far], real)
+          if not seen[far] and not vim.iter(here):any(function(p) return shown[p] end) then
+            level[#level + 1] = items[far]
+            for _, p in ipairs(here) do shown[p] = true end
+          end
+          seen[far] = true
         end
-        seen[far] = true
       end
     end
   end
@@ -1027,10 +1039,19 @@ local function with_depth(holder, graph)
   return vim.tbl_extend('force', {}, graph, { notes = notes })
 end
 
-local function change_depth(holder, side, delta, redraw)
+-- only: one box's identity (> on it: its branch alone, Codex's C2); nil reads the whole level.
+local function change_depth(holder, side, delta, redraw, only)
   local graph = holder.graph
   if not (graph and graph.center) then return end
   local count = #layers_of(graph, side)
+  graph.partial = graph.partial or {}
+  -- + after >: the level that holds one branch is read again whole
+  if delta > 0 and not only and graph.partial[side] and graph.partial[side] == count and count > 1 then
+    graph.layers[side] = vim.list_slice(graph.layers[side], 1, count - 1)
+    count = count - 1
+    graph.partial[side] = nil
+    if graph.exhausted then graph.exhausted[side] = nil end
+  end
   local requests = holder.depth_requests or {}
   holder.depth_requests = requests
   if delta < 0 then
@@ -1041,12 +1062,13 @@ local function change_depth(holder, side, delta, redraw)
       graph.layers[side] = vim.list_slice(graph.layers[side], 1, count - 1)
       if graph.exhausted then graph.exhausted[side] = nil end
       if graph.layer_note then graph.layer_note[side] = nil end
+      if graph.partial[side] and graph.partial[side] >= count then graph.partial[side] = nil end
       redraw()
     end
     return
   end
-  if requests[side] or (graph.exhausted or {})[side] then return end
-  local request = { depth = count + 1 }
+  if requests[side] or ((graph.exhausted or {})[side] and not only) then return end
+  local request = { depth = count + 1, only = only }
   requests[side] = request
   local function active() return holder.graph == graph and holder.depth_requests == requests and requests[side] == request end
   local function finish(tiers, source, note)
@@ -1059,13 +1081,21 @@ local function change_depth(holder, side, delta, redraw)
       graph.layers[side], graph.layer_source[side] = tiers, source
       if source == 'map' then graph.message = nil end
       if #tiers < request.depth then
-        graph.exhausted[side] = true
-        graph.layer_note[side] = note or ('no more ' .. side)
+        if request.only then
+          graph.layer_note[side] = note or ((request.name or 'it') .. (side == 'callees' and ' calls nothing found' or ': no callers found'))
+        else
+          graph.exhausted[side] = true
+          graph.layer_note[side] = note or ('no more ' .. side)
+        end
+      elseif request.only then
+        graph.partial[side] = request.depth
+        graph.layer_note[side] = note or ('level ' .. (side == 'callees' and '+' or '-') .. request.depth .. ': ' .. (request.name or 'one box') .. "'s " .. side .. ' only · ' .. M.typed('expand') .. ' reads the whole level')
       end
     end
     redraw()
   end
   redraw()
+  graph.unfold_only = only
   local job = map_layers(graph, side, request.depth, active, function(tiers, note)
     if tiers then return finish(tiers, 'map', note) end
     request.cancel = server_layers(graph, side, request.depth, active, function(answer, why) finish(answer, 'server', why) end)
@@ -1655,6 +1685,34 @@ local ROWS = actions.add({
     end },
   depth_row(1, 'expand', '+', 'Expand call depth'),
   depth_row(-1, 'collapse', '-', 'Collapse call depth'),
+  -- > on a box at the edge of its side: its own next level alone, its siblings kept (Codex's C2: + reads a whole side)
+  { id = 'callgraph.unfold', group = 'Call graph', name = "Unfold this box's next level", key = '>', on = BOTH, remote = true, subject = subject,
+    about = "Read the selected box's own callees (or, above the centre, its callers) as the next level, the boxes beside it kept: one branch, where `+` reads the whole level",
+    available = function(ctx)
+      local holder = ctx.view or ctx.graph
+      local graph = holder and holder.graph
+      local item = selected_item(ctx)
+      if not (graph and graph.center and item) then return 'no box is selected' end
+      if item == graph.center then return 'on the centre `+` reads its next level' end
+      if graph.reading then return 'reading the call hierarchy' end
+      local side, at = M.edge_of(graph, item)
+      if not side then return 'only a box on the outermost level unfolds (the levels below it are shown)' end
+      if (holder.depth_requests or {})[side] then return 'already reading this side' end
+      return true
+    end,
+    run = function(ctx)
+      local holder = ctx.view or ctx.graph
+      local item = selected_item(ctx)
+      local side = holder and holder.graph and item and M.edge_of(holder.graph, item)
+      if not side then return end
+      change_depth(holder, side, 1, function()
+        if ctx.view then return pop().redraw(holder) end
+        if holder == panel then return panel_show(holder.graph, true) end
+        render(holder, true)
+      end, identity(item))
+      local request = (holder.depth_requests or {})[side]
+      if request then request.name = tostring(item.name or '') end
+    end },
   -- m and gs on every graph, the panel too (2026-11-16: there m set a Vim mark and gs slept a second).
   { id = 'callgraph.more', group = 'Call graph', name = 'Show every caller and callee', key = 'm', on = BOTH, remote = true,
     about = 'Draw the callers and callees past the first ' .. M.MAX .. ' on each level (where it says "+N more")',
