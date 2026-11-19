@@ -167,6 +167,18 @@ if has_parser("cpp") then
   local push_params = by_label["Ring_Push"].params
   eq({ push_params[1].writes, push_params[1].reads, push_params[2].reads }, { { "head" }, nil, { "px" } }, "r->head written, t.px read")
   eq(by_label["FanOut"].params[1].reads, { "tick_ring" }, "… &core->tick_ring passed on is core's tick_ring read")
+  -- The review's rows (desk.review, which reads C++ with the same parser): methods of two classes named alike, and
+  -- overloads, each a row of its own.
+  local Rv = require("desk.review")
+  local BOOK = "struct Bids {\n  void flush() {\n    a();\n  }\n};\nstruct Asks {\n  void flush() {\n    b();\n  }\n};\nvoid send(int o) {\n  c();\n}\nvoid send(double c) {\n  d();\n}\n"
+  local after = BOOK:gsub("a%(%);", "a(); x();"):gsub("b%(%);", "b(); y();"):gsub("c%(%);", "c(); z();"):gsub("d%(%);", "d(); w();")
+  local book = { rel = "book.cpp", left = BOOK, right = after, loaded = true, signature = "book",
+    hunks = (vim.text and vim.text.diff or vim.diff)(BOOK, after, { result_type = "indices", algorithm = "histogram", linematch = 60 }) }
+  eq(vim.tbl_map(function(s) return s.name end, Rv.changed_symbols(book)), { "Bids::flush()", "Asks::flush()", "send(int o)", "send(double c)" },
+    "review: flush on two classes and two send overloads, each its own row, named by class and parameters")
+  local st = Rv.structure(book)
+  eq({ st.calls["Bids::flush()"].added, st.calls["Asks::flush()"].added, st.calls["send(double c)"].added }, { { "x" }, { "y" }, { "w" } },
+    "… each compared with itself")
 else skipped[#skipped + 1] = "cpp (no parser)" end
 
 -- The same headless, as desk-work runs it: a request file in, the answer written to a file.

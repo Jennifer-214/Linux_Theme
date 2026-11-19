@@ -405,6 +405,32 @@ local function label_of(node, name, src)
   return vim.trim((label or node:type()):gsub('%s+', ' ')):sub(1, 72)
 end
 
+-- Whose a unit is and what it takes: the classes and namespaces it is inside ("Book::Side"), and its parameters as
+-- written ("(const Order& o)"), both '' when it has none — what tells overloads and same-named methods apart.
+local OWNERS = { class_specifier = true, struct_specifier = true, namespace_definition = true, class_definition = true,
+  impl_item = true, struct_item = true, class_declaration = true }
+local function owner_of(node, src)
+  local names, at = {}, node:parent()
+  while at do
+    if OWNERS[at:type()] then
+      local name = at:field('name')[1] or at:field('type')[1]
+      if name then table.insert(names, 1, (vim.treesitter.get_node_text(name, src):gsub('%s+', ''))) end
+    end
+    at = at:parent()
+  end
+  return table.concat(names, '::')
+end
+local function params_of(node, src)
+  local d, params = node, nil
+  for _ = 1, 8 do
+    if not d then break end
+    params = d:field('parameters')[1]
+    if params then break end
+    d = d:field('declarator')[1]
+  end
+  return params and vim.trim((vim.treesitter.get_node_text(params, src):gsub('%s+', ' '))):sub(1, 60) or ''
+end
+
 -- The unit that starts at { row, col } (0-based) of a tree, or nil.
 local function unit_at(root, at)
   local node = M.unit_of(root:named_descendant_for_range(at[1], at[2], at[1], at[2]))
@@ -452,10 +478,13 @@ local function copies(file, lang)
   end
 end
 
--- A file's changed functions, one row per name (the first change of that name), each with where it starts in the copies
--- it was found in (at.before, at.after: 0-based), so its calls and its callers are that function's and never another's
--- of the same name: an anonymous function is named by its first line, and methods, overloads and #ifdef twins share
--- names. A change outside every function is a row of its lines. tree: copies(), when the caller reads the trees too.
+-- A file's changed functions, one row per function — by its name, whose it is (its class) and its parameters, so
+-- send(Order) and send(Cancel), or flush on two classes, are two rows, each with its own callers (named so only where
+-- names collide: "send(const Order& o)", "Book::flush"); a function found in both copies (its parameters edited too)
+-- is one row. Each says where it starts in the copies it was found in (at.before, at.after: 0-based), so its calls and
+-- its callers are that function's and never another's of the same name; `label` is its name as written, what finds it
+-- in a tree again. #ifdef twins (the same name, class and parameters) stay one row, the first change's. A change
+-- outside every function is a row of its lines. tree: copies(), when the caller reads the trees too.
 function M.changed_symbols(file, tree)
   if file.symbols then return file.symbols end
   local result, seen = {}, {}
@@ -473,7 +502,9 @@ function M.changed_symbols(file, tree)
       local node, name = M.unit_of(root:named_descendant_for_range(row, 0, row, 0))
       if node and not ids[node:id()] then
         ids[node:id()] = true
-        out[#out + 1] = { node = node, label = label_of(node, name, src) }
+        local u = { node = node, label = label_of(node, name, src), owner = owner_of(node, src), params = params_of(node, src) }
+        u.ident = u.owner .. '\0' .. u.label .. '\0' .. u.params
+        out[#out + 1] = u
       end
     end
     return out
@@ -483,16 +514,19 @@ function M.changed_symbols(file, tree)
     for _, side in ipairs({ 'after', 'before' }) do
       local other = side == 'after' and 'before' or 'after'
       for _, u in ipairs(found[side]) do
-        if not seen[u.label] then
-          seen[u.label] = true
+        if not seen[u.ident] then
+          seen[u.ident] = true
           local row, col = u.node:start()
           local at = { [side] = { row, col } }
-          -- The same function on the other side of this hunk (its first line rewritten); M.structure finds it through
-          -- the lines the change left alone otherwise.
-          for _, twin in ipairs(found[other]) do
-            if twin.label == u.label then at[other] = { twin.node:start() }; break end
+          -- The same function on the other side of this hunk (its first line rewritten): its name and class alike, its
+          -- parameters too when one has them alike; M.structure finds it through the lines the change left alone otherwise.
+          local twin
+          for _, t in ipairs(found[other]) do
+            if t.label == u.label and t.owner == u.owner and (not twin or t.params == u.params) then twin = t end
           end
-          result[#result + 1] = { name = u.label, kind = u.node:type(), side = side, line = row + 1, signature = file.signature, at = at }
+          if twin then at[other] = { twin.node:start() }; seen[twin.ident] = true end
+          result[#result + 1] = { name = u.label, label = u.label, owner = u.owner, params = u.params, kind = u.node:type(), side = side,
+            line = row + 1, signature = file.signature, at = at }
         end
       end
     end
@@ -503,6 +537,15 @@ function M.changed_symbols(file, tree)
     end
   end
   table.sort(result, function(a, b) return a.line < b.line end)
+  -- Rows that share a name: each named by its class and parameters too.
+  local by_name = {}
+  for _, row in ipairs(result) do if row.kind ~= 'hunk' then by_name[row.label] = (by_name[row.label] or 0) + 1 end end
+  for _, row in ipairs(result) do
+    if (by_name[row.label] or 0) > 1 then
+      local owned = row.owner ~= '' and not row.label:find('::', 1, true) and not row.label:find('.', 1, true)
+      row.name = (owned and (row.owner .. '::') or '') .. row.label .. row.params
+    end
+  end
   file.symbols = result
   return result
 end
@@ -579,13 +622,18 @@ local function unit_on(file, s, side, tree, by_label)
     local node = unit_at(root, { row, at[other][2] })
     if not node then return nil end
     local _, name = M.unit_of(node)
-    if label_of(node, name, src) == s.name then return node, src end
+    if label_of(node, name, src) == (s.label or s.name) then return node, src end
     return nil
   end
-  for _, node in ipairs(by_label(side)[s.name] or {}) do
+  local first
+  for _, node in ipairs(by_label(side)[s.label or s.name] or {}) do
     local start = node:start()
-    if start >= from and start < to then return node, src end
+    if start >= from and start < to then
+      if not s.params or params_of(node, src) == s.params then return node, src end
+      first = first or node
+    end
   end
+  if first then return first, src end
 end
 -- The parser M.structure reads a file with; nil and why when it reads nothing (nil alone: nothing to read).
 M.STRUCTURE_MAX = 512 * 1024
@@ -1191,7 +1239,7 @@ local function unit_here(r, root, buf, s)
   local node = at and unit_at(root, at)
   if node then
     local _, name = M.unit_of(node)
-    if label_of(node, name, buf) == s.name then return node end
+    if label_of(node, name, buf) == (s.label or s.name) then return node end
   end
   local tick = api.nvim_buf_get_changedtick(buf)
   r.buffer_units = r.buffer_units or {}
@@ -1201,7 +1249,7 @@ local function unit_here(r, root, buf, s)
     r.buffer_units[buf] = known
   end
   local best, gap
-  for _, unit in ipairs(known.units[s.name] or {}) do
+  for _, unit in ipairs(known.units[s.label or s.name] or {}) do
     local d = math.abs(unit:start() - (s.line - 1))
     if not best or d < gap then best, gap = unit, d end
   end
@@ -1245,6 +1293,7 @@ end
 -- this file), then the one of that name in this file; false when this checkout has no map built (asked again after
 -- half a minute).
 local function ask_map(r, job, done)
+  local collided = job.s.label and job.s.label ~= job.s.name
   local ok, map = pcall(require, 'desk.map')
   if not ok or type(map) ~= 'table' or type(map.desk_work) ~= 'function' or (map_missing[r.root] or 0) > os.time() then return false end
   local function count(answer)
@@ -1271,11 +1320,21 @@ local function ask_map(r, job, done)
       local mine = vim.tbl_filter(function(c) return type(c) == 'table' and c.file == job.f.rel and type(c.id) == 'string' end,
         type(answer.candidates) == 'table' and answer.candidates or {})
       if #mine == 1 and step < 3 then return ask(mine[1].id, 3) end
-      if step == 1 then return ask(job.s.name, 2) end
+      -- Overloads (or same-named methods) of this file: the one that starts nearest this row's line.
+      if #mine > 1 and step < 3 and collided then
+        local best
+        for _, c in ipairs(mine) do
+          if type(c.line) == 'number' and (not best or math.abs(c.line - job.s.line) < math.abs(best.line - job.s.line)) then best = c end
+        end
+        if best then return ask(best.id, 3) end
+      end
+      if step == 1 then return ask(job.s.label or job.s.name, 2) end
       done('callers: not in the project map', { source = 'map' })
     end, 5000)
   end
-  ask(job.f.rel .. '::' .. job.s.name, 1)
+  -- A name another row of this file shares is never asked by its id (rel::name is the first of them): by name, then
+  -- the candidate at its line.
+  if collided then ask(job.s.label, 2) else ask(job.f.rel .. '::' .. job.s.name, 1) end
   return true
 end
 run_reach = function(r)

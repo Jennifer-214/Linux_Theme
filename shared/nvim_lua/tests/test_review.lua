@@ -134,6 +134,19 @@ local NESTED = "local function outer()\n  local function save(item)\n    return 
 eq(calls(structure("nested.lua", NESTED, (NESTED:gsub("save%(item%)\n", "save(item, now)\n    check(item)\n"))), "save"), "+check",
   "an indented function whose first line the change rewrote: still compared with itself")
 
+-- Same name, different parameters (#if branches, C++ overloads): a row each, named by its parameters, each with its
+-- own calls; a function whose parameters the change edits stays one row.
+local SENDS = "#if A\nvoid send(int order) { a(); }\n#else\nvoid send(long cancel) { b(); }\n#endif\n"
+local sends = { rel = "sends.c", left = SENDS, right = (SENDS:gsub("a%(%);", "a(); d();"):gsub("b%(%);", "b(); e();")), loaded = true }
+sends.signature = vim.fn.sha256(sends.left .. "\0" .. sends.right)
+sends.hunks = (vim.text and vim.text.diff or vim.diff)(sends.left, sends.right, { result_type = "indices", algorithm = "histogram", linematch = 60 })
+eq(vim.tbl_map(function(s) return s.name end, R.changed_symbols(sends)), { "send(int order)", "send(long cancel)" },
+  "two changed send()s with different parameters: two rows, each named by what it takes")
+local sent = R.structure(sends)
+eq({ calls(sent, "send(int order)"), calls(sent, "send(long cancel)") }, { "+d", "+e" }, "… each compared with itself: its own calls")
+eq(vim.tbl_map(function(s) return s.name end, R.changed_symbols({ rel = "one.c", left = "void f(int a) { x(); }\n", right = "void f(int a, int b) { x(); }\n",
+  loaded = true, signature = "one", hunks = { { 1, 1, 1, 1 } } })), { "f" }, "a function whose parameters the change edits: one row, by its name alone")
+
 -- The language server is asked about the function the row names: at the first of two closures alike, when that is the
 -- one the change is in.
 local asked, cancels = {}, 0
