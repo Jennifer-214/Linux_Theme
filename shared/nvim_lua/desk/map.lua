@@ -1102,6 +1102,15 @@ end
 M.base_type = base_type
 
 local LETTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+--- pure: each member's letter as the byte map draws it, its offset and size: { [name] = { letter, off, size } }
+--- (Codex's #10: the same letter in the byte map, the uses and the field table answers "which bytes does it write?").
+function M.member_letters(rec)
+  local out = {}
+  for i, mb in ipairs(rec and rec.members or {}) do
+    if mb.name and LETTERS:sub(i, i) ~= '' then out[mb.name] = { letter = LETTERS:sub(i, i), off = mb.off, size = mb.size } end
+  end
+  return out
+end
 -- A member's size as said: bits for a bit-field, bytes, or ? where symdeps could not tell.
 local function member_size(mb)
   if mb.bit_hi then return (mb.bit_hi - mb.bit_lo + 1) .. ' bits' end
@@ -1213,12 +1222,12 @@ function M.omitted(shown, more)
   if not more or more <= 0 then return nil end
   return shown .. ' shown · ' .. more .. ' more omitted'
 end
-local function listed(names, group, item, lit, more)
+local function listed(names, group, item, lit, more, label)
   local parts = {}
   for i, n in ipairs(names) do
     local hit = item and item(n) or nil
     local mark = lit and lit(n) and (lit(n) .. ' ') or ''
-    parts[#parts + 1] = { mark .. n .. (i < #names and ' · ' or ''), hit, nil, (mark ~= '' and 'DeskMapFocus') or group, hang = i == 1 }
+    parts[#parts + 1] = { mark .. (label and label(n) or n) .. (i < #names and ' · ' or ''), hit, nil, (mark ~= '' and 'DeskMapFocus') or group, hang = i == 1 }
   end
   local said = M.omitted(#names, more)
   if said then parts[#parts + 1] = { '   (' .. said .. ')', nil, true, 'DeskMapDim' } end
@@ -1422,17 +1431,35 @@ function M.trace_page(answer, folds, layouts, field)
     end)
     -- What it reads and writes of each parameter (struct consumption), a line each way.
     local used = vim.tbl_filter(function(prm) return #(prm.reads or {}) > 0 or #(prm.writes or {}) > 0 end, params)
+    -- A field laid out by symdeps: its byte map letter, offset and size beside it (one layout of the type only).
+    local function letters_for(prm)
+      local got = st.file and layouts[st.file]
+      local want, found = base_type(prm.type), nil
+      for _, rec in ipairs(got and got.records or {}) do
+        if base_type(rec.name) == want then
+          if found and layout_signature(found) ~= layout_signature(rec) then return nil end
+          found = found or rec
+        end
+      end
+      if not found then return nil end
+      local by = M.member_letters(found)
+      return function(path)
+        local l = by[path:match('^[^.]+')]
+        if not l then return path end
+        return l.letter .. ' ' .. path .. ' @' .. tostring(l.off) .. (l.size and (' ' .. l.size .. 'B') or '')
+      end
+    end
     fold('uses', 'uses', #used, function()
       local rows, wname = {}, 0
       for _, prm in ipairs(used) do wname = math.max(wname, vim.fn.strdisplaywidth(prm.name)) end
       for _, prm in ipairs(used) do
         local name = prm.name .. string.rep(' ', wname - vim.fn.strdisplaywidth(prm.name))
         if #(prm.reads or {}) > 0 then
-          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  reads   ', nil, true, 'DeskMapDim' } }, listed(prm.reads, nil, field_hit(prm), field_lit(prm), prm.reads_more))
+          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  reads   ', nil, true, 'DeskMapDim' } }, listed(prm.reads, nil, field_hit(prm), field_lit(prm), prm.reads_more, letters_for(prm)))
           name = string.rep(' ', wname)
         end
         if #(prm.writes or {}) > 0 then
-          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  writes  ', nil, true, 'DeskMapDim' } }, listed(prm.writes, 'DeskMapFocus', field_hit(prm), field_lit(prm), prm.writes_more))
+          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  writes  ', nil, true, 'DeskMapDim' } }, listed(prm.writes, 'DeskMapFocus', field_hit(prm), field_lit(prm), prm.writes_more, letters_for(prm)))
         end
       end
       return rows
@@ -1486,7 +1513,8 @@ function M.trace_page(answer, folds, layouts, field)
                 local mb = member[head]
                 if mb and not named[head] then
                   named[head] = true
-                  touched[#touched + 1] = head .. '@' .. mb.off .. ' ' .. member_size(mb)
+                  local l = M.member_letters(rec)[head]
+                  touched[#touched + 1] = (l and (l.letter .. ' ') or '') .. head .. '@' .. mb.off .. ' ' .. member_size(mb)
                 end
               end
             end

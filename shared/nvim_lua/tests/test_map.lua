@@ -375,7 +375,16 @@ local TICK = { name = "tt::Tick<double>", size = 32, align = 8, complete = true,
   { kind = "field", name = "seq", type = "long", off = 16, size = 8 },
   { kind = "field", name = "ts", type = "long", off = 24, size = 8 } } }
 local laid = Map.layout(Map.trace_page(trace_answer, lay, { ["e.cpp"] = { records = { TICK } } }), 90, false)
-ok(line_with(laid.lines, "║     t  Tick  32 B, align 8 · 1 line · 6 B padding") and line_with(laid.lines, "║         touches  px@0 8 B · ts@24 8 B · seq@16 8 B"),
+-- One letter per field (Codex's #10): the byte map's letter, offset and size beside each field the step uses.
+do
+  local used = Map.layout(Map.trace_page(trace_answer, { ["e.cpp::tick|uses"] = true }, { ["e.cpp"] = { records = { TICK } } }), 110, false)
+  ok(line_with(used.lines, "reads   a px @0 8B · e ts @24 8B") and line_with(used.lines, "writes  d seq @16 8B"),
+    "the uses: each field with its byte map letter, offset and size\n" .. table.concat(used.lines, "\n"))
+  eq(Map.member_letters(TICK).seq, { letter = "d", off = 16, size = 8 }, "… the letters the byte map gives")
+  local plain = Map.layout(Map.trace_page(trace_answer, { ["e.cpp::tick|uses"] = true }), 110, false)
+  ok(line_with(plain.lines, "reads   px · ts"), "… and the names alone while no layout is known")
+end
+ok(line_with(laid.lines, "║     t  Tick  32 B, align 8 · 1 line · 6 B padding") and line_with(laid.lines, "║         touches  a px@0 8 B · e ts@24 8 B · d seq@16 8 B"),
   "… its size, alignment, cache lines, its padding, and the fields this function touches with their offsets and sizes")
 local row0 = line_with(laid.lines, " 0 │aaaaaaaa ▒c······│")
 ok(row0 and line_with(laid.lines, "16 │dddddddd eeeeeeee│"), "the byte map: a letter per member over its bytes (a bit-field's by its bits), ▒ where bit-fields share one, · padding")
