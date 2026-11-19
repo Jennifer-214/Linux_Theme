@@ -1405,6 +1405,7 @@ local plugins = {
         { "<leader>f", group = "find" },
         { "<leader>g", group = "git" },
         { "<leader>h", group = "harpoon" },
+        { "<leader>i", group = "investigate this function" },  -- desk: the same letters in code, the graph, the map and review
         { "<leader>j", group = "Jupyter" },      -- only in .ipynb buffers (desk-jupyter)
         { "<leader>k", group = "multicursor" },
         { "<leader>m", group = "tasks" },

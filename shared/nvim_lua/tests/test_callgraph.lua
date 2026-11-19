@@ -525,8 +525,8 @@ eq({ G.target_at(dir .. "/no-such-file.lua", 1) }, { nil, "that file is no longe
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "gj", "gk", "s", "<CR>", "<BS>", "c", "+", "-", "I", ">", "r", "q", "gs", "t", "T", "gl", "o" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "gj", "gk", "s", "<CR>", "c", "+", "-", "I", ">", "r", "gs", "t", "T", "p", "q", "gl", "o" }, "the panel's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "gj", "gk", "s", "<CR>", "<BS>", "c", "+", "-", "I", ">", "r", "q", "gs", "t", "T", "gl", "o", "<leader>ic", "<leader>it", "<leader>iT", "<leader>iu", "<leader>id", "<leader>ik", "<leader>ir" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "gj", "gk", "s", "<CR>", "c", "+", "-", "I", ">", "r", "gs", "t", "T", "p", "q", "gl", "o", "<leader>ic", "<leader>it", "<leader>iT", "<leader>iu", "<leader>id", "<leader>ik", "<leader>ir" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do

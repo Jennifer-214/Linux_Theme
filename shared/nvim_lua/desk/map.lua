@@ -4247,6 +4247,79 @@ M.view_kind = {
 -- Registered as the module loads (not when it runs headless as the syntax reader), so its Views row is in the registry.
 if not headless then pop().kind(M.view_kind) end
 
+-- ─── Space i: investigate this function (I1, 2026-11-19) ────────────────────────────────────────────────────────
+-- One prefix for every question about a function, wherever it is pressed: in code the function at the cursor, on a
+-- call graph the selected box, on the map the selected function, in the review the selected changed function. The
+-- same letters everywhere (which-key lists them after Space i); each runs the existing action, nothing of its own.
+--- The function a Space i key is about → { path, line, name } or nil and why.
+function M.function_here(ctx)
+  ctx = ctx or {}
+  local surface = ctx.surface or ''
+  if ctx.review or surface:match('^review') then
+    local r = ctx.review or (package.loaded['desk.review'] or {}).current
+    local f, s = r and r.files and r.files[r.index], r and r.symbol
+    if f and s and s.line and s.side ~= 'before' and s.kind ~= 'hunk' then return { path = f.path, line = s.line, name = s.name } end
+    return nil, 'select a changed function first'
+  end
+  local function from_item(item)
+    if item and item.uri and item.range and item.range.start then
+      return { path = vim.uri_to_fname(item.uri), line = item.range.start.line + 1, name = item.name }
+    end
+  end
+  if ctx.map then
+    local item = about_item(ctx.map, ctx)
+    local node = item and item.target and item.target.node
+    if node and node.file then return { path = ctx.map.root .. '/' .. node.file, line = node.line or 1, name = node.label } end
+    return nil, 'select a function first'
+  end
+  if ctx.graph or surface:match('^callgraph') then
+    local item = ctx.view and ctx.item or (ctx.graph and require('desk.callgraph').selected(ctx.graph))
+    return from_item(item) or nil, 'select a function first'
+  end
+  if ctx.view then return from_item(ctx.item) or nil, 'select a function first' end
+  local buf = ctx.buf or api.nvim_get_current_buf()
+  local path = vim.bo[buf].buftype == '' and api.nvim_buf_get_name(buf) or ''
+  if path == '' then return nil, 'put the cursor in a function of a file first' end
+  local win = ctx.win and api.nvim_win_is_valid(ctx.win) and ctx.win or api.nvim_get_current_win()
+  return { path = path, line = api.nvim_win_get_cursor(win)[1] }
+end
+local INVESTIGATE_ON = { 'editor', 'callgraph', 'callgraph-panel', 'map', 'review-list', 'review-diff' }
+local function investigate(verb, letter, name, about, run)
+  return { id = 'investigate.' .. verb, group = 'This function', name = name, key = '<leader>i' .. letter, on = INVESTIGATE_ON, remote = true,
+    about = about,
+    available = function(ctx) local f, why = M.function_here(ctx); return f and true or why end,
+    run = function(ctx)
+      local f, why = M.function_here(ctx)
+      if not f then return tell(why:sub(1, 1):upper() .. why:sub(2) .. '.') end
+      run(f, ctx)
+    end }
+end
+local INVESTIGATE = actions.add({
+  investigate('graph', 'c', 'Its call graph', 'The call graph of the function: in a tab here, in the pop-out from there', function(f, ctx)
+    local G = require('desk.callgraph')
+    local target, why = G.target_at(f.path, f.line, f.name)
+    if not target then return tell(why:sub(1, 1):upper() .. why:sub(2) .. '.') end
+    if ctx.view then return pop().show('graph', { target = target }, { pop = ctx.view.pop or 1 }) end
+    G.open(target)
+  end),
+  investigate('trace', 't', 'Trace a possible path through it', 'One lane through the function: up to where it starts, down to where it ends (the map\'s `t`)',
+    function(f, ctx) M.trace_at(f.path, f.line, { pop = ctx.view and ctx.view.pop }) end),
+  investigate('trace-all', 'T', 'Its whole trace', 'Every way through the function in one picture: what leads to it, what it leads to (the map\'s `T`)',
+    function(f, ctx) M.trace_at(f.path, f.line, { pop = ctx.view and ctx.view.pop, q = 'flow' }) end),
+  investigate('callers', 'u', 'Who calls it (up)', 'Who calls the function, up the calls, on the project map (the map\'s `U`)',
+    function(f) M.walk_at('callers', f.path, f.line) end),
+  investigate('reach', 'd', 'What it reaches (down)', 'Everything the function reaches, down the calls, on the project map (the map\'s `D`)',
+    function(f) M.walk_at('reach', f.path, f.line) end),
+  investigate('tests', 'k', 'Known tests', 'The test commands desk-work has seen touch its file, the one that ran most of it first (the map\'s `K`)',
+    function(f) require('desk.work').suggested_tests(f.path) end),
+  investigate('coverage', 'r', 'Which test ran it', 'The coverage of a test run marked on its file: which lines of it ran (and, from the review, on the changed function)',
+    function(f, ctx)
+      if ctx.review or (ctx.surface or ''):match('^review') then return require('desk.review').coverage_of_symbol() end
+      if ctx.surface ~= 'editor' then require('desk.nav').open_code(f.path, f.line) end
+      require('desk.work').coverage()
+    end),
+})
+
 -- ─── setup ─────────────────────────────────────────────────────────────────────────────────────────────────────
 local set = false
 function M.setup()
@@ -4256,6 +4329,7 @@ function M.setup()
   api.nvim_create_user_command('ProjectMapBuild', function(o) M.build(o.args ~= '' and o.args or nil) end,
     { nargs = '?', complete = 'file', desc = 'Rebuild the project map in the background (optionally reading a binary)' })
   actions.map('editor', { rows = ROWS })
+  actions.map('editor', { rows = INVESTIGATE })
 end
 
 -- nvim --headless --clean -l …/desk/map.lua --syntax-graph REQUEST ANSWER: desk-work's syntax reader (the top of this

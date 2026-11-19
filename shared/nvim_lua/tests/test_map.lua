@@ -1104,7 +1104,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "T", "x", "a", "F", "K", "y", "gs", "P", "gP", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "T", "x", "a", "F", "K", "y", "gs", "P", "gP", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "k", "h", "l", "<leader>ic", "<leader>it", "<leader>iT", "<leader>iu", "<leader>id", "<leader>ik", "<leader>ir" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -2136,6 +2136,46 @@ do
   ok(vim.wait(1000, function() return asked[#asked]:find("--q flow --from e.cpp::drain", 1, true) ~= nil end), "T on a function: the whole trace through it")
   pv.stack, Map.desk_work, P.host.history = stack, inner, history
   pv.pinned = false
+end
+-- Space i, "investigate this function" (I1, 2026-11-19): the function here, wherever Space i is pressed (code, the call
+-- graph, the map, the review), by one letter each; every letter the existing action, nothing of its own.
+do
+  local Gm, Wk, Rv = require("desk.callgraph"), require("desk.work"), require("desk.review")
+  local calls, real = {}, { Map.trace_at, Map.walk_at, Wk.suggested_tests, Rv.current }
+  Map.trace_at = function(path, line, opts) calls[#calls + 1] = { "trace", vim.fs.basename(path), line, opts and opts.q or "trace" } end
+  Map.walk_at = function(q, path, line) calls[#calls + 1] = { q, vim.fs.basename(path), line } end
+  Wk.suggested_tests = function(path) calls[#calls + 1] = { "tests", vim.fs.basename(path) } end
+  eq({ A.key("investigate.trace"), A.key("investigate.trace-all"), A.key("investigate.callers"), A.key("investigate.reach"),
+       A.key("investigate.tests"), A.key("investigate.coverage"), A.key("investigate.graph") },
+     { "<leader>it", "<leader>iT", "<leader>iu", "<leader>id", "<leader>ik", "<leader>ir", "<leader>ic" }, "Space i's letters")
+  local verbs = { "investigate.trace", "investigate.trace-all", "investigate.callers", "investigate.reach", "investigate.tests" }
+  local function each(ctx) calls = {}; for _, id in ipairs(verbs) do A.act(id, ctx) end; return calls end
+  -- in code: the function at the cursor
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  vim.fn.writefile({ "int a;", "int tick() {", "  return 1;", "}" }, dir .. "/e.cpp")
+  vim.cmd("tabedit " .. vim.fn.fnameescape(dir .. "/e.cpp"))
+  api.nvim_win_set_cursor(0, { 3, 0 })
+  eq(each(A.context()), { { "trace", "e.cpp", 3, "trace" }, { "trace", "e.cpp", 3, "flow" }, { "callers", "e.cpp", 3 }, { "reach", "e.cpp", 3 }, { "tests", "e.cpp" } },
+    "in code: the function at the cursor")
+  vim.cmd("tabclose")
+  -- on the map (the pop-out's): the selected function
+  local node = { ref = { target = { kind = "node", node = { id = "e.cpp::tick", label = "tick", file = "e.cpp", line = 11 } } } }
+  local got = each(ctx_on(node))
+  eq({ got[1], got[3] }, { { "trace", "e.cpp", 11, "trace" }, { "callers", "e.cpp", 11 } }, "on the map: the selected function")
+  -- on a call graph: the selected box
+  local item = { name = "Book::apply", uri = vim.uri_from_fname(dir .. "/book.cpp"), range = { start = { line = 39, character = 0 } } }
+  got = each({ surface = "callgraph", graph = { drawn = { boxes = { { item = item } } }, index = 1 } })
+  eq({ got[1], got[2] }, { { "trace", "book.cpp", 40, "trace" }, { "trace", "book.cpp", 40, "flow" } }, "on a call graph: the selected box")
+  -- in the review: the selected changed function, in its working version
+  Rv.current = { files = { { path = dir .. "/e.cpp", rel = "e.cpp" } }, index = 1, symbol = { name = "tick", line = 2, side = "after" }, row = { kind = "working" } }
+  got = each({ surface = "review-list", review = Rv.current })
+  eq(got[4], { "reach", "e.cpp", 2 }, "in the review: the selected changed function")
+  Rv.current.symbol = { name = "gone", line = 5, side = "before" }
+  eq(A.available(A.get("investigate.trace"), { surface = "review-list", review = Rv.current }), "select a changed function first",
+    "… one the change removed: greyed, with why")
+  Map.trace_at, Map.walk_at, Wk.suggested_tests, Rv.current = real[1], real[2], real[3], real[4]
+  vim.fn.delete(dir, "rf")
 end
 -- y on a trace (Codex's E15): the note names the revision the map read (its build), not HEAD when copied, and its
 -- stale reason.

@@ -582,6 +582,21 @@ for _, r in ipairs(A.rows()) do
   end
 end
 eq(unquoted, {}, "a key named in a row's words is between backticks")
+-- One letter, one meaning (I2, 2026-11-19; her "consistency between what works in the popout and the editor", and
+-- found today: T traced one lane in the review and the whole trace on the map). A key that asks a question about a
+-- function asks that question in every view it is bound in; a view's own verbs may use other letters, never these.
+local FUNCTION_KEYS = { t = "trace", T = "trace-all", U = "callers", D = "reach", K = "tests", F = "findings", gb = "in-binary", gs = "symdeps" }
+local mixed = {}
+for _, r in ipairs(A.rows()) do
+  local want = r.key and FUNCTION_KEYS[r.key]
+  local normal = r.mode == nil or r.mode == "n" or (type(r.mode) == "table" and vim.tbl_contains(r.mode, "n"))
+  if want and normal and r.on ~= "editor" and not r.id:find("^test%.") then
+    local verb = r.id:match("^[^.]+%.(.+)$")
+    if verb ~= want then mixed[#mixed + 1] = r.id .. " is " .. r.key .. ", which means " .. want end
+  end
+end
+table.sort(mixed)
+eq(mixed, {}, "a function's key means one question everywhere it is bound")
 -- The one speller: the menus' key lists, the call graph's key lines and the pop-out spell with it.
 eq(Menu.typed, A.spell, "desk.menu spells keys with actions.spell")
 eq(require("desk.callgraph").typed("go", "back", "down"), "Enter/BS/j", "the call graph's key lines too")

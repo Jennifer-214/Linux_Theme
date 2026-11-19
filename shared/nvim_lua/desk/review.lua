@@ -763,7 +763,7 @@ local function reach_said(f, s)
 end
 -- Which test runs ran a changed function (Codex's E1, 2026-11-19): per file, once, the runs that kept coverage of it
 -- (desk.work.coverage_runs: each read at its commit, its lines moved onto the working copy); each function's count
--- worked out from them. The strip says it under the function; K in the list opens a run's marks on it.
+-- worked out from them. The strip says it under the function; review.coverage opens a run's marks on it.
 local covered = {}   -- path → { pending = r } | { runs = { … } }
 local panel          -- defined below (the list redrawn when a file's runs come back)
 M.covered_known = covered
@@ -1817,13 +1817,15 @@ M.rows = actions.add({
     about = "The project map's callers of the selected changed function, up three levels — the callers as they are now (on an older commit the page says so); `Backspace` there comes back here",
     available = function() return (M.current and M.current.symbol and M.current.symbol.side ~= 'before') or 'select a changed function first' end,
     run = function() M.on_map('callers') end },
-  { id = 'review.trace', group = 'Review', name = 'Trace a possible path through this changed function', key = 'T', on = BOTH, remote = false,
+  -- No key of its own (2026-11-19, one letter one meaning: T is the whole trace on the map and the graph): the menu, and
+  -- Space i t / Space i T for the function wherever it is.
+  { id = 'review.trace', group = 'Review', name = 'Trace a possible path through this changed function', on = BOTH, remote = false,
     about = 'The project map\'s trace through the selected changed function, in its working version: where its thread starts, where it leads, each step\'s parameters',
     available = function() return (M.current and M.current.symbol and M.current.symbol.side ~= 'before') or 'select a changed function first' end,
     run = function() M.on_map('trace') end },
-  -- K in the list: which test ran it, its marks on it (Codex's E1), as the map's K is a function's known tests. Not in
-  -- the diff panes, where K is the language server's hover. The strip under the function says the runs and counts.
-  { id = 'review.coverage', group = 'Review', name = 'The test that ran this changed function', key = 'K', on = LIST, remote = false,
+  -- Which test ran it, its marks on it (Codex's E1); no key of its own (K is a function's known tests on the map):
+  -- the menu, and Space i r for the function wherever it is. The strip under the function says the runs and counts.
+  { id = 'review.coverage', group = 'Review', name = 'The test that ran this changed function', on = LIST, remote = false,
     about = "The coverage of the test run that ran most of the selected changed function (or the one you pick), its marks on the working file, the missed lines among them; when the file changed since that run, the version that ran opens beside it",
     available = function()
       local r = M.current
@@ -2702,7 +2704,7 @@ function M.tree(rows)
 end
 
 -- U, T and M: the selected changed function (or commit) on the project map.
--- K: a test run's coverage on the selected changed function (Codex's E1): the run that ran most of it, or the one she
+-- A test run's coverage on the selected changed function (Codex's E1): the run that ran most of it, or the one she
 -- picks when several did; the working file opened at the function and the run's marks put on it (desk.work's
 -- show_coverage: the version that ran beside it when the file changed since).
 function M.coverage_of_symbol(pick)

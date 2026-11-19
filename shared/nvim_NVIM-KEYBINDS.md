@@ -700,6 +700,13 @@ which-key its words.
 | home menu: This function in symdeps | symdeps' card for the unit at the cursor: its layout, uses, callers and calls |
 | `Space cc`, `:CallGraph` | Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected. One tab: pressed again anywhere, it brings that tab back on the function under the cursor |
 | `Space co`, `:CallGraphPanel` | Live call graph panel: a narrow split on the right that follows the cursor and redraws when the function under it changes. It never takes the focus (`Ctrl+w l` goes into it); `p` in it pins it to the graph it shows (`PINNED`), `p` again follows the cursor |
+| `Space ic` | The call graph of the function: in a tab here, in the pop-out from there |
+| `Space it` | One lane through the function: up to where it starts, down to where it ends (the map's `t`) |
+| `Space iT` | Every way through the function in one picture: what leads to it, what it leads to (the map's `T`) |
+| `Space iu` | Who calls the function, up the calls, on the project map (the map's `U`) |
+| `Space id` | Everything the function reaches, down the calls, on the project map (the map's `D`) |
+| `Space ik` | The test commands desk-work has seen touch its file, the one that ran most of it first (the map's `K`) |
+| `Space ir` | The coverage of a test run marked on its file: which lines of it ran (and, from the review, on the changed function) |
 | `Space cs` | While the debugger is stopped: its stack, frame by frame (`Enter` opens each), and which of the stopped function's callers in the map are on it — the live caller or the replay one |
 | home menu: A sanitizer report's stacks on the map | The AddressSanitizer or ThreadSanitizer report in this buffer (a test's log) or the clipboard: the bad access, where the memory was freed, where it was allocated, each a stack of its own, the function where they meet marked; `Enter` on a frame opens it |
 | `Space cp` | The path through the function at the cursor, up to where it starts and down to where it ends, with each step's parameters and the arguments it is called with (in the pop-out's map when it shows one) |
@@ -792,8 +799,6 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `gs` / `Space dd` | Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line) |
 | `Space dm` | Open symdeps in the working C/C++ file near the reviewed line |
 | `U` | The project map's callers of the selected changed function, up three levels — the callers as they are now (on an older commit the page says so); `Backspace` there comes back here |
-| `T` | The project map's trace through the selected changed function, in its working version: where its thread starts, where it leads, each step's parameters |
-| `K` in the file list | The coverage of the test run that ran most of the selected changed function (or the one you pick), its marks on the working file, the missed lines among them; when the file changed since that run, the version that ran opens beside it |
 | `M` | The functions this commit changed, on the project map, by file (a file changed since may have moved its lines) |
 | `gf` | Open the editable working file in a separate tab |
 | `S` | Compare the current struct's layout with the selected commit's parent |
@@ -804,6 +809,13 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `Esc` in a diff | Clear search highlighting |
 | `q` (diff) / `Space bd`, `:q` in a diff, `Space Cq` | Close the whole review and return to your editor |
 | `?` | The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list |
+| `Space ic` | The call graph of the function: in a tab here, in the pop-out from there |
+| `Space it` | One lane through the function: up to where it starts, down to where it ends (the map's `t`) |
+| `Space iT` | Every way through the function in one picture: what leads to it, what it leads to (the map's `T`) |
+| `Space iu` | Who calls the function, up the calls, on the project map (the map's `U`) |
+| `Space id` | Everything the function reaches, down the calls, on the project map (the map's `D`) |
+| `Space ik` | The test commands desk-work has seen touch its file, the one that ran most of it first (the map's `K`) |
+| `Space ir` | The coverage of a test run marked on its file: which lines of it ran (and, from the review, on the changed function) |
 <!-- review-keys:end -->
 
 `Space Cn` (normal or visual) sends a note with the real filename, the selected side and both versions of the
