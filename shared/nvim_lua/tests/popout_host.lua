@@ -25,7 +25,12 @@ local function answer(method, params)
   elseif method == 'callHierarchy/incomingCalls' then
     return { { from = { name = 'caller_of_' .. params.item.name, kind = 12, uri = uri, range = at(7), selectionRange = at(7) }, fromRanges = {} } }
   end
-  return { { to = { name = 'callee_of_' .. params.item.name, kind = 12, uri = uri, range = at(4), selectionRange = at(4) }, fromRanges = {} } }
+  local out = { { to = { name = 'callee_of_' .. params.item.name, kind = 12, uri = uri, range = at(4), selectionRange = at(4) }, fromRanges = {} } }
+  -- _G.popout_test.extra = n: n more callees (the "+N more" test)
+  for k = 1, _G.popout_test.extra or 0 do
+    out[#out + 1] = { to = { name = 'extra_' .. k, kind = 12, uri = uri, range = at(4), selectionRange = at(4) }, fromRanges = {} }
+  end
+  return out
 end
 local fake = { id = 77, name = 'fakels', offset_encoding = 'utf-16' }
 G.clients = function() return { fake } end

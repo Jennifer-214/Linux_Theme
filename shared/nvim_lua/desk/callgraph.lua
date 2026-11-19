@@ -1954,8 +1954,27 @@ local function render_view(view, width, style)
       centre = box.centre, gauge = box.gauge, gauge_band = box.gauge_band, name = tostring(box.item.name or ''), ref = box.item }
   end
   local center = graph.center
+  -- What "+N more" leaves out, findable with / in the pop-out: by the key its box will have once drawn.
+  local hidden, drawn_keys = {}, {}
+  for _, item in ipairs(items) do drawn_keys[item.key] = true end
+  if drawn.left_out > 0 then
+    for _, side in ipairs(SIDES) do
+      local role = side == 'callers' and 'caller' or 'callee'
+      local tiers = graph.layers and graph.layers[side]
+        or (graph[side] and { vim.list_extend(vim.list_slice(graph[side]), graph.hidden and graph.hidden[side] or {}) }) or {}
+      for _, tier in ipairs(tiers) do
+        for _, item in ipairs(tier) do
+          local key = box_key({ item = item, role = role })
+          if not drawn_keys[key] then
+            drawn_keys[key] = true
+            hidden[#hidden + 1] = { key = key, name = tostring(item.name or ''), where = item.detail }
+          end
+        end
+      end
+    end
+  end
   return { title = 'call graph' .. (center and center.name and (' · ' .. center.name) or ''), state = '',
-    tab = 'calls', subject = center and center.name or nil,
+    tab = 'calls', subject = center and center.name or nil, hidden = hidden,
     lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer(view.pinned, drawn.left_out > 0),
     news = view.news == true }
 end
@@ -1992,6 +2011,8 @@ M.view_kind = {
   end,
   save = save_view,
   restore = restore_view,
+  -- / in the pop-out chose a box under "+N more": every box drawn (as m does).
+  reveal = function(view) if view.graph then M.show_all(view.graph) end end,
 }
 -- Registered as the module loads (not run headless for the notebook), so its Views row is in the registry.
 if not headless then pop().kind(M.view_kind) end

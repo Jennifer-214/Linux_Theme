@@ -487,6 +487,23 @@ do
     '… and the one chosen is selected: ' .. tostring(state().selected) .. ' (was ' .. tostring(before) .. ')')
   find(before)
   ok(wait(2000, function() return state().selected == before end), '… and back to ' .. tostring(before))
+  -- One box a level: the rest under "+N more", still found by /, and drawn once chosen.
+  host("require('desk.callgraph').MAX = 1; _G.popout_test.extra = 2")
+  press('r')
+  ok(wait(5000, function() return (state().hidden or 0) > 0 end), 'MAX 1 and read again: boxes under "+N more" (' .. tostring(state().hidden) .. ')')
+  local shown_before = #vim.tbl_filter(function(l) return l:find('more', 1, true) end, state().lines or {})
+  found = find(nil)
+  local last = found.names[#found.names]
+  ok(last and last:find(' · under +N more', 1, true), '/ offers them too, said so: ' .. vim.inspect(found.names))
+  local name = last and last:match('^(.-) · ')
+  ok(wait(4000, function() return state().selected == name and state().hidden == 0 end),
+    '… and the one chosen is drawn and selected: ' .. tostring(state().selected) .. ' (wanted ' .. tostring(name) .. ')')
+  ok(shown_before > 0 and not popped():find('%+%d+ more'), '… every box drawn now, no "+N more" left')
+  host("require('desk.callgraph').MAX = 24; _G.popout_test.extra = 0")
+  press('r')
+  ok(wait(5000, function() return (state().hidden or 0) == 0 and not popped():find('extra_', 1, true) end), 'MAX back')
+  find(before)
+  ok(wait(2000, function() return state().selected == before end), '… and ' .. tostring(before) .. ' selected again')
 end
 
 -- ─── Space Space in the pop-out: the editor's rows for that box ─────────────────────────────────────────────────

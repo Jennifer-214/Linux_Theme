@@ -447,13 +447,16 @@ end
 --                          table); the layout record keeps saved.pinned and saved.target as JSON, and restore gets
 --                          { pinned, target } back after a restart. A kind that changes what its view shows (the
 --                          graph's c) calls M.stepped(view, before), before = save(view) from just before, so Ctrl+o undoes it
+--   reveal(view, key)      / in the pop-out chose one of render's `hidden` (loaded, not drawn: under "+N more"): draw it
+--                          (and what it is grouped with); the host then selects it by its key
+-- render may give `hidden` = { { key, name, where? } }: what the view has loaded but does not draw, which / finds too.
 -- A view (M.host.views[name]) is the kind's own table; id, kind, gen and pinned are the host's, and gone once it has
 -- left the pop-out. select = an item's key and front = true go with the next M.redraw, once: the pop-out selects that
 -- item, and shows that view.
 local SPEC = { name = 'string', title = 'string', about = 'string', menu = 'string', surface = 'string', render = 'function',
   available = 'function', open = 'function', follow = 'function', ctx_for = 'function', attach = 'function', close = 'function',
   save = 'function', restore = 'function', follows = 'boolean', mirror = 'boolean', match = 'function',
-  delta = 'function', place = 'function' }
+  delta = 'function', place = 'function', reveal = 'function' }
 local function kind_problem(spec)
   if type(spec) ~= 'table' then return 'a view kind is a table, not ' .. type(spec) end
   local name = type(spec.name) == 'string' and spec.name or '(no name)'
@@ -564,6 +567,7 @@ local function mirror_slice(lines, first, last)
   return out
 end
 
+M.MAX_HIDDEN = 2000   -- loaded but not drawn, findable with /
 local function payload(view)
   local kind = kinds[view.kind]
   local ok, drawn = pcall(kind.render, view, pop_of(view).width or 80, vim.g.desk_style or 'paper')
@@ -591,7 +595,17 @@ local function payload(view)
       keys = cut(item.keys, 300),
       zones = plain_zones(item.zones) }
   end
+  local hidden = {}
+  if kind.reveal then
+    for _, h in ipairs(type(drawn.hidden) == 'table' and drawn.hidden or {}) do
+      if #hidden >= M.MAX_HIDDEN then break end
+      if type(h) == 'table' and h.key ~= nil then
+        hidden[#hidden + 1] = { key = tostring(h.key):sub(1, 120), name = tostring(h.name or ''):sub(1, 200), where = cut(h.where, 120) }
+      end
+    end
+  end
   return { type = 'view.set', id = view.id, kind = view.kind, surface = kind.surface, title = cut(drawn.title, 200) or kind.title,
+    hidden = #hidden > 0 and hidden or nil,
     tab = cut(drawn.tab, 24), subject = cut(drawn.subject, 60),
     -- another pop-out previews this one's selection (gp there): its selection is told as it moves
     previewed = kind.place ~= nil and M.preview_pop ~= nil and M.preview_pop ~= view.pop or nil,
@@ -2253,6 +2267,16 @@ local function valid_zones(raw)
   end
   return out
 end
+local function valid_hidden(raw)
+  local out = {}
+  for _, h in ipairs(type(raw) == 'table' and raw or {}) do
+    if #out >= M.MAX_HIDDEN then break end
+    if type(h) == 'table' and type(h.key) == 'string' and #h.key <= 120 then
+      out[#out + 1] = { key = h.key, name = short(h.name, 200) or '', where = short(h.where, 120) }
+    end
+  end
+  return out
+end
 local function valid_items(raw)
   local items = {}
   for i, item in ipairs(type(raw) == 'table' and raw or {}) do
@@ -2322,7 +2346,7 @@ local function valid_view(msg)
     surface = type(msg.surface) == 'string' and #msg.surface <= 32 and msg.surface:match('^[%w_-]+$') and msg.surface or nil,
     title = type(msg.title) == 'string' and msg.title:sub(1, 200) or msg.id, state = type(msg.state) == 'string' and msg.state:sub(1, 200) or '',
     tab = short(msg.tab, 24), subject = short(msg.subject, 60), previewed = msg.previewed == true,
-    lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer),
+    lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer), hidden = valid_hidden(msg.hidden),
     strip = type(msg.strip) == 'number' and msg.strip >= 1 and msg.strip < #lines and math.floor(msg.strip) or nil,
     select = short(msg.select, 120), front = msg.front == true, news = msg.news == true, views = valid_ids(msg.views),
     pinned = msg.pinned == true, follows = msg.follows == true,
@@ -2512,7 +2536,7 @@ local function handle(msg)
     end
     local before = view.copy.index and view.items[view.copy.index]
     for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'tab', 'subject', 'state', 'marks', 'hl', 'items', 'footer', 'strip', 'pinned',
-      'follows', 'tick', 'total', 'cursor', 'previewed' }) do view[field] = got[field] end
+      'follows', 'tick', 'total', 'cursor', 'previewed', 'hidden' }) do view[field] = got[field] end
     if got.tick then
       if not view.loading and got.pinned and view.win and api.nvim_win_is_valid(view.win) then
         view.saved_scroll = api.nvim_win_call(view.win, vim.fn.winsaveview)
@@ -2636,14 +2660,34 @@ end
 -- draws. Whether a row can run is the editor's to say, so every key is listed and Enter on one presses it.
 -- /: every box or row of the view in front by its whole name (a box shows it cut with …), filtered as she types in the
 -- menu; Enter selects it here (2026-11-16: Vim's own / missed cut names, and its n is the review's own key).
+--- pure: what / offers — the drawn items, then what the view loaded but does not draw (under "+N more"), each named
+--- so ("Queue::flush · q.cpp:84 · under +N more"); a hidden one already drawn (by its key) once.
+function M.find_choices(items, hidden)
+  local out, drawn = {}, {}
+  for i, item in ipairs(items or {}) do
+    drawn[item.key] = true
+    out[#out + 1] = { label = item.name ~= '' and item.name or item.key, index = i }
+  end
+  for _, h in ipairs(hidden or {}) do
+    if not drawn[h.key] then
+      drawn[h.key] = true
+      out[#out + 1] = { label = (h.name ~= '' and h.name or h.key) .. (h.where and (' · ' .. h.where) or '') .. ' · under +N more', key = h.key }
+    end
+  end
+  return out
+end
+
 function M.client_find()
   local view = shown()
-  if not (view and #view.items > 0) then return say('nothing to find in this view') end
-  vim.ui.select(view.items, { prompt = 'Find in ' .. (view.title ~= '' and view.title or view.id),
-    format_item = function(item) return item.name ~= '' and item.name or item.key end }, function(_, index)
-    if not (index and C.views[view.id] == view and api.nvim_buf_is_valid(view.buf)) then return end
+  local choices = view and M.find_choices(view.items, view.hidden) or {}
+  if #choices == 0 then return say('nothing to find in this view') end
+  vim.ui.select(choices, { prompt = 'Find in ' .. (view.title ~= '' and view.title or view.id),
+    format_item = function(c) return c.label end }, function(choice)
+    if not (choice and C.views[view.id] == view and api.nvim_buf_is_valid(view.buf)) then return end
     if view.win and api.nvim_win_is_valid(view.win) then pcall(api.nvim_set_current_win, view.win) end
-    graphs().select(view.copy, index, true)
+    -- Under "+N more": the editor draws it (and what it is grouped with), then selects it.
+    if choice.key then return client_act('popout.reveal', { text = choice.key }, view) end
+    graphs().select(view.copy, choice.index, true)
     strip(view)
   end)
 end
@@ -2816,7 +2860,7 @@ function M.client_state()
     title = view and view.title or '', state = view and view.state or '', index = s.index or 0, selected = item and item.name or '',
     selected_key = item and item.key or '', lines = api.nvim_buf_get_lines(buf, 0, -1, false), closing = C.closing or '',
     win = view and view.win or (C.empty and C.empty.win) or 0, current_win = win, buf = buf, mode = api.nvim_get_mode().mode,
-    received = C.received or 0, pinned = view and view.pinned == true, views = vim.tbl_keys(C.views),
+    received = C.received or 0, pinned = view and view.pinned == true, views = vim.tbl_keys(C.views), hidden = view and #(view.hidden or {}) or 0,
     tabs = #api.nvim_list_tabpages(), tab = vim.fn.tabpagenr(), tiles = vim.deepcopy(C.tiles),
     header = M.header(), keyline = rendered(vim.wo[win].statusline, { winid = win }) }
 end
@@ -3000,6 +3044,21 @@ local ROWS = actions.add({
   { id = 'popout.find', group = 'Pop-out', name = 'Find a box or row', key = '/', on = ON,
     about = 'Every box or row of this view by its whole name, filtered as you type; `Enter` selects it',
     available = function(ctx) return not (ctx.view and ctx.view.kind == 'code') end, run = function() M.client_find() end },
+  -- The editor's half of /: a loaded item that is not drawn, drawn and selected. No key: / asks for it.
+  { id = 'popout.reveal', group = 'Pop-out', name = 'Show a box hidden under "+N more"', on = ON, remote = true, menu = false, doc = false,
+    input = { prompt = 'Which box (its key)' },
+    available = function(ctx)
+      local kind = ctx.view and kinds[ctx.view.kind]
+      return (kind and kind.reveal) and true or 'this view hides nothing'
+    end,
+    run = function(ctx)
+      local view, key = ctx.view, ctx.text
+      local kind = kinds[view.kind]
+      local ok, err = pcall(kind.reveal, view, key)
+      if not ok then return tell('could not show it: ' .. tostring(err):sub(1, 200), WARN) end
+      view.select = key
+      M.redraw(view)
+    end },
   { id = 'popout.keys', group = 'Pop-out', name = "The pop-out's keys", key = '?', on = ON, about = 'The keys of this view in the pop-out, in a list',
     run = function() M.client_keys() end },
   { id = 'popout.swap', group = 'Pop-out', name = 'To the editor, or next pop-out', key = '<leader><Tab>', on = ON, remote = true,
