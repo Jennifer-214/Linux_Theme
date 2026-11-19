@@ -32,6 +32,8 @@ inline long long number(const J& j, const char* key, long long fallback = 0) {
     const auto it = j.find(key);
     return it != j.end() && it->is_number_integer() ? it->get<long long>() : fallback;
 }
+// A count the reader gives ("how many more it left out"): a whole number, at most a million; 0 otherwise.
+inline long long count_of(const J& j, const char* key) { return std::clamp(number(j, key), 0LL, 1000000LL); }
 inline bool ends_with(const std::string& s, const std::string& tail) {
     return s.size() >= tail.size() && s.compare(s.size() - tail.size(), tail.size(), tail) == 0;
 }
@@ -423,9 +425,12 @@ inline J clean_graph(const J& raw) {
                         for (const auto& f : p[side]) if (f.is_string() && fields.size() < 12) fields.push_back(f.get<std::string>().substr(0, 80));
                         param[side] = fields;
                     }
+                    // How many more the reader left out ("12 shown · more omitted" beside the list).
+                    for (const char* more : {"reads_more", "writes_more"}) if (count_of(p, more) > 0) param[more] = count_of(p, more);
                     params.push_back(param);
                 }
                 node["params"] = params;
+                if (count_of(n, "params_more") > 0) node["params_more"] = count_of(n, "params_more");
             }
             nodes.push_back(node);
         }
@@ -443,6 +448,7 @@ inline J clean_graph(const J& raw) {
                 return out;
             };
             if (e.contains("args") && e["args"].is_array()) edge["args"] = strings(e["args"]);
+            if (count_of(e, "args_more") > 0) edge["args_more"] = count_of(e, "args_more");
             // Every call between the two (at most 8), each its line and arguments: the trace offers each site.
             if (e.contains("sites") && e["sites"].is_array()) {
                 J sites = J::array();
@@ -450,9 +456,11 @@ inline J clean_graph(const J& raw) {
                     if (site.is_object() && number(site, "line") > 0 && sites.size() < 8) {
                         J one{{"line", number(site, "line")}};
                         if (site.contains("args") && site["args"].is_array()) one["args"] = strings(site["args"]);
+                        if (count_of(site, "args_more") > 0) one["args_more"] = count_of(site, "args_more");
                         sites.push_back(one);
                     }
                 if (!sites.empty()) edge["sites"] = sites;
+                if (count_of(e, "sites_more") > 0) edge["sites_more"] = count_of(e, "sites_more");
             }
             // A handoff: where the other side takes it (the pop's line)
             if (number(e, "to_line") > 0) edge["to_line"] = number(e, "to_line");
@@ -618,6 +626,8 @@ struct Graph {
                     J facts = J::object();
                     if (e.contains("line")) facts["line"] = e["line"];
                     if (e.contains("args")) facts["args"] = e["args"];
+                    if (e.contains("args_more")) facts["args_more"] = e["args_more"];
+                    if (e.contains("sites_more")) facts["sites_more"] = e["sites_more"];
                     if (e.contains("label")) facts["label"] = e["label"];
                     if (e.contains("by_hand")) facts["by_hand"] = e["by_hand"];
                     if (e.contains("sites")) facts["sites"] = e["sites"];

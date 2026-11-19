@@ -134,16 +134,17 @@ function M.passing(const, type_text, marks)
   else pass = 'value' end
   return pass, (pass == 'ref' or pass == 'pointer' or pass == 'array') and 'inout' or 'in'
 end
--- A C or C++ function node's parameters (at most 16: { name, type as written, pass, dir }) and its return type (nil for
--- a constructor or destructor). nil when no function declarator is found.
+-- A C or C++ function node's parameters (at most 16: { name, type as written, pass, dir }; params_more: how many more
+-- it has) and its return type (nil for a constructor or destructor). nil when no function declarator is found.
 function M.signature(node, src)
   local marks, _, fn = declarators(node:field('declarator')[1], src)
   if not fn then return nil end
   local type_node = node:field('type')[1]
-  local params, list = {}, fn:field('parameters')[1]
+  local params, list, more = {}, fn:field('parameters')[1], 0
   for child in (list and list:iter_children() or function() end) do
     local t = child:named() and child:type() or ''
-    if t:find('parameter_declaration', 1, true) and #params < 16 then
+    if (t:find('parameter_declaration', 1, true) or t == 'variadic_parameter') and #params >= 16 then more = more + 1
+    elseif t:find('parameter_declaration', 1, true) and #params < 16 then
       local const, ty = has_const(child, src), child:field('type')[1]
       local pmarks, name = declarators(child:field('declarator')[1], src)
       local type_text = ty and one_line(text_of(ty, src)) or ''
@@ -155,25 +156,34 @@ function M.signature(node, src)
       params[#params + 1] = { name = '...', type = '...', pass = 'value', dir = 'in' }
     end
   end
-  return { params = params, returns = type_node and written(has_const(node, src), type_node, marks, src) or nil }
+  return { params = params, params_more = more > 0 and more or nil, returns = type_node and written(has_const(node, src), type_node, marks, src) or nil }
 end
 -- A parameter's uses: the fields read and the fields written, each named once in each (one both read and changed
--- is in both); at most 12 of each.
+-- is in both); at most 12 of each, reads_more / writes_more counting the other paths left out.
 function M.note_use(prm, path, wrote)
   if path == '' or #path > 80 then return end
   local list = wrote and 'writes' or 'reads'
   prm[list] = prm[list] or {}
-  if not vim.tbl_contains(prm[list], path) and #prm[list] < 12 then prm[list][#prm[list] + 1] = path end
-end
--- A call's arguments as written (at most 12, each on one line, at most 80 characters).
-local function list_texts(list, src)
-  local out = {}
-  for child in (list and list:iter_children() or function() end) do
-    if child:named() and not child:type():find('comment', 1, true) and #out < 12 then out[#out + 1] = one_line(text_of(child, src)):sub(1, 80) end
+  if vim.tbl_contains(prm[list], path) then return end
+  if #prm[list] < 12 then prm[list][#prm[list] + 1] = path
+  else
+    prm.seen_more = prm.seen_more or {}
+    local key = list .. '\0' .. path
+    if not prm.seen_more[key] then prm.seen_more[key] = true; prm[list .. '_more'] = (prm[list .. '_more'] or 0) + 1 end
   end
-  return out
+end
+-- A call's arguments as written (at most 12, each on one line, at most 80 characters), and how many more it has.
+local function list_texts(list, src)
+  local out, more = {}, 0
+  for child in (list and list:iter_children() or function() end) do
+    if child:named() and not child:type():find('comment', 1, true) then
+      if #out < 12 then out[#out + 1] = one_line(text_of(child, src)):sub(1, 80) else more = more + 1 end
+    end
+  end
+  return out, more
 end
 local function call_args(node, src) return list_texts(node:field('arguments')[1], src) end
+M._call_args = call_args
 
 -- ─── handoffs: where data or control moves without a call between the two functions ───
 -- Seen while reading: a push or a pop on an object (its last name: `&core->tick_ring` is tick_ring; a method's
@@ -347,8 +357,9 @@ function M.syntax_graph(request)
       if CALLS[t] and owner then
         local full, short = callee(node:field(CALLS[t])[1], src)
         if short then
-          local fine, args = pcall(call_args, node, src)
-          calls[#calls + 1] = { from = owner, full = full, short = short, line = node:start() + 1, args = fine and args or nil }
+          local fine, args, more = pcall(call_args, node, src)
+          calls[#calls + 1] = { from = owner, full = full, short = short, line = node:start() + 1, args = fine and args or nil,
+            args_more = fine and more > 0 and more or nil }
           stats.calls = stats.calls + 1
           if (FAMILY[lang] or lang) == 'c' and fine then M.note_handoff(ops, passed, owner, full, short, args, node:start() + 1) end
         end
@@ -423,7 +434,10 @@ function M.syntax_graph(request)
     by_short[u.short] = by_short[u.short] or {}
     table.insert(by_short[u.short], i)
     nodes[i] = { id = u.id, label = u.label, file = u.file, line = u.line, kind = u.kind }
-    if u.sig then nodes[i].params, nodes[i].returns = u.sig.params, u.sig.returns end
+    if u.sig then
+      nodes[i].params, nodes[i].returns, nodes[i].params_more = u.sig.params, u.sig.returns, u.sig.params_more
+      for _, prm in ipairs(u.sig.params or {}) do prm.seen_more = nil end
+    end
     if u.owner and units[u.owner].kind == 'type' and u.kind == 'function' then
       edges[#edges + 1] = { from = units[u.owner].id, to = u.id, kind = 'contains' }
     end
@@ -459,7 +473,8 @@ function M.syntax_graph(request)
         if seen[key] then
           -- Another call between the same two: kept as one of its sites (the trace offers each), at most 8.
           local e = edges[edge_at[key]]
-          if e and #e.sites < 8 then e.sites[#e.sites + 1] = { line = c.line, args = c.args } end
+          if e and #e.sites < 8 then e.sites[#e.sites + 1] = { line = c.line, args = c.args, args_more = c.args_more }
+          elseif e then e.sites_more = (e.sites_more or 0) + 1 end
         else
           if #edges >= max_edges then
             if complete then complete, why = false, 'stopped at ' .. max_edges .. ' calls' end
@@ -467,7 +482,7 @@ function M.syntax_graph(request)
             seen[key] = true
             -- The first call between the two: its line and arguments, what the trace shows flowing in; every site of it.
             edges[#edges + 1] = { from = from.id, to = units[pick[1]].id, kind = 'call-by-name', line = c.line, args = c.args,
-              sites = { { line = c.line, args = c.args } } }
+              args_more = c.args_more, sites = { { line = c.line, args = c.args, args_more = c.args_more } } }
             edge_at[key] = #edges
             stats.edges = stats.edges + 1
           end
@@ -1175,13 +1190,20 @@ end
 -- A list on a card's line, a part per name ("px · ts · seq"), its first part marked to wrap under (a card wraps such a
 -- line between the names instead of cutting it).
 -- item(n): a name's hit (a field of a step's parameter: Enter follows it), or nil.
-local function listed(names, group, item, lit)
+--- pure: what the reader left out of a list, said beside it: "12 shown · 3 more omitted".
+function M.omitted(shown, more)
+  if not more or more <= 0 then return nil end
+  return shown .. ' shown · ' .. more .. ' more omitted'
+end
+local function listed(names, group, item, lit, more)
   local parts = {}
   for i, n in ipairs(names) do
     local hit = item and item(n) or nil
     local mark = lit and lit(n) and (lit(n) .. ' ') or ''
     parts[#parts + 1] = { mark .. n .. (i < #names and ' · ' or ''), hit, nil, (mark ~= '' and 'DeskMapFocus') or group, hang = i == 1 }
   end
+  local said = M.omitted(#names, more)
+  if said then parts[#parts + 1] = { '   (' .. said .. ')', nil, true, 'DeskMapDim' } end
   return parts
 end
 -- A layout's shape, to tell a template's versions apart: the same size and members are one layout.
@@ -1376,6 +1398,8 @@ function M.trace_page(answer, folds, layouts, field)
         rows[#rows + 1] = { { '    ' .. string.format('%-' .. wdir .. 's  %-' .. wpass .. 's  ', prm.dir, PASS_WORD[prm.pass] or prm.pass), nil, true, 'DeskMapDim' },
           { prm.type .. string.rep(' ', wtype - vim.fn.strdisplaywidth(prm.type)) .. '  ' }, { prm.name, nil, nil, 'DeskMapName' } }
       end
+      local said = M.omitted(#params, st.params_more)
+      if said then rows[#rows + 1] = { { '    ' .. said .. ' (the reader keeps 16)', nil, true, 'DeskMapDim' } } end
       return rows
     end)
     -- What it reads and writes of each parameter (struct consumption), a line each way.
@@ -1386,11 +1410,11 @@ function M.trace_page(answer, folds, layouts, field)
       for _, prm in ipairs(used) do
         local name = prm.name .. string.rep(' ', wname - vim.fn.strdisplaywidth(prm.name))
         if #(prm.reads or {}) > 0 then
-          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  reads   ', nil, true, 'DeskMapDim' } }, listed(prm.reads, nil, field_hit(prm), field_lit(prm)))
+          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  reads   ', nil, true, 'DeskMapDim' } }, listed(prm.reads, nil, field_hit(prm), field_lit(prm), prm.reads_more))
           name = string.rep(' ', wname)
         end
         if #(prm.writes or {}) > 0 then
-          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  writes  ', nil, true, 'DeskMapDim' } }, listed(prm.writes, 'DeskMapFocus', field_hit(prm), field_lit(prm)))
+          rows[#rows + 1] = vim.list_extend({ { '    ' }, { name, nil, nil, 'DeskMapName' }, { '  writes  ', nil, true, 'DeskMapDim' } }, listed(prm.writes, 'DeskMapFocus', field_hit(prm), field_lit(prm), prm.writes_more))
         end
       end
       return rows
@@ -1505,7 +1529,8 @@ function M.trace_page(answer, folds, layouts, field)
         flow[#flow + 1] = (prm and prm.name ~= '' and prm.name ~= arg) and (arg .. ' → ' .. prm.name) or arg
       end
       local sites = call.sites or (call.line and { { line = call.line, args = call.args } }) or {}
-      local at = call.line and (':' .. call.line .. (#sites > 1 and (' (' .. #sites .. ' calls)') or '')) or ''
+      local calls_n = #sites + (call.sites_more or 0)
+      local at = call.line and (':' .. call.line .. (calls_n > 1 and (' (' .. calls_n .. ' calls' .. ((call.sites_more or 0) > 0 and (', ' .. #sites .. ' kept') or '') .. ')') or '')) or ''
       if at ~= '' or #flow > 0 then
         -- A part per argument, so a long call wraps between them; the line its own hit: Enter opens the call (each of
         -- them when there are several).
@@ -1513,6 +1538,8 @@ function M.trace_page(answer, folds, layouts, field)
           target = { kind = 'call', file = st.file, caller = st.label, callee = after.label, sites = sites } }
         local parts = { { at .. (at ~= '' and #flow > 0 and '   ' or ''), at ~= '' and call_item or nil } }
         for i, f in ipairs(flow) do parts[#parts + 1] = { f .. (i < #flow and ' · ' or '') } end
+        local said = M.omitted(#flow, call.args_more)
+        if said then parts[#parts + 1] = { '   (' .. said .. ')' } end
         sections[#sections + 1] = { block = { parts }, group = 'DeskMapDim' }
       end
     end

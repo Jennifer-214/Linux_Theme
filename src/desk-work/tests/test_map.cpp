@@ -250,6 +250,24 @@ int main(int, char** argv) {
         CHECK(call["line"] == 5 && call["args"] == J({"tick", "&o"}), "a call keeps its line and its string arguments");
         const auto merged = desk_map::merge(clean, desk_map::clean_graph(J::parse(R"({"nodes": [], "edges": []})")));
         CHECK(merged["nodes"][0]["params"].size() == 16 && merged["edges"][0]["args"] == J({"tick", "&o"}), "… and the merge keeps both");
+        // What the reader left out, counted: kept as whole numbers, never a string or a negative.
+        J counted = raw;
+        counted["nodes"][0]["params_more"] = 4;
+        counted["nodes"][0]["params"][0]["reads"] = J::array({"px"});
+        counted["nodes"][0]["params"][0]["reads_more"] = 2;
+        counted["nodes"][0]["params"][1]["writes_more"] = "lots";
+        counted["edges"][0]["args_more"] = 3;
+        counted["edges"][0]["sites_more"] = -1;
+        counted["edges"][0]["sites"] = J::array({J{{"line", 5}, {"args_more", 3}}});
+        const auto kept = desk_map::clean_graph(counted);
+        CHECK(kept["nodes"][0].value("params_more", 0) == 4 && kept["nodes"][0]["params"][0].value("reads_more", 0) == 2 && !kept["nodes"][0]["params"][1].contains("writes_more"),
+              "what the reader left out: the parameters and fields it counted (a count that is not a number dropped)");
+        CHECK(kept["edges"][0].value("args_more", 0) == 3 && !kept["edges"][0].contains("sites_more") && kept["edges"][0]["sites"][0].value("args_more", 0) == 3,
+              "… a call's arguments, on the call and its site (a negative count dropped)");
+        J flow = kept;
+        flow["nodes"][1]["params"] = J::array();
+        const desk_map::Graph cg(flow);
+        CHECK(desk_map::trace(cg, cg.at.at("a.cpp::f"), 16)["calls"][0].value("args_more", 0) == 3, "… and it reaches the trace's call");
     }
     // ─── the trace: one lane through a function, up to where it starts and down to where it ends ───
     {

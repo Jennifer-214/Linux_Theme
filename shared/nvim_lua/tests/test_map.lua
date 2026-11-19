@@ -41,6 +41,8 @@ local sources = {
   ["py/app.py"] = { "class Store:", "    def save(self, item):", "        self.check(item)", "        return write(item)", "",
                     "    def check(self, item):", "        return item is not None", "", "", "def write(item):", "    return len(str(item))", "",
                     "def total(p):", "    return norm(p)" },
+  -- What the reader keeps of long lists: 16 parameters, 12 arguments, 12 fields a way; the rest counted.
+  ["csrc/wide.c"] = { "void use(int v) {}", "void wide(int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14, int a15, int a16, int a17, int a18) {}", "void many(struct S* s) { use(s->f1); use(s->f2); use(s->f3); use(s->f4); use(s->f5); use(s->f6); use(s->f7); use(s->f8); use(s->f9); use(s->f10); use(s->f11); use(s->f12); use(s->f13); use(s->f14); }", "void calls(void) { wide(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14); }" },
   ["lua/a/one.lua"] = { "local function pick() return 1 end", "return pick" },
   ["lua/a/two.lua"] = { "local function choose() return pick() end", "return choose" },
   ["lua/b/three.lua"] = { "local function pick() return 3 end", "return pick" },
@@ -181,6 +183,14 @@ if has_parser("cpp") then
     "… each compared with itself")
 else skipped[#skipped + 1] = "cpp (no parser)" end
 
+-- The reader's caps, counted (Codex's #41, 2026-11-18): what was left out is said beside the list.
+eq({ by_label["wide"] and #by_label["wide"].params, by_label["wide"] and by_label["wide"].params_more }, { 16, 2 }, "18 parameters: 16 kept, 2 more counted")
+local many = by_label["many"] and by_label["many"].params and by_label["many"].params[1] or {}
+eq({ #(many.reads or {}), many.reads_more, many.seen_more }, { 12, 2, nil }, "14 fields read: 12 kept, 2 more counted (its working set not in the map)")
+local wide_call = call_of("calls", "wide") or {}
+eq({ #(wide_call.args or {}), wide_call.args_more, wide_call.sites and wide_call.sites[1].args_more }, { 12, 2, 2 }, "14 arguments: 12 kept, 2 more counted, on the call and its site")
+eq({ Map.omitted(12, 2), Map.omitted(12, nil), Map.omitted(3, 0) }, { "12 shown · 2 more omitted" }, "said as shown · more omitted, nothing when nothing was left out")
+
 -- The same headless, as desk-work runs it: a request file in, the answer written to a file.
 local request, answer = root .. "/request.json", root .. "/answer.json"
 vim.fn.writefile({ vim.json.encode({ root = root, files = { "lua/mod.lua" } }) }, request)
@@ -286,6 +296,18 @@ local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16
 trace_answer.steps[2].lines = 32
 trace_answer.steps[2].before, trace_answer.steps[2].after = 41, 23
 trace_answer.steps[2].params[1].reads, trace_answer.steps[2].params[1].writes = { "px", "ts" }, { "seq" }
+do
+  -- What the reader left out, beside each list on the page.
+  local cut = vim.deepcopy(trace_answer)
+  cut.steps[2].params_more = 2
+  cut.steps[2].params[1].reads_more = 3
+  cut.calls[2].args_more, cut.calls[2].sites_more, cut.calls[2].sites = 4, 9, { { line = 11 } }
+  local cut_page = Map.layout(Map.trace_page(cut, { ["e.cpp::tick|params"] = true }), 140, false)
+  ok(line_with(cut_page.lines, "1 shown · 2 more omitted (the reader keeps 16)"), "parameters left out: said under them")
+  ok(line_with(cut_page.lines, "reads   px · ts   (2 shown · 3 more omitted)"), "fields left out: said beside them")
+  ok(line_with(cut_page.lines, ":11 (10 calls, 1 kept)") and line_with(cut_page.lines, "3 → retries   (2 shown · 4 more omitted)"),
+    "calls and arguments left out: said on the call's line\n" .. table.concat(cut_page.lines, "\n"))
+end
 local traced = Map.layout(Map.trace_page(trace_answer), 90, false)
 ok(line_with(traced.lines, "trace through `tick` · 3 functions") or line_with(traced.lines, "trace through tick · 3 functions"), "the trace's heading")
 ok(line_with(traced.lines, "╔═ tick ") and line_with(traced.lines, " e.cpp:11 ═╗"), "a card per step: the function it goes through double, its name and place in the top border")
