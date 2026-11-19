@@ -302,6 +302,21 @@ do
   local text = table.concat(page.lines, "\n")
   ok(text:find("apply_insert(Ord", 1, true) and text:find("apply_insert(Can", 1, true), "two overloads in a 26-column map page: told apart\n" .. text)
 end
+do
+  -- what a rebuild changed (Codex's #42): counts in the header, the lists a key away
+  local c = { edges_added = 1, edges_removed = 2, nodes_added = 1, nodes_removed = 0, found_source = 0, lost_source = 1, because = { "the source changed (aaaaaaa → bbbbbbb)" } }
+  eq({ Map.changes_said(c), Map.changes_said({ first = true }), Map.changes_said({ edges_added = 0 }) },
+    { "+1 call · −2 calls · +1 function · 1 lost its source", nil, "no change" }, "the counts, said; nothing for a first build")
+  local head = Map.header({ root = "/r", status = { ok = true, built = true, head = "abc", built_at = os.time(), changes = c } }, Map.glyphs(false))
+  ok(head[#head][1]:find("since the last build: +1 call · −2 calls · +1 function · 1 lost its source · W what changed", 1, true), "… in the header, with the key")
+  local page = Map.layout(Map.level_query(vim.tbl_extend("force", c, { ok = true, q = "changes", built_at = os.time(), previous_built_at = os.time() - 60,
+    edges_added_list = { { from = "a.c::f", to = "a.c::extra", kind = "call-by-name" } }, edges_removed_list = { { from = "a.c::f", to = "a.c::old", kind = "call" }, { from = "a.c::g", to = "a.c::old", kind = "call" } },
+    nodes_added_list = { { id = "a.c::extra", label = "extra", file = "a.c", line = 9 } }, nodes_removed_list = {} })), 100, false)
+  local text = table.concat(page.lines, "\n")
+  ok(text:find("because the source changed (aaaaaaa → bbbbbbb)", 1, true) and text:find("calls added · 1", 1, true) and text:find("f → extra  (by name)", 1, true)
+    and text:find("calls removed · 2", 1, true) and text:find("functions added · 1", 1, true) and text:find("1 lost their source match", 1, true),
+    "W: the page, why first, then each list\n" .. text)
+end
 -- The trace page: a box per step (the function itself double), its parameters under it, the call between steps with
 -- each argument → the parameter it lands in, and the other callers and callees, Enter-able.
 local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16,
@@ -653,7 +668,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "gP", "m", "M", "z", "Z", "i", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "gP", "m", "M", "z", "Z", "W", "i", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -1478,7 +1493,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.avoid", "map.callers", "map.centre", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.include", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up", "map.why" },
+eq(remote_ids, { "map.avoid", "map.callers", "map.centre", "map.changes", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.include", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up", "map.why" },
   "the pop-out can show more and retains its existing navigation keys")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do

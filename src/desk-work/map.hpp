@@ -279,11 +279,18 @@ int map_build_run(const std::string& root, std::string provider) {
     merged["dirty_files"] = stamp["dirty_files"];
     merged["providers"] = providers;
     if (!binary.empty()) merged["binary"] = binary;
+    if (stamp.contains("binary")) merged["binary_stamp"] = stamp["binary"];
+    // what this build changed against the last (kept beside it; status says its counts, query --q changes the lists)
+    const auto changed = desk_map::changes(map_json(map_dir(root) / "graph.json"), merged);
+    atomic(map_dir(root) / "changes.json", changed.dump(-1, ' ', false, J::error_handler_t::replace), false);
     bool saved = atomic(map_dir(root) / "graph.json", merged.dump(-1, ' ', false, J::error_handler_t::replace), false);
     J summary = merged;
     for (const char* bulky : {"nodes", "edges", "spans"}) summary.erase(bulky);
     summary["nodes"] = merged["nodes"].size();
     summary["edges"] = merged["edges"].size();
+    J since = changed;
+    for (const char* bulky : {"edges_added_list", "edges_removed_list", "nodes_added_list", "nodes_removed_list"}) since.erase(bulky);
+    summary["changes"] = since;
     saved = saved && atomic(map_dir(root) / "summary.json", summary.dump(-1, ' ', false, J::error_handler_t::replace), false);
     std::error_code ec;
     fs::remove(map_dir(root) / "building.json", ec);
@@ -313,7 +320,7 @@ J map_status(const std::string& root) {
     if (building.is_object()) out["building_since"] = num(building, "started", num(building, "at"));
     std::map<std::string, J> stored;
     if (summary.is_object()) {
-        for (const char* key : {"built_at", "head", "nodes", "edges", "complete", "why", "matched"}) if (summary.contains(key)) out[key] = summary[key];
+        for (const char* key : {"built_at", "head", "nodes", "edges", "complete", "why", "matched", "changes"}) if (summary.contains(key)) out[key] = summary[key];
         for (const auto& p : desk_map::list(summary, "providers")) stored[str(p, "name")] = p;
     }
     // While a build writes, a poll costs no git call; the answer after it says whether the new map is current.
@@ -504,6 +511,12 @@ J map_handoff_review(const std::string& root) {
 
 J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
     if (opts["--q"] == "handoffs") return map_handoff_review(root);
+    if (opts["--q"] == "changes") {
+        auto c = json(map_dir(root) / "changes.json");
+        if (!c.is_object()) return refuse("No rebuild to compare yet; the next build of this checkout says what it changed");
+        c["ok"] = true; c["q"] = "changes";
+        return c;
+    }
     auto doc = corrected_graph(root);
     if (!doc.is_object()) return refuse("No project map of this checkout yet; build one with desk-work map build --root " + root);
     // --exclude ID\nID…: functions left out of this one question, as if the map did not have them (a logger, an

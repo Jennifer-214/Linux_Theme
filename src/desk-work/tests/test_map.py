@@ -207,6 +207,19 @@ class Map(unittest.TestCase):
         self.assertEqual((several["flag"], len(several["candidates"])), ("--avoid", 2), "a name that fits several: the candidates, under --avoid")
 
     @unittest.skipUnless(NVIM, "nvim is not installed")
+    def test_a_rebuild_says_what_it_changed(self):
+        self.build("--provider", "syntax")
+        self.assertTrue(self.status()["changes"]["first"], "the first build: nothing to compare")
+        (self.repo / "csrc/prog.c").write_text(C.replace("return leaf(x) * 2;", "return leaf(x) * 2 + extra(x);") + "int extra(int x) { return x; }\n")
+        self.build("--provider", "syntax")
+        status = self.status()["changes"]
+        self.assertEqual((status["edges_added"], status["nodes_added"], status["because"]), (1, 1, ["the source changed (edits not committed)"]),
+                         "status: the counts and why")
+        listed = self.query("--q", "changes")
+        self.assertEqual(([n["label"] for n in listed["nodes_added_list"]], listed["edges_added_list"][0]["to"].endswith("::extra")), (["extra"], True),
+                         "query --q changes: which ones")
+
+    @unittest.skipUnless(NVIM, "nvim is not installed")
     def test_syntax_build_status_staleness_and_queries(self):
         status = self.build("--provider", "syntax")
         self.assertTrue(status["built"], status)

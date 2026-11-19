@@ -1606,6 +1606,31 @@ end
 function M.level_query_plain(answer, all, level)
   if answer.q == 'trace' then return M.trace_page(answer, level and level.folds, level and level.layouts, level and level.field) end
   local sections = {}
+  if answer.q == 'changes' then
+    -- What the last rebuild changed against the build before it, and why as far as the builds can say.
+    sections[#sections + 1] = { head = 'what the rebuild changed · ' .. os.date('%H:%M', tonumber(answer.built_at) or 0)
+      .. (answer.previous_built_at and (' against ' .. os.date('%H:%M', tonumber(answer.previous_built_at) or 0)) or '') }
+    local because = type(answer.because) == 'table' and answer.because or {}
+    sections[#sections + 1] = { parts = { { #because > 0 and ('because ' .. table.concat(because, ' · ')) or 'the same source, binary and parsers: the readers answered differently' } }, group = 'DeskMapDim' }
+    local function short(id) return tostring(id):match('::(.+)$') or tostring(id) end
+    local function list(title, items, count, row)
+      if (tonumber(count) or 0) == 0 then return end
+      sections[#sections + 1] = { head = title .. ' · ' .. count .. ((tonumber(count) or 0) > #items and (' (the first ' .. #items .. ')') or '') }
+      local rows = {}
+      for _, it in ipairs(items) do rows[#rows + 1] = row(it) end
+      sections[#sections + 1] = { block = rows }
+    end
+    local function call_row(e) return { { short(e.from) .. ' → ' .. short(e.to) }, { e.kind == 'call-by-name' and '  (by name)' or e.kind == 'handoff' and '  (handoff)' or '', nil, true, 'DeskMapDim' } } end
+    list('calls added', answer.edges_added_list or {}, answer.edges_added, call_row)
+    list('calls removed', answer.edges_removed_list or {}, answer.edges_removed, call_row)
+    list('functions added', answer.nodes_added_list or {}, answer.nodes_added, function(n) return { { n.label, n.file and node_item(n) or nil } } end)
+    list('functions removed', answer.nodes_removed_list or {}, answer.nodes_removed, function(n) return { { n.label } } end)
+    local moved = {}
+    if (tonumber(answer.found_source) or 0) > 0 then moved[#moved + 1] = answer.found_source .. ' found their source' end
+    if (tonumber(answer.lost_source) or 0) > 0 then moved[#moved + 1] = answer.lost_source .. ' lost their source match' end
+    if #moved > 0 then sections[#sections + 1] = { parts = { { table.concat(moved, ' · ') } }, group = 'DeskMapDim' } end
+    return { crumbs = { 'changes' }, sections = sections }
+  end
   if answer.q == 'handoffs' then
     -- Her handoff corrections, each checked against the map as built now (Codex's #38): what she added and dropped,
     -- its label, where it is declared, and whether each end is still there. Enter: forget, rebind, open.
@@ -1863,7 +1888,26 @@ function M.header(view, G)
     out[#out + 1] = { with_key(G, 'stale since ' .. code(short(s.head)) .. ' · ', 'rebuild', ' rebuilds'), 'DeskMapStale' }
     if (s.stale_why or '') ~= '' then out[#out + 1] = { s.stale_why, 'DeskMapDim' } end
   else out[#out + 1] = { G.said('built ' .. os.date('%H:%M', s.built_at or 0) .. ' at ' .. code(short(s.head))), 'DeskMapDim' } end
+  -- what the last rebuild changed (Codex's #42): its counts, and the key that lists them
+  local said = s and M.changes_said(s.changes)
+  if said and not view.missing and not (view.building or (s and s.building)) then
+    out[#out + 1] = { G.said('since the last build: ' .. said .. ' · ') .. typed('changes') .. G.said(' what changed'), 'DeskMapDim' }
+  end
   return out
+end
+--- pure: a rebuild's changes as counts ("+1 call · −2 calls · +1 function"), nil for the first build or none.
+function M.changes_said(c)
+  if type(c) ~= 'table' or c.first then return nil end
+  local parts = {}
+  local function n(count, one, many, sign)
+    count = tonumber(count) or 0
+    if count > 0 then parts[#parts + 1] = sign .. count .. ' ' .. (count == 1 and one or many) end
+  end
+  n(c.edges_added, 'call', 'calls', '+'); n(c.edges_removed, 'call', 'calls', '−')
+  n(c.nodes_added, 'function', 'functions', '+'); n(c.nodes_removed, 'function', 'functions', '−')
+  n(c.found_source, 'found its source', 'found their source', ''); n(c.lost_source, 'lost its source', 'lost their source', '')
+  if #parts == 0 then return 'no change' end
+  return table.concat(parts, ' · ')
 end
 
 -- The key line at the foot of the page: the keys that matter here (? lists every one), as typed, in the theme's voice.
@@ -3346,6 +3390,9 @@ local ROWS = actions.add({
   row('include', 'Z', 'Bring back what was left out',
     'Every function `z` left out of the answers back in; the page asked again', function(view) M.include_all(view) end,
     function(ctx) return (ctx.map and ctx.map.excluded and #ctx.map.excluded > 0) or 'nothing is left out' end, THERE),
+  row('changes', 'W', 'What the last rebuild changed',
+    'The calls and functions the last rebuild added and removed, the functions that found or lost their source, and why (the source, the binary, a parser), against the build before it',
+    function(view) query(view, { '--q', 'changes' }) end, needs_map, THERE),
   row('why', 'i', 'Why the answer is what it is',
     "The map's evidence in full: which reader answered (the syntax reader matches calls by name: overloads, macros and virtual dispatch are not resolved; the binary reader has the exact calls), what is not built and what it needs; `i` again folds it to one line",
     function(view) view.evidence_open = not view.evidence_open; load(view) end, needs_map, THERE),

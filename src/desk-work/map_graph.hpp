@@ -489,6 +489,72 @@ inline J clean_graph(const J& raw) {
 // once on each side, where the binary knows the file (built with debug info); else the same name once on each side
 // in the checkout's C and C++, or once in the folder the binary was built in (`near`, root-relative with a slash).
 // Every edge keeps its kind, so an exact call and a call by name between two functions stay two edges.
+// What a rebuild changed against the build before it (Codex's #42): the calls and functions added and removed, the
+// functions that found their source and those that lost it, and why, as far as the stored builds can say: the source
+// changed (another commit, other edits), the binary was another or rebuilt, a parser came or went. prev: the last
+// graph.json (null: the first build). The lists keep the first 20 of each; the counts are whole.
+inline J changes(const J& prev, const J& now) {
+    J out{{"built_at", number(now, "built_at")}};
+    if (!prev.is_object() || !prev.contains("nodes")) { out["first"] = true; return out; }
+    out["previous_built_at"] = number(prev, "built_at");
+    const auto label_of = [](const J& graph) {
+        std::map<std::string, J> m;
+        for (const auto& n : list(graph, "nodes")) if (n.is_object()) m[text(n, "id")] = n;
+        return m;
+    };
+    const auto before = label_of(prev), after = label_of(now);
+    const auto edge_keys = [](const J& graph) {
+        std::map<std::string, J> m;
+        for (const auto& e : list(graph, "edges"))
+            if (e.is_object() && text(e, "kind") != "contains")
+                m[text(e, "from") + '\x1f' + text(e, "to") + '\x1f' + text(e, "kind")] = J{{"from", text(e, "from")}, {"to", text(e, "to")}, {"kind", text(e, "kind")}};
+        return m;
+    };
+    const auto eb = edge_keys(prev), ea = edge_keys(now);
+    const auto diff = [](const std::map<std::string, J>& a, const std::map<std::string, J>& b, J& list_out) {
+        long long n = 0;
+        for (const auto& [k, v] : a) if (!b.count(k)) { if (list_out.size() < 20) list_out.push_back(v); ++n; }
+        return n;
+    };
+    J edges_added = J::array(), edges_removed = J::array(), nodes_added = J::array(), nodes_removed = J::array();
+    out["edges_added"] = diff(ea, eb, edges_added);
+    out["edges_removed"] = diff(eb, ea, edges_removed);
+    out["nodes_added"] = diff(after, before, nodes_added);
+    out["nodes_removed"] = diff(before, after, nodes_removed);
+    out["edges_added_list"] = edges_added; out["edges_removed_list"] = edges_removed;
+    J slim_added = J::array(), slim_removed = J::array();
+    for (const auto& n : nodes_added) slim_added.push_back(J{{"id", text(n, "id")}, {"label", text(n, "label")}, {"file", n.value("file", J())}, {"line", n.value("line", J())}});
+    for (const auto& n : nodes_removed) slim_removed.push_back(J{{"id", text(n, "id")}, {"label", text(n, "label")}});
+    out["nodes_added_list"] = slim_added; out["nodes_removed_list"] = slim_removed;
+    long long found = 0, lost = 0;
+    for (const auto& [id, n] : after) {
+        const auto was = before.find(id);
+        if (was == before.end()) continue;
+        const bool had = was->second.contains("file") && was->second["file"].is_string(), has = n.contains("file") && n["file"].is_string();
+        if (!had && has) ++found;
+        if (had && !has) ++lost;
+    }
+    out["found_source"] = found;
+    out["lost_source"] = lost;
+    J because = J::array();
+    if (text(prev, "head") != text(now, "head") || text(prev, "dirty") != text(now, "dirty")) {
+        std::string head = text(prev, "head") != text(now, "head")
+            ? "the source changed (" + text(prev, "head").substr(0, 7) + " → " + text(now, "head").substr(0, 7) + ")" : std::string("the source changed (edits not committed)");
+        because.push_back(head);
+    }
+    if (text(prev, "binary") != text(now, "binary")) because.push_back(text(now, "binary").empty() ? "no binary read now" : "another binary was read");
+    else if (prev.contains("binary_stamp") && now.contains("binary_stamp") && prev["binary_stamp"] != now["binary_stamp"]) because.push_back("the binary was rebuilt");
+    const auto parsers = [](const J& graph) {
+        std::string said;
+        for (const auto& p : list(graph, "providers"))
+            if (text(p, "name") == "syntax") for (const auto& n : list(p, "notes")) if (n.is_string() && n.get<std::string>().rfind("no treesitter parser", 0) == 0) said = n.get<std::string>();
+        return said;
+    };
+    if (parsers(prev) != parsers(now)) because.push_back(parsers(now).empty() ? "a parser became available" : "the files without a parser changed: " + parsers(now));
+    out["because"] = because;
+    return out;
+}
+
 inline J merge(const J& syntax, const J& binary, const std::string& near = {}) {
     J nodes = J::array(), edges = J::array(), spans = J::object();
     std::set<std::string> ids;

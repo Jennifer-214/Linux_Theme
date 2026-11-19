@@ -256,6 +256,27 @@ int main(int, char** argv) {
         const auto amb_clean = desk_map::clean_graph(amb);
         CHECK(amb_clean["nodes"][1].value("ambiguous", J::array()) == J::array({J{{"name", "send"}, {"count", 2}, {"line", 4}}}),
               "an ambiguous call kept on its caller (one that matched once, or not an object, dropped)");
+        // What a rebuild changed (Codex's #42): calls and functions added and removed, source found and lost, and why.
+        {
+            J prev = J::parse(R"({"head": "aaaaaaa1", "dirty": "x", "built_at": 10, "binary": "/b/app",
+                "binary_stamp": {"path": "/b/app", "size": 1, "mtime": 5},
+                "providers": [{"name": "syntax", "notes": ["no treesitter parser for .zig 2"]}],
+                "nodes": [{"id": "f", "label": "f", "file": "a.c"}, {"id": "g", "label": "g", "file": null}, {"id": "old", "label": "old", "file": "a.c"}],
+                "edges": [{"from": "f", "to": "g", "kind": "call"}, {"from": "f", "to": "old", "kind": "call"}]})");
+            J now = prev;
+            now["head"] = "bbbbbbb2"; now["built_at"] = 20;
+            now["binary_stamp"]["mtime"] = 6;
+            now["providers"] = J::parse(R"([{"name": "syntax", "notes": []}])");
+            now["nodes"] = J::parse(R"([{"id": "f", "label": "f", "file": "a.c"}, {"id": "g", "label": "g", "file": "b.c"}, {"id": "new", "label": "new", "file": "b.c"}])");
+            now["edges"] = J::parse(R"([{"from": "f", "to": "g", "kind": "call"}, {"from": "g", "to": "new", "kind": "call-by-name"}])");
+            const auto c = desk_map::changes(prev, now);
+            CHECK(c["edges_added"] == 1 && c["edges_removed"] == 1 && c["nodes_added"] == 1 && c["nodes_removed"] == 1
+                  && c["edges_added_list"][0]["to"] == "new" && c["nodes_removed_list"][0]["label"] == "old", "a rebuild: the calls and functions it added and removed");
+            CHECK(c["found_source"] == 1 && c["lost_source"] == 0, "… g found its source");
+            CHECK(c["because"] == J({"the source changed (aaaaaaa → bbbbbbb)", "the binary was rebuilt", "a parser became available"}),
+                  "… and why: the source, the binary rebuilt, a parser now there");
+            CHECK(desk_map::changes(J(), now).value("first", false), "the first build: nothing to compare");
+        }
         // What the reader left out, counted: kept as whole numbers, never a string or a negative.
         J counted = raw;
         counted["nodes"][0]["params_more"] = 4;
