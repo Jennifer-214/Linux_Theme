@@ -308,9 +308,10 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `q` in the graph tab | Close the graph tab |
 | `gs` in a graph | The selected box's function in symdeps' card (C and C++), shown in the code — in the tab, the panel and the pop-out alike |
 | `t` in a graph | The project map's trace through the selected function: up to where it starts, down to where it ends, each step with its parameters and the arguments it is called with |
+| `T` in a graph | The project map's whole trace through the selected function: what leads to it above and what it leads to below, as boxes in layers, the lane `t` follows in double frames |
 | `p` in the panel | Pin the panel to the graph it shows (PINNED), or follow the cursor again |
 | `q` in the panel | Close the panel |
-| `gl` in a graph | Every function the graph has read, what "+N more" leaves out too, into the location list of the code window you were last in: `:lnext` and `:lprev` walk them while you edit, the quickfix list kept |
+| `gl` in a graph | Every function the graph has read into the location list of the code window you were last in: `:lnext` and `:lprev` walk them while you edit, the quickfix list kept |
 | `o` in a graph | Move this graph to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as a split |
 | `?` in a graph | The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list |
 <!-- callgraph-keys:end -->

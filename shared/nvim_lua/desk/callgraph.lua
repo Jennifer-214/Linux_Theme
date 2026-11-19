@@ -1908,13 +1908,26 @@ local ROWS = actions.add({
       -- from a pop-out, into that pop-out's map (never another screen's)
       require('desk.map').trace_at(vim.uri_to_fname(item.uri), item.range.start.line + 1, { pop = ctx.view and ctx.view.pop })
     end },
+  -- T: the map's whole trace through the selected box's function (every way through it in one picture), as T on the map.
+  { id = 'callgraph.trace-all', group = 'Call graph', name = 'The whole trace through this function', key = 'T', on = BOTH, remote = true, subject = subject,
+    about = "The project map's whole trace through the selected function: what leads to it above and what it leads to below, as boxes in layers, the lane `t` follows in double frames",
+    available = function(ctx)
+      local item = selected_item(ctx)
+      if not item then return 'no box is selected' end
+      return (item.uri and item.range) and true or 'that box has no place in the code'
+    end,
+    run = function(ctx)
+      local item = selected_item(ctx)
+      if not (item and item.uri and item.range) then return tell('Select a function first.') end
+      require('desk.map').trace_at(vim.uri_to_fname(item.uri), item.range.start.line + 1, { pop = ctx.view and ctx.view.pop, q = 'flow' })
+    end },
   { id = 'callgraph.pin', group = 'Call graph', name = 'Pin the panel to this graph, or follow again', key = 'p', on = 'callgraph-panel',
     about = 'Pin the panel to the graph it shows (PINNED), or follow the cursor again', run = function() M.panel_pin() end },
   { id = 'callgraph.panel-close', group = 'Call graph', name = 'Close the call graph panel', key = 'q', on = 'callgraph-panel',
     about = 'Close the panel', run = function() M.panel_close() end },
   -- o here sends the graph to the pop-out; o there brings it back (desk.popout's own row, popout.back).
   { id = 'callgraph.loclist', group = 'Call graph', name = "Send these functions to the window's location list", key = 'gl', on = BOTH, remote = true,
-    about = 'Every function the graph has read, what "+N more" leaves out too, into the location list of the code window you were last in: `:lnext` and `:lprev` walk them while you edit, the quickfix list kept',
+    about = 'Every function the graph has read into the location list of the code window you were last in: `:lnext` and `:lprev` walk them while you edit, the quickfix list kept',
     available = function(ctx)
       local holder = ctx.view or ctx.graph
       return (holder and holder.graph and holder.graph.center) and true or 'no function is shown'

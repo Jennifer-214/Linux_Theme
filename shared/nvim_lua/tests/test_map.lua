@@ -1690,6 +1690,8 @@ do
   vim.notify = real_notify
   eq(shown_in, { { "map", 2, repo } }, "asked from pop-out 2: the map shown in pop-out 2, for that checkout")
   ok(asked and asked.args:find("--q trace --file shared/nvim_lua/desk/map.lua --line 10", 1, true) and maps[2] ~= nil, "… and the trace asked there: " .. vim.inspect(asked))
+  Map.trace_at(repo .. "/shared/nvim_lua/desk/map.lua", 10, { pop = 2, q = "flow" })
+  ok(asked and asked.args:find("--q flow --file shared/nvim_lua/desk/map.lua --line 10", 1, true), "… q = flow: the whole trace, by its place: " .. vim.inspect(asked))
   package.loaded["desk.popout"], Map.desk_work = real_P, real_dw
 end
 -- How an action or a message works: the notebook's g on a failure is the callgraph message — who sends it, the relay,

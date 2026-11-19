@@ -3339,7 +3339,8 @@ function M.stack_on_map()
     end)
   end
 end
--- The trace through the function holding line `line` of file `path` (the call graph's t gives its box's). opts.pop:
+-- The trace through the function holding line `line` of file `path` (the call graph's t gives its box's; its T gives
+-- opts.q = 'flow', the whole trace). opts.pop:
 -- the pop-out it was asked from — the answer goes to that pop-out's map (opened there when it has none), never another
 -- screen's. Asked in the editor (no pop): the pop-out's map when one shows this checkout, else a map here.
 function M.trace_at(path, line, opts)
@@ -3363,7 +3364,7 @@ function M.trace_at(path, line, opts)
     view = (out and out.out and not out.gone and out.root == root) and out or nil
     if view then P.show('map', actions.context(), { pop = view.pop }) else view = M.open(root) end
   end
-  query(view, { '--q', 'trace', '--file', rel, '--line', tostring(line), '--from', '' })
+  query(view, { '--q', (opts and opts.q == 'flow') and 'flow' or 'trace', '--file', rel, '--line', tostring(line), '--from', '' })
 end
 
 function M.open(root, from)

@@ -372,7 +372,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   pyright, lua_ls, ...): while the server starts or indexes the tab says "waiting for the language server" (15
   seconds at most), and a file whose server has no call hierarchy says which server it has. `s` puts a label on
   every box, as `s` does in code (flash.nvim); typing one selects that box. For C and C++, `gs` opens the function in symdeps when that
-  plugin is installed (every use by role); without it the line reads "requires symdeps".
+  plugin is installed (every use by role); without it the line reads "requires symdeps". `t` opens the project map's
+  trace through the selected box's function and `T` its whole trace (see Project map below), in the same window.
 - **Call depth**. `+` expands the selected side of the graph, and `-` collapses it or cancels the level being read.
   From the centre, both keys act on the callee side. The gauge shows the depth of the selected box. Every function on
   a level is drawn, however many: the graph scrolls. The language server's first level stays; the built project map adds the level under the last one

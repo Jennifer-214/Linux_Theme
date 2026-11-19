@@ -511,15 +511,16 @@ eq({ G.target_at(dir .. "/no-such-file.lua", 1) }, { nil, "that file is no longe
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", "I", ">", "r", "q", "gs", "t", "gl", "o" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", "I", ">", "r", "gs", "t", "p", "q", "gl", "o" }, "the panel's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", "I", ">", "r", "q", "gs", "t", "T", "gl", "o" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", "I", ">", "r", "gs", "t", "T", "p", "q", "gl", "o" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do
     local on = type(r.on) == "table" and r.on or { r.on }
     if r.key and vim.tbl_contains(on, surface) then
       for _, mode in ipairs(type(r.mode) == "table" and r.mode or { r.mode or "n" }) do
-        local spelled = mode .. ":" .. r.key:lower()
+        -- <CR> and <cr> are one key; t and T are two (the case of a bracketed name only)
+        local spelled = mode .. ":" .. r.key:gsub("%b<>", string.lower)
         if seen[spelled] then twice[#twice + 1] = r.id .. " and " .. seen[spelled] end
         seen[spelled] = r.id
       end
@@ -561,6 +562,13 @@ do
   A.get("callgraph.trace").run({ view = { pop = 2 }, item = tab.drawn.boxes[2].item })
   Mp.trace_at = real_trace_at
   eq(traced, { "b.lua", 2, 2 }, "t on pop-out 2's graph asks for the trace in pop-out 2")
+  -- T: the whole trace through the selected box's function, as the map's T (2026-11-19, her "add it to the call graph
+  -- as well"), in the pop-out it was asked from.
+  Mp.trace_at = function(path, line, opts) traced = { vim.fn.fnamemodify(path, ":t"), line, opts and opts.pop, opts and opts.q } end
+  A.get("callgraph.trace-all").run({ view = { pop = 2 }, item = tab.drawn.boxes[2].item })
+  Mp.trace_at = real_trace_at
+  eq(traced, { "b.lua", 2, 2, "flow" }, "T on pop-out 2's graph asks for the whole trace in pop-out 2")
+  eq({ A.key("callgraph.trace-all"), A.get("callgraph.trace-all").remote }, { "T", true }, "… T on every graph, the pop-out's too")
   package.loaded["fox-symdeps"] = nil
   api.nvim_win_set_buf(0, was_buf)
   vim.fn.delete(d, "rf")
