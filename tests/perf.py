@@ -188,6 +188,106 @@ def review(env, base):
             {"name": "review.cycles.rss", "value": round(probe["rss_growth"] / 1024, 2), "unit": "MB"}]
 
 
+# The desk's own views (2026-11-19): the call graph, the trace, the map and the review, drawn as the editor draws them,
+# on inputs as big as a real day's (a wide graph, a long trace, a big map answer, a large changed file).
+DESK_PROBE = r"""
+package.path = vim.env.DESK_LUA .. '/?.lua;' .. package.path
+vim.notify = function() end
+vim.g.desk_style = 'retro'
+local G, Map, R = require('desk.callgraph'), require('desk.map'), require('desk.review')
+local function median(f, n)
+  local each = {}
+  for i = 1, n do local t = vim.uv.hrtime(); f(i); each[i] = (vim.uv.hrtime() - t) / 1e6 end
+  table.sort(each)
+  return each[math.floor(n / 2) + 1]
+end
+local out = {}
+-- a wide graph: three levels of 40 functions each, every one linked to two above it
+local function at(name, line) return { name = name, detail = 'f' .. line .. '.cpp:' .. line, uri = 'file:///w/f' .. line .. '.cpp', range = { start = { line = line, character = 0 } } } end
+local g = { center = at('Engine::tick', 1), layers = { callees = {} }, all_layers = true }
+for d = 1, 3 do
+  local tier = {}
+  for k = 1, 40 do tier[k] = at(('Level%d::fn_%02d(const Order&)'):format(d, k), d * 100 + k) end
+  g.layers.callees[d] = tier
+  if d > 1 then for k, it in ipairs(tier) do G._link(g, it, g.layers.callees[d - 1][k]); G._link(g, it, g.layers.callees[d - 1][(k % 40) + 1]) end end
+end
+local drawn
+out.graph_layout = median(function() drawn = G.layout(g, 200, true) end, 20)
+local buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(buf, 0, -1, false, drawn.lines)
+local s = { buf = buf, drawn = drawn }
+out.graph_select = median(function(i) G.select(s, (i % #drawn.boxes) + 1) end, 60)
+-- a long trace: 16 steps, 8 parameters each with fields read and written, every fold open
+local steps, calls, folds = {}, {}, {}
+for k = 1, 16 do
+  local params = {}
+  for p = 1, 8 do params[p] = { name = 'p' .. p, type = 'const Tick &', pass = 'const ref', dir = 'in', reads = { 'px', 'ts', 'seq' }, writes = { 'flags' } } end
+  steps[k] = { id = 'e.cpp::s' .. k, label = 'step_' .. k, file = 'e.cpp', line = k * 10, kind = 'function', role = k == 8 and 'focus' or (k < 8 and 'up' or 'down'),
+    returns = 'bool', params = params, callers = {}, more_callers = 0, callees = {}, more_callees = 0 }
+  for _, f in ipairs({ 'params', 'uses', 'layout', 'callers' }) do folds['e.cpp::s' .. k .. '|' .. f] = true end
+  if k > 1 then calls[k - 1] = { from = 'e.cpp::s' .. (k - 1), to = 'e.cpp::s' .. k, kind = 'call-by-name', line = k * 10 - 5, args = { 'a', 'b', 'c' } } end
+end
+local trace = { ok = true, q = 'trace', focus = 'e.cpp::s8', depth = 16, steps = steps, calls = calls }
+out.trace_page = median(function() Map.layout(Map.trace_page(trace, folds), 160, true) end, 20)
+-- a big map answer: what a function reaches, 1500 functions over 3 levels
+local nodes, msteps = { { id = 'r', label = 'root', file = 'a.c', line = 1, depth = 0 } }, {}
+for k = 1, 1500 do
+  nodes[#nodes + 1] = { id = 'n' .. k, label = 'fn_' .. k, file = 'f' .. (k % 50) .. '.c', line = k, depth = (k % 3) + 1 }
+  msteps[#msteps + 1] = { from = k <= 500 and 'r' or ('n' .. (k - 500)), to = 'n' .. k, depth = (k % 3) + 1, mark = 'follow' }
+end
+local reach = { ok = true, q = 'reach', from = nodes[1], depth = 3, nodes = nodes, steps = msteps }
+out.map_reach = median(function() Map.layout(Map.level_query(reach, true), 200, true) end, 10)
+-- the review's rows of a large changed C file: 300 functions, each changed
+local left, right = {}, {}
+for k = 1, 300 do
+  local fn = ('int f%d(int a, int b) {\n  int x = a + b;\n  return helper%d(x);\n}\n'):format(k, k)
+  left[#left + 1] = fn
+  right[#right + 1] = fn:gsub('a %+ b', 'a * b')
+end
+local file = { rel = 'big.c', left = table.concat(left), right = table.concat(right), loaded = true }
+file.hunks = (vim.text and vim.text.diff or vim.diff)(file.left, file.right, { result_type = 'indices', algorithm = 'histogram', linematch = 60 })
+out.review_symbols = median(function(i) file.symbols = nil; file.signature = 's' .. i; R.changed_symbols(file) end, 5)
+-- a map rebuild with the per-file cache: 120 C files, nothing changed
+local root = vim.env.DESK_PERF_ROOT
+local files = {}
+for k = 1, 120 do
+  local rel = ('src/m%d.c'):format(k)
+  local lines = {}
+  for f = 1, 20 do lines[#lines + 1] = ('int m%d_f%d(int x) { return m%d_f%d(x) + %d; }'):format(k, f, k, (f % 20) + 1, f) end
+  vim.fn.mkdir(root .. '/src', 'p')
+  vim.fn.writefile(lines, root .. '/' .. rel)
+  files[#files + 1] = rel
+end
+local t0 = vim.uv.hrtime()
+Map.syntax_graph({ root = root, files = files, cache = root .. '/cache' })
+out.map_build = (vim.uv.hrtime() - t0) / 1e6
+t0 = vim.uv.hrtime()
+Map.syntax_graph({ root = root, files = files, cache = root .. '/cache' })
+out.map_rebuild = (vim.uv.hrtime() - t0) / 1e6
+io.stdout:write(vim.json.encode(out) .. "\n")
+vim.cmd('qa!')
+"""
+
+
+def desk(env, base):
+    """The desk's own views timed as the editor draws them (DESK_PROBE)."""
+    (base / "desk.lua").write_text(DESK_PROBE)
+    (base / "maproot").mkdir()
+    run = sealed_env.run(["nvim", "--headless", "--clean", "-l", str(base / "desk.lua")],
+                         dict(env, DESK_LUA=str(ROOT / "shared/nvim_lua"), DESK_PERF_ROOT=str(base / "maproot")), timeout=300)
+    found = [l for l in run.stdout.splitlines() if l.startswith("{")]
+    if not found:
+        sys.exit("perf: the desk probe gave no answer:\n" + run.stdout[-2000:] + run.stderr[-2000:])
+    p = json.loads(found[-1])
+    return [{"name": "graph.layout", "value": round(p["graph_layout"], 2), "unit": "ms"},
+            {"name": "graph.select", "value": round(p["graph_select"], 2), "unit": "ms"},
+            {"name": "trace.page", "value": round(p["trace_page"], 2), "unit": "ms"},
+            {"name": "map.reach", "value": round(p["map_reach"], 1), "unit": "ms"},
+            {"name": "review.symbols", "value": round(p["review_symbols"], 1), "unit": "ms"},
+            {"name": "map.build", "value": round(p["map_build"], 0), "unit": "ms"},
+            {"name": "map.rebuild", "value": round(p["map_rebuild"], 0), "unit": "ms"}]
+
+
 def nvim(args, env, base, timeout=120):
     """Neovim under bwrap with the installed plugins and parsers read-only."""
     sealed = ["bwrap", "--dev-bind", "/", "/", "--ro-bind", str(DATA), str(DATA), "--chdir", str(base), "--"]
@@ -215,7 +315,7 @@ def measure(theme):
         if not probe["treesitter"]:
             print("perf: treesitter did not attach to the fixture (no lua parser installed?): moves are measured without it",
                   file=sys.stderr)
-        return review(env, base) + [{"name": "nvim.start", "value": round(statistics.median(starts), 1), "unit": "ms"},
+        return review(env, base) + desk(env, base) + [{"name": "nvim.start", "value": round(statistics.median(starts), 1), "unit": "ms"},
                 {"name": "nvim.move", "value": round(probe["move"], 2), "unit": "ms"},
                 {"name": "nvim.move.p95", "value": round(probe["move_p95"], 2), "unit": "ms"},
                 {"name": "nvim.scroll", "value": round(probe["scroll"], 2), "unit": "ms"}]
