@@ -453,7 +453,7 @@ end
 local SPEC = { name = 'string', title = 'string', about = 'string', menu = 'string', surface = 'string', render = 'function',
   available = 'function', open = 'function', follow = 'function', ctx_for = 'function', attach = 'function', close = 'function',
   save = 'function', restore = 'function', follows = 'boolean', mirror = 'boolean', match = 'function',
-  delta = 'function' }
+  delta = 'function', place = 'function' }
 local function kind_problem(spec)
   if type(spec) ~= 'table' then return 'a view kind is a table, not ' .. type(spec) end
   local name = type(spec.name) == 'string' and spec.name or '(no name)'
@@ -593,6 +593,8 @@ local function payload(view)
   end
   return { type = 'view.set', id = view.id, kind = view.kind, surface = kind.surface, title = cut(drawn.title, 200) or kind.title,
     tab = cut(drawn.tab, 24), subject = cut(drawn.subject, 60),
+    -- another pop-out previews this one's selection (gp there): its selection is told as it moves
+    previewed = kind.place ~= nil and M.preview_pop ~= nil and M.preview_pop ~= view.pop or nil,
     state = cut(drawn.state, 200) or '', lines = lines, marks = marks, hl = definitions(drawn.hl), items = items,
     footer = plain_footer(drawn.footer), strip = num(drawn.strip), news = drawn.news == true,
     pinned = view.pinned == true, follows = kind.follow ~= nil and (kind.follows ~= false or view.follows == true),
@@ -1690,6 +1692,47 @@ bridge.register('act', timed(act), { pop = POP, view = ID, gen = NUMBER, item = 
   action = bridge.field('string', 64, true), text = bridge.field('string', 2000), choice = bridge.field('string', 64) })
 bridge.register('pong', pong, { pop = POP, serial = bridge.field('integer', 2147483647, true) })
 bridge.register('front', timed(front), { pop = POP, view = bridge.field('string', 32, true), quiet = bridge.field('boolean') })
+-- Two pop-outs as a pair (her pick: "one pane previews the other's selection"): gp in a pop-out makes it the preview
+-- pane; another pop-out's map or graph then tells its selection as it moves, and the preview pane shows that place's
+-- source, pinned (it does not follow the editor), while her editor and keyboard stay where they are.
+M.preview_pop = nil
+function M.preview_toggle(view)
+  if not view then return end
+  M.preview_pop = (M.preview_pop ~= view.pop) and view.pop or nil
+  for _, p in ipairs(pops) do for _, v in pairs(p.views) do if v ~= view then M.redraw(v) end end end
+  tell(M.preview_pop and 'This pop-out previews the other pop-outs\' selections (gp again stops).' or 'Previews stopped.')
+end
+function M.preview_show(file, line)
+  local p = M.preview_pop and pops[M.preview_pop]
+  if not (p and p.chan) then return nil, 'no pop-out previews selections (gp in one)' end
+  local cv = package.loaded['desk.codeview']
+  local view
+  for _, v in pairs(p.views) do if v.previewing then view = v end end
+  if view and cv and cv.retarget then cv.retarget(view, file, line)
+  else
+    view = restore_tab(p, { kind = 'code', pinned = true, target = { file = file, line = line } })
+    if not view then return nil, 'the preview could not open' end
+    view.previewing = true
+    if cv and cv.retarget then cv.retarget(view, file, line) end
+  end
+  to_front(view)
+  M.redraw(view)
+  return view
+end
+local function selected(msg)
+  local p = from_pop(msg)
+  local view = p and p.views[msg.view]
+  if not view or msg.gen ~= view.gen then return refuse('this view moved on') end
+  local kind = kinds[view.kind]
+  local ref = view.refs and view.refs[msg.item]
+  if not (kind and kind.place and ref) then return { shown = false } end
+  local ok, file, line = pcall(kind.place, view, ref)
+  if not (ok and type(file) == 'string') then return { shown = false } end
+  vim.schedule(function() M.preview_show(file, tonumber(line) or 1) end)
+  return { shown = true }
+end
+M._selected = selected
+bridge.register('selected', timed(selected), { pop = POP, view = ID, gen = NUMBER, item = bridge.field('integer', M.MAX_ITEMS, true) })
 bridge.register('leaving', on_leaving, { pop = POP, pid = bridge.field('integer', 2147483647, true) })
 bridge.register('resync', timed(function(msg)
   local p = from_pop(msg)
@@ -1876,8 +1919,20 @@ local function centre(view)
 end
 
 local set_keyline   -- below: the key line, which says the selected thing's own keys when it has some
+-- A view another pop-out previews: its selection told to the editor once it rests (120 ms), never per keystroke.
+local function tell_selected(view)
+  if not (C.chan and view.previewed and view.copy and view.copy.index) then return end
+  view.tell_timer = view.tell_timer or (vim.uv or vim.loop).new_timer()
+  view.tell_timer:stop()
+  view.tell_timer:start(120, 0, vim.schedule_wrap(function()
+    if not (C.chan and view.copy and view.copy.index) then return end
+    pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { { version = 1, type = 'selected', pop = C.pop, view = view.id, gen = view.gen,
+      item = view.copy.index, deadline = now_ms() + 2000 } })
+  end))
+end
 local function strip(view)
   if set_keyline then set_keyline(view) end
+  tell_selected(view)
   local at, index = view.strip, view.copy.index
   local item = index and view.items[index]
   if not (at and item and item.strip) or view.strip_for == index or not api.nvim_buf_is_valid(view.buf) then return end
@@ -2266,7 +2321,7 @@ local function valid_view(msg)
     -- Any surface by its name, known here or not (a plugin's, whose module this window never loads: client_view).
     surface = type(msg.surface) == 'string' and #msg.surface <= 32 and msg.surface:match('^[%w_-]+$') and msg.surface or nil,
     title = type(msg.title) == 'string' and msg.title:sub(1, 200) or msg.id, state = type(msg.state) == 'string' and msg.state:sub(1, 200) or '',
-    tab = short(msg.tab, 24), subject = short(msg.subject, 60),
+    tab = short(msg.tab, 24), subject = short(msg.subject, 60), previewed = msg.previewed == true,
     lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer),
     strip = type(msg.strip) == 'number' and msg.strip >= 1 and msg.strip < #lines and math.floor(msg.strip) or nil,
     select = short(msg.select, 120), front = msg.front == true, news = msg.news == true, views = valid_ids(msg.views),
@@ -2457,7 +2512,7 @@ local function handle(msg)
     end
     local before = view.copy.index and view.items[view.copy.index]
     for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'tab', 'subject', 'state', 'marks', 'hl', 'items', 'footer', 'strip', 'pinned',
-      'follows', 'tick', 'total', 'cursor' }) do view[field] = got[field] end
+      'follows', 'tick', 'total', 'cursor', 'previewed' }) do view[field] = got[field] end
     if got.tick then
       if not view.loading and got.pinned and view.win and api.nvim_win_is_valid(view.win) then
         view.saved_scroll = api.nvim_win_call(view.win, vim.fn.winsaveview)
@@ -2902,6 +2957,9 @@ local ROWS = actions.add({
     menu = false, available = can_go }, go_focus),
   { id = 'popout.go-mouse', group = 'Pop-out', name = 'Go to what is clicked', key = '<2-LeftMouse>', on = ON, menu = false, doc = false,
     run = function() M.client_click() end },
+  remote({ id = 'popout.preview-here', group = 'Pop-out', name = "Preview the other pop-out's selection here", key = 'gp', on = ON,
+    about = "This pop-out shows the source of what is selected in another pop-out's map or graph as it moves (pinned, so it does not follow the editor), while the editor and the keyboard stay where they are; `gp` again stops",
+    available = showing }, function(ctx) M.preview_toggle(ctx.view) end),
   remote({ id = 'popout.pin', group = 'Pop-out', name = 'Pin, or follow the editor', key = 'p', on = ON,
     about = "Pin this view (PINNED: it stays as it is while the editor moves, and `Enter` visits its items one by one), or follow the editor's cursor again",
     available = showing }, function(ctx) M.pin(ctx.view) end),

@@ -1551,6 +1551,34 @@ do
   host_pop.views[fresh_view.id] = nil
   pv.stack, Map.desk_work, P.host.history, pv.pinned = stack, inner, history, false
 end
+-- Two pop-outs as a pair: gp makes one the preview pane; another's map tells its selection; the pane shows that place.
+do
+  local real_show = P.preview_show
+  P.preview_pop = nil
+  eq(P._payload(pv).previewed, nil, "no preview pane: the map's selection is not told")
+  P.preview_pop = 99
+  eq(P._payload(pv).previewed, true, "… another pop-out previews: it is")
+  local node_ref = { target = { kind = "node", node = { id = "lua/mod.lua::M.alpha", label = "M.alpha", file = "lua/mod.lua", line = 3 } } }
+  eq({ K.place(pv, node_ref) }, { pv.root .. "/lua/mod.lua", 3 }, "a function's place: its file and line")
+  eq({ K.place(pv, { target = { kind = "call", file = "e.cpp", sites = { { line = 11 } } } }) }, { pv.root .. "/e.cpp", 11 }, "… a call's: its line")
+  eq({ K.place(pv, { target = { kind = "handoff", producer = { file = "e.cpp", line = 7 } } }) }, { pv.root .. "/e.cpp", 7 }, "… a handoff's: its push")
+  local shown
+  P.preview_show = function(file, line) shown = { file, line } end
+  pv.refs, pv.count = { node_ref }, 1
+  local answer = P._selected({ pop = pv.pop, view = pv.id, gen = pv.gen, item = 1 })
+  ok(answer.shown and vim.wait(500, function() return shown ~= nil end), "a selection told: placed")
+  eq(shown, { pv.root .. "/lua/mod.lua", 3 }, "… at its file and line, in the preview pane")
+  eq(P._selected({ pop = pv.pop, view = pv.id, gen = (pv.gen or 0) + 1, item = 1 }), { refused = "this view moved on" }, "… an older drawing's selection refused")
+  P.preview_show, P.preview_pop = real_show, nil
+  eq({ P.preview_show("/x", 1) }, { nil, "no pop-out previews selections (gp in one)" }, "no preview pane: said")
+  -- the code view retargeted: pinned at that line
+  local CV = require("desk.codeview")
+  local f = vim.fn.tempname() .. ".lua"
+  vim.fn.writefile({ "a", "b", "c" }, f)
+  local cv_view = { id = "code.preview", kind = "code" }
+  ok(CV.retarget(cv_view, f, 3) and cv_view.pinned == true and cv_view.source_line == 3 and vim.api.nvim_buf_get_name(cv_view.buf) == vim.fn.fnamemodify(f, ":p"),
+    "the preview's code view: that file, at that line, pinned")
+end
 -- The review as a starting point: U (callers, with the note on an older commit), T (a path), M (a commit on the map).
 do
   local R = require("desk.review")

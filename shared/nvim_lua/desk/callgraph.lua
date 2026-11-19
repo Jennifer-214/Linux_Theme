@@ -1922,6 +1922,10 @@ M.view_kind = {
     return ctx
   end,
   -- o in the pop-out: back as the live panel beside the code it came from, pinned when it was pinned there.
+  -- The place of a selected box, for the preview pane (gp in another pop-out).
+  place = function(_, ref)
+    if ref and ref.uri and ref.range then return vim.uri_to_fname(ref.uri), ref.range.start.line + 1 end
+  end,
   attach = function(view)
     if code_window(view.win) then pcall(api.nvim_set_current_win, view.win) end
     M.panel_open_with(view.graph, view.target, view.pinned)

@@ -327,6 +327,7 @@ the keyboard stays in the pop-out; `f` or Shift+Enter puts the keyboard here too
 |---|---|
 | `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is (with several, the first); the same key there goes on to the next, and from the last back here |
 | `f` / `Shift+Enter` in the pop-out | What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too; where `Enter` only acts in the view (a zoom, a fold) the keyboard stays |
+| `gp` in the pop-out | This pop-out shows the source of what is selected in another pop-out's map or graph as it moves (pinned, so it does not follow the editor), while the editor and the keyboard stay where they are; `gp` again stops |
 | `p` in the pop-out | Pin this view (PINNED: it stays as it is while the editor moves, and `Enter` visits its items one by one), or follow the editor's cursor again |
 | `o` in the pop-out | This view back to the editor as a split (the call graph as the live panel), pinned if it is pinned here; the pop-out stays open |
 | `H` / `L` / `gt` / `gT` in the pop-out | The previous / next tab (`2gt` goes to the second) |

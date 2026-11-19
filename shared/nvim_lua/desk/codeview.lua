@@ -118,6 +118,23 @@ local function delta(view)
     cursor = not view.pinned and cursor or nil, pinned = view.pinned }
 end
 
+-- The preview pane's (desk.popout preview_show): this view shows `file` at `line`, pinned to it.
+function M.retarget(view, file, line)
+  local buf = vim.fn.bufnr(file)
+  if buf < 0 or not api.nvim_buf_is_loaded(buf) then
+    local stat = vim.uv.fs_stat(file)
+    if not stat or stat.type ~= 'file' then return false end
+    buf = vim.fn.bufadd(file)
+    vim.fn.bufload(buf)
+  end
+  view.title = vim.fn.fnamemodify(file, ':t')
+  view.pinned = true
+  watch(view, buf, nil, line)
+  view.needs_full = true
+  view.cursor_pending = line
+  return true
+end
+
 local function follow(view, event)
   if event.type == 'pin' then
     if not view.usable then return pop().redraw(view) end

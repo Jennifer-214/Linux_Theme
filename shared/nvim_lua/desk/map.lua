@@ -3364,6 +3364,15 @@ M.view_kind = {
     if win then pcall(api.nvim_set_current_win, win) end
     M.open(view.root, view)
   end,
+  -- The place of a selected item, for the preview pane (gp): a function's line, a call's, a handoff's push.
+  place = function(view, ref)
+    local t = ref and ref.target
+    if not (t and view.root) then return nil end
+    if t.kind == 'node' and t.node and t.node.file then return view.root .. '/' .. t.node.file, t.node.line or 1 end
+    if t.kind == 'call' and t.file and t.sites and t.sites[1] then return view.root .. '/' .. t.file, t.sites[1].line end
+    if t.kind == 'handoff' and t.producer and t.producer.file then return view.root .. '/' .. t.producer.file, t.producer.line end
+    if t.kind == 'field' and t.step and t.step.file then return view.root .. '/' .. t.step.file, t.step.line end
+  end,
   close = function(view)
     stop_polling(view)
     if view.follow_timer then view.follow_timer:stop(); view.follow_timer:close(); view.follow_timer = nil end
