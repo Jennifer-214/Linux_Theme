@@ -2150,6 +2150,11 @@ function M.client_focus(here)
   end
   vim.cmd('redrawtabline')
 end
+--- pure: a gp pair's partner as the header says it: the words in the theme's voice, the function it names as typed.
+function M.partner_text(partner, said)
+  local words, name = tostring(partner):match('^(.-: )(.+)$')
+  return words and (said(words) .. name) or said(partner)
+end
 local function tabline()
   local retro = graphs().retro()
   local said, current, out = actions.voice(retro), api.nvim_get_current_tabpage(), {}
@@ -2168,7 +2173,7 @@ local function tabline()
     -- Pinned or following, from the editor's own flags (any kind: the review's state is its progress, 2026-11-16).
     if view and view.pinned then text = text .. (retro and '·' or ' · ') .. said('PINNED')
     elseif view and view.follows then text = text .. ' ' .. (retro and '»' or '↻') end
-    if view and view.partner then text = text .. ' · ' .. said(view.partner) end
+    if view and view.partner then text = text .. ' · ' .. M.partner_text(view.partner, said) end
     if view and view.news then text = text .. ' ' .. (retro and '*' or '✱') end
     -- filled only where the keyboard is (Codex's #7): in a pop-out without it, its tab reads as any other
     local filled = tab == current and C.focused ~= false

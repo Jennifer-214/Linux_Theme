@@ -554,6 +554,11 @@ eq(pop([[local P = require('desk.popout'); return { P.tabline():find('%#DeskPopo
 -- ─── a gp pair names its partner (Codex's #6): the graph's header says where its preview is ─────────────────────
 host("local P = require('desk.popout'); P.preview_pop = 2; P.redraw(P.view_of('graph'))")
 ok(wait(3000, function() return (state().header or ''):find('preview → 2', 1, true) end), 'previewed by pop-out 2: its header says so: ' .. tostring(state().header))
+-- the header's partner in retro: its words shouted, the function it names as typed (seen in the VM pass)
+eq(pop([[local said = require('desk.actions').voice(true)
+  local P = require('desk.popout')
+  return { P.partner_text('following ← 1: Ring_Pop', said), P.partner_text('preview → 2', said) }]]), { 'FOLLOWING ← 1: Ring_Pop', 'PREVIEW → 2' },
+  '… in retro: the words in capitals, the name it follows as typed')
 host("local P = require('desk.popout'); P.preview_pop = nil; P.redraw(P.view_of('graph'))")
 ok(wait(3000, function() return not (state().header or ''):find('preview →', 1, true) end), '… and stops saying it when the pair is undone')
 ok(wait(3000, function()
