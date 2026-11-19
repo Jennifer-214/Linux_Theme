@@ -419,6 +419,11 @@ do
   ok(text:find("what changed between them (possible causes) · 1 commits · 1 files", 1, true) and text:find("engine.c", 1, true), "… then the possible causes")
   local row, l = line_with(page.lines, "a slower tick")
   eq(row and Map.item_at(page, row, l:find("a slower tick", 1, true)).target, { kind = "commit", sha = "bbbbbbb2cccc" }, "… a commit a way onto the map (what it changed)")
+  vim.g.desk_style = "retro"
+  local narrow_retro = Map.layout(Map.level_regression({ answer = vim.tbl_extend("force", a, { files = { "src/engine.c", "src/book.cpp", "src/risk.cpp", "src/feed/queue.hpp" } }) }), 50, true)
+  vim.g.desk_style = nil
+  local wide_line = vim.iter(narrow_retro.lines):find(function(x) return vim.fn.strdisplaywidth(x) > 50 end)
+  ok(not wide_line and table.concat(narrow_retro.lines, "\n"):find("src/feed/queue.hpp", 1, true), "… in retro at 50 columns: files as typed, every line within the page: " .. tostring(wide_line))
 end
 do
   -- A function as the binary has it (Codex's #15): its symbol and copies, or why it has none.
@@ -1234,7 +1239,7 @@ do
       local depth0, n0 = #view.stack, #corrections
       require("desk.actions").get("map.handoffs").run({ map = view })
       ok(vim.wait(1000, function() return line_with(view.drawn.lines, "handoff corrections · 2") end), "the corrections review: a page of its own")
-      ok(line_with(view.drawn.lines, "added    tick → gone  (ambiguous: several now)   ══[ a queue ]══"), "… an added one, its end that is several now said")
+      ok(line_with(view.drawn.lines, "added    tick → gone  (ambiguous: several now)   ══ a queue ══"), "… an added one, its end that is several now said")
       ok(line_with(view.drawn.lines, "dropped  hot  (gone from the map) → tick"), "… a dropped one whose end is gone")
       ok(line_with(view.drawn.lines, "the reader no longer reads this as a handoff") and line_with(view.drawn.lines, ".desk/tools.json (yours to edit there)"),
         "… a stale drop said, and one declared elsewhere is hers to edit there")
@@ -1473,6 +1478,9 @@ do
   press("gP")
   ok(asked[#asked]:find("--q paths --from lua/other.lua::use --to lua/mod.lua::M.beta --avoid lua/mod.lua::M.alpha", 1, true), "gP: the ways again, avoiding it: " .. asked[#asked])
   ok(vim.wait(1000, function() return line_with(view.drawn.lines, "No way from use to M.beta avoids M.alpha in the map.") end), "… none here: said")
+  local narrow_no = Map.layout(Map.level_query({ ok = true, q = "paths", from = { id = "a", label = "on_order" }, to = { id = "b", label = "submit" }, depth = 10, paths = {},
+    avoided = { id = "v", label = "validate" }, searched = { built_at = os.time(), depth = 10, complete = false } }), 60, false)
+  ok(not vim.iter(narrow_no.lines):find(function(x) return vim.fn.strdisplaywidth(x) > 60 end), "… what was searched wraps within the page")
   ok(line_with(view.drawn.lines, "Searched: the map built ") and line_with(view.drawn.lines, "calls, calls matched by name and handoffs"), "… with what was searched")
   press("<BS>")
   ok(vim.wait(1000, function() return line_with(view.drawn.lines, "ways from use to M.beta ·") end), "Backspace: the ways again")

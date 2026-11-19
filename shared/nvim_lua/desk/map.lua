@@ -1919,11 +1919,15 @@ function M.level_query_plain(answer, all, level)
       local item = { name = name('from') .. ' → ' .. name('to'), key = 'correction:' .. i, target = { kind = 'correction', entry = e } }
       local rows = { { { (e.side == 'add' and 'added    ' or 'dropped  '), nil, true, 'DeskMapDim' }, { name('from') .. STATE[e.from.state or 'ok'], item, nil, trouble },
         { ' → ' }, { name('to') .. STATE[e.to.state or 'ok'], nil, nil, trouble },
-        { e.label and ('   ══[ ' .. e.label .. ' ]══') or '', nil, true, 'DeskMapDim' } } }
+        { e.label and ('   ══ ' .. e.label .. ' ══') or '', nil, nil, 'DeskMapDim' } } }
       local notes = {}
       if e.stale then notes[#notes + 1] = 'the reader no longer reads this as a handoff: the drop does nothing now' end
       if not e.own then notes[#notes + 1] = 'declared in ' .. vim.fn.fnamemodify(tostring(e.declared_in), ':~') .. ' (yours to edit there)' end
-      if #notes > 0 then rows[#rows + 1] = { { '         ' .. table.concat(notes, ' · '), nil, true, 'DeskMapDim' } } end
+      if #notes > 0 then
+        local nparts = { { '         ' } }
+        for k, note in ipairs(notes) do nparts[#nparts + 1] = { note .. (k < #notes and ' · ' or ''), nil, true, 'DeskMapDim', hang = k == 1 } end
+        rows[#rows + 1] = nparts
+      end
       sections[#sections + 1] = { block = rows }
     end
     if #entries == 0 then sections[#sections + 1] = { parts = { { 'No handoff corrections for this checkout: `a` on a trace step adds one, `x` on a handoff drops it.' } }, group = 'DeskMapDim' } end
@@ -2006,8 +2010,12 @@ function M.level_query_plain(answer, all, level)
       local sr = type(answer.searched) == 'table' and answer.searched or {}
       local built = tonumber(sr.built_at) and os.date('%Y-%m-%d %H:%M', tonumber(sr.built_at)) or '?'
       sections[#sections + 1] = { parts = { { 'No way from ' .. (from.label or '?') .. ' to ' .. (to.label or '?') .. ' avoids ' .. (avoid.label or '?') .. ' in the map.' } }, group = 'DeskMapFocus' }
-      sections[#sections + 1] = { block = { { { 'Searched: the map built ' .. built .. ' · calls, calls matched by name and handoffs · up to ' .. tostring(sr.depth or answer.depth or '?')
-        .. ' calls deep' .. (sr.complete == false and ' · the map is partial: a way may be among what it could not read' or '') .. '. Function pointers, virtual calls and macros the map did not read are not in it.', nil, true } } }, group = 'DeskMapDim' }
+      local said = { 'Searched: the map built ' .. built .. ' · ', 'calls, calls matched by name and handoffs · ', 'up to ' .. tostring(sr.depth or answer.depth or '?') .. ' calls deep',
+        sr.complete == false and ' · the map is partial: ' or '', sr.complete == false and 'a way may be among what it could not read' or '',
+        '. Function pointers, virtual calls ', 'and macros the map did not read are not in it.' }
+      local sparts = {}
+      for i, t in ipairs(said) do if t ~= '' then sparts[#sparts + 1] = { t, nil, true, nil, hang = i == 1 } end end
+      sections[#sections + 1] = { block = { sparts }, group = 'DeskMapDim' }
     end
     if #(answer.paths or {}) == 0 and not avoid then
       sections[#sections + 1] = { parts = { { (from.label or '?') .. ' does not reach ' .. (to.label or '?') .. ' in the map within ' .. (answer.depth or '?') .. ' calls' } }, group = 'DeskMapDim' }
@@ -3253,7 +3261,12 @@ function M.level_regression(level)
     crows[#crows + 1] = { { short(c.sha) .. '  ' .. tostring(c.subject), { name = short(c.sha), key = 'commit:' .. c.sha, target = { kind = 'commit', sha = c.sha } } } }
   end
   if #crows > 0 then sections[#sections + 1] = { block = crows } end
-  if #(a.files or {}) > 0 then sections[#sections + 1] = { parts = { { table.concat(a.files, ' · '), nil, true } }, group = 'DeskMapDim' } end
+  if #(a.files or {}) > 0 then
+    -- files as typed (code), a part each so a long list wraps between them
+    local fparts = {}
+    for i, f in ipairs(a.files) do fparts[#fparts + 1] = { f .. (i < #a.files and ' · ' or ''), nil, nil, 'DeskMapDim', hang = i == 1 } end
+    sections[#sections + 1] = { block = { fparts }, group = 'DeskMapDim' }
+  end
   return { crumbs = { 'slowdown' }, sections = sections }
 end
 function M.regression_on_map(root, job_id, base_id)
