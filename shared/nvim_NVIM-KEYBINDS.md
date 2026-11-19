@@ -683,6 +683,7 @@ which-key its words.
 | home menu: Review list to the pop-out | The open review's file list in the pop-out on the other screen: the comparison takes this whole screen, and `Enter` there shows a file here while the keyboard stays there |
 | `Space cv` | Show a live copy of this file, including unsaved changes |
 | home menu: Pop out the project map | The project map in the pop-out, a window of its own on the other screen: `Enter` there zooms in, or goes to a function here while the keyboard stays there; `-` and `Backspace` go back out |
+| `Space ?` | Pick a key's action or a message the editor takes (the notebook's g on a failure is the callgraph message): its steps, each with its place, in the quickfix list — who sends it, how it gets here, what answers it |
 | `Space Space` | Everything that applies where the cursor is, in one menu: this function, the review, Claude, work, symdeps |
 | home menu: This function in symdeps | symdeps' card for the unit at the cursor: its layout, uses, callers and calls |
 | `Space cc`, `:CallGraph` | Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected. One tab: pressed again anywhere, it brings that tab back on the function under the cursor |

@@ -26,6 +26,13 @@ function M.register(name, handler, fields)
   handlers[name] = { run = handler, fields = fields or {} }
 end
 
+-- The registered types, each with its handler (the map's "how does this work": who receives a message). A copy.
+function M.types()
+  local out = {}
+  for name, h in pairs(handlers) do out[name] = { run = h.run, fields = vim.tbl_keys(h.fields) } end
+  return out
+end
+
 -- Every message has a version, a type and, from desk-work, the time its sender stops waiting.
 local ENVELOPE = { version = true, type = true, deadline = true }
 local function invalid(msg, fields)

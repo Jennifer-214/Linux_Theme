@@ -1354,6 +1354,25 @@ do
   ok(asked and asked.args:find("--q trace --file shared/nvim_lua/desk/map.lua --line 10", 1, true) and maps[2] ~= nil, "… and the trace asked there: " .. vim.inspect(asked))
   package.loaded["desk.popout"], Map.desk_work = real_P, real_dw
 end
+-- How an action or a message works: the notebook's g on a failure is the callgraph message — who sends it, the relay,
+-- the handler — each with its place.
+do
+  require("desk.callgraph")
+  local repo = vim.fs.root(debug.getinfo(1, "S").source:sub(2), ".git")
+  local saved_path = vim.env.PATH
+  vim.env.PATH = "/usr/bin:/bin" -- git only (this section keeps every other program off PATH)
+  local steps = A.how({ message = "callgraph" }, repo)
+  vim.env.PATH = saved_path
+  local files = vim.tbl_map(function(st) return st.file and vim.fs.basename(st.file) or "-" end, steps or {})
+  ok(vim.tbl_contains(files, "work.ts") and vim.tbl_contains(files, "editor.hpp") and files[#files] == "callgraph.lua",
+    "callgraph: sent by the notebook (work.ts), relayed by desk-work (editor.hpp), answered in callgraph.lua: " .. vim.inspect(files))
+  local last = steps[#steps]
+  ok(last.text:find("answered here: the callgraph handler", 1, true) and last.line and last.line > 0, "… the handler's own line")
+  local row_steps = A.how({ row = A.get("map.trace") }, repo)
+  eq({ row_steps[1].text:find("you press t on map", 1, true) ~= nil, vim.fs.basename(row_steps[2].file or "") }, { true, "map.lua" }, "a key: what you press, then the function it runs")
+  local none, why = A.how({ message = "no-such" }, repo)
+  eq({ none, why }, { nil, '"no-such" is not a message this editor takes' }, "an unknown message: said")
+end
 local views_row = A.get("popout.view.map")
 eq(views_row and { views_row.group, views_row.name, views_row.remote }, { "Views", "Pop out the project map", true },
   "a row in Views opens it from anywhere, the pop-out too")

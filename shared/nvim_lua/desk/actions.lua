@@ -396,6 +396,55 @@ function M.about_of(row, ctx)
   return (ok and type(what) == 'string' and what ~= '') and (what .. ' — ' .. row.about) or row.about
 end
 
+-- How an action or a message works, as steps with their places (her pick: "trace a user action, command, or message"):
+-- a key's row runs a function (where it is); a bridge message is sent by a program of the checkout (the files naming
+-- its type, outside the editor's Lua), relayed by desk-work to the editor of that checkout, and answered by the handler
+-- registered for it. → { { text, file, line } } (files absolute), or nil, why. root: the checkout to look in.
+local function where_defined(fn)
+  local info = type(fn) == 'function' and debug.getinfo(fn, 'S') or nil
+  local src = info and info.source or ''
+  if src:sub(1, 1) ~= '@' then return nil end
+  return vim.fn.fnamemodify(src:sub(2), ':p'), info.linedefined
+end
+function M.how(what, root)
+  local steps = {}
+  if what.row then
+    local row = what.row
+    steps[#steps + 1] = { text = 'you press ' .. (row.key or '(no key)') .. ' on ' .. table.concat(list(row.on), ', ') .. ': ' .. row.name }
+    local file, line = where_defined(row.run)
+    steps[#steps + 1] = { text = 'it runs ' .. row.id .. (row.available and ' (when it can: ' .. row.id .. "'s available says why not)" or ''), file = file, line = line }
+    return steps
+  end
+  local name = what.message
+  local ok, bridge = pcall(require, 'desk.bridge')
+  local h = ok and bridge.types()[name]
+  if not h then return nil, '"' .. tostring(name) .. '" is not a message this editor takes' end
+  if root and vim.fn.executable('git') == 1 then
+    local out = vim.fn.systemlist({ 'git', '-C', root, 'grep', '-n', '-I', '-E', "type: *['\"]" .. name .. "['\"]|['\"]--action['\"], *['\"]" .. name .. "['\"]", '--', ':!*.lua' })
+    if vim.v.shell_error == 0 then
+      for _, l in ipairs(out) do
+        local f, n, text = l:match('^([^:]+):(%d+):(.*)$')
+        if f and #steps < 6 then steps[#steps + 1] = { text = 'sent: ' .. vim.trim(text):sub(1, 120), file = root .. '/' .. f, line = tonumber(n) } end
+      end
+    end
+  end
+  if #steps == 0 then steps[#steps + 1] = { text = 'sent by a program outside this checkout (none here names it)' } end
+  local relay = root and root .. '/src/desk-work/editor.hpp'
+  steps[#steps + 1] = { text = "relayed: desk-work finds the editor of that checkout and hands it to desk.bridge", file = relay and vim.fn.filereadable(relay) == 1 and relay or nil, line = 111 }
+  local file, line = where_defined(h.run)
+  steps[#steps + 1] = { text = 'answered here: the ' .. name .. ' handler (takes ' .. table.concat(h.fields, ', ') .. ')', file = file, line = line }
+  return steps
+end
+-- The steps in the quickfix list (Enter opens each; :cnext walks them).
+function M.show_how(what, root)
+  local steps, why = M.how(what, root)
+  if not steps then return tell(why, vim.log.levels.WARN) end
+  local items = {}
+  for i, st in ipairs(steps) do items[#items + 1] = { filename = st.file, lnum = st.line or 1, text = i .. '. ' .. st.text, valid = st.file ~= nil } end
+  vim.fn.setqflist({}, ' ', { title = 'How ' .. (what.row and what.row.name or ('the ' .. what.message .. ' message')) .. ' works', items = items })
+  vim.cmd('copen')
+end
+
 -- The home menu: what applies where the cursor is, by group, in the menu kit the review uses (symdeps' when it is
 -- installed, else desk.menu: the same look). A row that cannot run here is shown with why, never left out.
 function M.home(win)
@@ -683,6 +732,17 @@ function M.symdeps()
 end
 
 local OWN = M.add({
+  { id = 'desk.how', group = 'Home', name = 'Show how an action or message works', key = '<leader>?', on = 'editor',
+    about = "Pick a key's action or a message the editor takes (the notebook's g on a failure is the callgraph message): its steps, each with its place, in the quickfix list — who sends it, how it gets here, what answers it",
+    run = function(ctx)
+      local root = vim.fs.root(ctx and ctx.buf or 0, '.git') or vim.fn.getcwd()
+      local choices = {}
+      local ok, bridge = pcall(require, 'desk.bridge')
+      for name in pairs(ok and bridge.types() or {}) do choices[#choices + 1] = { label = 'message: ' .. name, what = { message = name } } end
+      table.sort(choices, function(x, y) return x.label < y.label end)
+      for _, row in ipairs(rows) do if row.key and row.menu ~= false then choices[#choices + 1] = { label = row.name .. ' (' .. row.key .. ')', what = { row = row } } end end
+      vim.ui.select(choices, { prompt = 'How does it work?', format_item = function(c) return c.label end }, function(c) if c then M.show_how(c.what, root) end end)
+    end },
   { id = 'desk.home', group = 'Home', name = 'Home menu', key = '<leader><leader>', on = 'editor', menu = false,
     about = 'Everything that applies where the cursor is, in one menu: this function, the review, Claude, work, symdeps',
     run = function(ctx) M.home(ctx.win) end },
