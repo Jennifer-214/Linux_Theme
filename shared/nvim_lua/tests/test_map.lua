@@ -43,6 +43,9 @@ local sources = {
                     "def total(p):", "    return norm(p)" },
   -- What the reader keeps of long lists: 16 parameters, 12 arguments, 12 fields a way; the rest counted.
   ["csrc/wide.c"] = { "void use(int v) {}", "void wide(int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14, int a15, int a16, int a17, int a18) {}", "void many(struct S* s) { use(s->f1); use(s->f2); use(s->f3); use(s->f4); use(s->f5); use(s->f6); use(s->f7); use(s->f8); use(s->f9); use(s->f10); use(s->f11); use(s->f12); use(s->f13); use(s->f14); }", "void calls(void) { wide(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14); }" },
+  ["lua/c/x.lua"] = { "local function dup() return 1 end", "return dup" },
+  ["lua/c/y.lua"] = { "local function dup() return 2 end", "return dup" },
+  ["lua/c/z.lua"] = { "local function use_dup() return dup() end", "return use_dup" },
   ["lua/a/one.lua"] = { "local function pick() return 1 end", "return pick" },
   ["lua/a/two.lua"] = { "local function choose() return pick() end", "return choose" },
   ["lua/b/three.lua"] = { "local function pick() return 3 end", "return pick" },
@@ -183,6 +186,16 @@ if has_parser("cpp") then
     "… each compared with itself")
 else skipped[#skipped + 1] = "cpp (no parser)" end
 
+-- A call the reader could not tell apart by name, placed on the function that makes it (Codex's #4).
+eq(by_label["use_dup"] and by_label["use_dup"].ambiguous, { { name = "dup", count = 2, line = 1 } }, "use_dup's dup(): two functions of that name in its folder, said on use_dup")
+eq(by_label["choose"].ambiguous, nil, "… a call the folder settles is not")
+eq({ Map.ambiguity(by_label["use_dup"]), Map.ambiguity({ ambiguous = { { name = "a", count = 2 }, { name = "b", count = 3 } } }), Map.ambiguity({}) },
+  { "dup: 2 match", "a: 2 match +1", nil }, "… said beside it as the first name and how many more")
+do
+  local n = { id = "lua/c/z.lua::use_dup", label = "use_dup", file = "lua/c/z.lua", line = 1, depth = 0, ambiguous = { { name = "dup", count = 2, line = 1 } } }
+  local page = Map.layout(Map.level_query({ ok = true, q = "reach", from = n, depth = 1, nodes = { n }, steps = {} }), 80, false)
+  ok(line_with(page.lines, "z.lua:1 · dup: 2 match"), "… on its box, where the answer is read")
+end
 -- The reader's caps, counted (Codex's #41, 2026-11-18): what was left out is said beside the list.
 eq({ by_label["wide"] and #by_label["wide"].params, by_label["wide"] and by_label["wide"].params_more }, { 16, 2 }, "18 parameters: 16 kept, 2 more counted")
 local many = by_label["many"] and by_label["many"].params and by_label["many"].params[1] or {}
@@ -631,7 +644,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "gP", "m", "M", "z", "Z", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "gP", "m", "M", "z", "Z", "i", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -690,7 +703,11 @@ ok(api.nvim_get_current_buf() == view.buf and vim.bo[view.buf].filetype == "desk
 ok(vim.wait(2000, function() return view.drawn and line_with(view.drawn.lines, "│ lua") end), "the parts of the checkout")
 ok(line_with(view.drawn.lines, "stale since 3789c69 · R rebuilds"), "the stale badge, naming the commit it was built at")
 ok(line_with(view.drawn.lines, "1 changed file differs"), "… and why")
-ok(line_with(view.drawn.lines, "answered by syntax (calls by name"), "the footer names the reader that answered")
+ok(line_with(view.drawn.lines, "calls matched by name · binary not built · i why"), "the footer: the evidence in one plain line (Codex's #4), i for the rest")
+ok(not line_with(view.drawn.lines, "answered by syntax (calls by name"), "… not the whole explanation")
+view.evidence_open = true
+Map.render(view)
+ok(line_with(view.drawn.lines, "answered by syntax (calls by name"), "i: the footer names the reader that answered")
 ok(line_with(view.drawn.lines, "binary: requires a built binary"), "… and the one that did not, with what it requires")
 ok(line_with(view.drawn.lines, "Enter in · BS out · D reach · U callers · P paths · ? keys · q close"),
   "the key line: the keys that matter, as their rows have them, and ? for the rest")
@@ -1421,6 +1438,7 @@ local titled = Map.header({ root = "/srv/checkouts/Linux_Theme", status = { ok =
 eq(titled[1][1], "PROJECT MAP · Linux_Theme", "… and the checkout's folder, a name, keeps its case")
 ok(line_with(view.drawn.lines, "BINARY: REQUIRES A BUILT BINARY: desk-work map build --binary PATH"),
   "… and the command a reader's note names is left as typed:\n" .. table.concat(view.drawn.lines, "\n"))
+view.evidence_open = nil
 local retro_reach = table.concat(Map.layout(Map.level_query(reach), 80, true).lines, "\n")
 local retro_ways = table.concat(Map.layout(Map.level_query({ ok = true, q = "paths", from = contents.nodes[5], to = contents.nodes[2], paths = {} }), 80, true).lines, "\n")
 ok(retro_reach:find("WHAT use REACHES · DEPTH 2", 1, true) and retro_ways:find("WAYS FROM use TO M.beta · 0", 1, true),
@@ -1451,7 +1469,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.avoid", "map.callers", "map.centre", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.include", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
+eq(remote_ids, { "map.avoid", "map.callers", "map.centre", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.include", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up", "map.why" },
   "the pop-out can show more and retains its existing navigation keys")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do

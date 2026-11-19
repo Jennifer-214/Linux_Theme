@@ -378,6 +378,7 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `M` in the map | Go to a part of the checkout, picked by name |
 | `z` in the map | The selected function left out of the map's answers (a logger, an allocator every path goes through), its calls with it, until `z` again or `Z`; the page says how many are left out |
 | `Z` in the map | Every function `z` left out of the answers back in; the page asked again |
+| `i` in the map | The map's evidence in full: which reader answered (the syntax reader matches calls by name: overloads, macros and virtual dispatch are not resolved; the binary reader has the exact calls), what is not built and what it needs; `i` again folds it to one line |
 | `r` in the map | Read this page again, as `r` does in a call graph: desk-work's status and the level shown (a query's answer is asked again); `R` rebuilds the map |
 | `R` in the map | Rebuild the map in the background (a desk-work job; its log is in the jobs list) |
 | `B` in the map | Rebuild, reading a built binary for its exact calls (remembered for the next builds) |

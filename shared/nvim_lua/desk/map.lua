@@ -467,6 +467,14 @@ function M.syntax_graph(request)
       end
       -- items.size() inside size(): another object's size (a library's, by name we cannot tell), not recursion.
       local elsewhere = #pick == 1 and pick[1] == c.from and qualifier ~= '' and not own and not matched
+      if #pick > 1 then
+        -- said beside the function that makes the call (Codex's #4): "send: 2 match", each name once, at most 8
+        local n = nodes[c.from]
+        n.ambiguous = n.ambiguous or {}
+        local known = false
+        for _, a in ipairs(n.ambiguous) do if a.name == c.short then known = true end end
+        if not known and #n.ambiguous < 8 then n.ambiguous[#n.ambiguous + 1] = { name = c.short, count = #pick, line = c.line } end
+      end
       if #pick ~= 1 or elsewhere then stats.ambiguous = stats.ambiguous + 1
       else
         local key = from.id .. '\0' .. units[pick[1]].id
@@ -943,8 +951,16 @@ local function node_index(answer)
   for _, n in ipairs(answer.outside or {}) do by[n.id] = by[n.id] or n end
   return by
 end
+--- pure: what a function's calls left unresolved, said beside it: "send: 2 match" (the first; "+1" for more).
+function M.ambiguity(n)
+  local list = type(n.ambiguous) == 'table' and n.ambiguous or {}
+  local a = list[1]
+  if not (a and a.name) then return nil end
+  return tostring(a.name) .. ': ' .. tostring(a.count or '?') .. ' match' .. (#list > 1 and (' +' .. (#list - 1)) or '')
+end
 local function node_item(n, extra)
-  local item = { name = n.label, detail = where(n), target = { kind = 'node', node = n } }
+  local said = M.ambiguity(n)
+  local item = { name = n.label, detail = where(n) .. (said and (' · ' .. said) or ''), target = { kind = 'node', node = n } }
   for k, v in pairs(extra or {}) do item[k] = v end
   return item
 end
@@ -1718,6 +1734,8 @@ function M.level_query_plain(answer, all, level)
     local detail = where(n)
     if cycle[n.id] then detail = detail .. ' · in a cycle' end
     if capped[n.id] then detail = detail .. (backwards and ' · called from more' or ' · calls more') end
+    local said = not backwards and M.ambiguity(n)
+    if said then detail = detail .. ' · ' .. said end   -- what it reaches may be among the names it calls ambiguously
     return node_item(n, { detail = detail, warn = cycle[n.id] or nil })
   end
   local start = answer.from or (tiers[0] and tiers[0][1]) or {}
@@ -1827,7 +1845,26 @@ local KEY_LINE = { { 'in', 'in' }, { 'back', 'out' }, { 'reach', 'reach' }, { 'c
 -- keys = false: without the key line (the pop-out's window has its own, its status line).
 function M.footer(view, G, keys)
   G = G or M.glyphs(M.retro())
-  local s, notes, answered = view.status or {}, {}, {}
+  local s = view.status or {}
+  -- One plain line for the usual case (Codex's #4: in a split the explanation took nearly as much room as the
+  -- answer); i opens the whole of it. A partial map stays said in full: it can change the answer.
+  if not view.evidence_open then
+    local parts = {}
+    for _, p in ipairs(s.providers or {}) do
+      if p.state == 'ok' then parts[#parts + 1] = p.name == 'syntax' and 'calls matched by name' or ('exact calls from ' .. vim.fn.fnamemodify(p.binary or '', ':t'))
+      elseif not unbuildable(view.status) then parts[#parts + 1] = p.name .. ' not built' end
+    end
+    local notes = {}
+    if #parts > 0 then notes[1] = table.concat(parts, ' · ') .. ' · ' .. typed('why') .. ' why' end
+    if s.complete == false and s.why then notes[#notes + 1] = 'partial: ' .. s.why end
+    if keys == false then return notes end
+    local line = {}
+    for _, k in ipairs(KEY_LINE) do line[#line + 1] = typed(k[1]) .. ' ' .. G.said(k[2]) end
+    if view.has_more then line[#line + 1] = with_key(G, '', 'more', ' show more') end
+    notes[#notes + 1] = { table.concat(line, ' · ') }
+    return notes
+  end
+  local notes, answered = {}, {}
   for _, p in ipairs(s.providers or {}) do
     if p.state == 'ok' then
       answered[#answered + 1] = p.name == 'syntax' and 'syntax (calls by name: overloads, macros and virtual dispatch are not resolved)'
@@ -3281,6 +3318,9 @@ local ROWS = actions.add({
   row('include', 'Z', 'Bring back what was left out',
     'Every function `z` left out of the answers back in; the page asked again', function(view) M.include_all(view) end,
     function(ctx) return (ctx.map and ctx.map.excluded and #ctx.map.excluded > 0) or 'nothing is left out' end, THERE),
+  row('why', 'i', 'Why the answer is what it is',
+    "The map's evidence in full: which reader answered (the syntax reader matches calls by name: overloads, macros and virtual dispatch are not resolved; the binary reader has the exact calls), what is not built and what it needs; `i` again folds it to one line",
+    function(view) view.evidence_open = not view.evidence_open; load(view) end, needs_map, THERE),
   row('read', 'r', 'Read the map again',
     "Read this page again, as `r` does in a call graph: desk-work's status and the level shown (a query's answer is asked again); `R` rebuilds the map",
     function(view) reread(view) end, needs_map, THERE),

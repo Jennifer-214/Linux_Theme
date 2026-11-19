@@ -250,6 +250,12 @@ int main(int, char** argv) {
         CHECK(call["line"] == 5 && call["args"] == J({"tick", "&o"}), "a call keeps its line and its string arguments");
         const auto merged = desk_map::merge(clean, desk_map::clean_graph(J::parse(R"({"nodes": [], "edges": []})")));
         CHECK(merged["nodes"][0]["params"].size() == 16 && merged["edges"][0]["args"] == J({"tick", "&o"}), "… and the merge keeps both");
+        // A call the reader could not tell apart by name, on the function that makes it (at most 8, a count of 2+).
+        J amb = raw;
+        amb["nodes"][1]["ambiguous"] = J::array({J{{"name", "send"}, {"count", 2}, {"line", 4}}, J{{"name", "solo"}, {"count", 1}}, "x"});
+        const auto amb_clean = desk_map::clean_graph(amb);
+        CHECK(amb_clean["nodes"][1].value("ambiguous", J::array()) == J::array({J{{"name", "send"}, {"count", 2}, {"line", 4}}}),
+              "an ambiguous call kept on its caller (one that matched once, or not an object, dropped)");
         // What the reader left out, counted: kept as whole numbers, never a string or a negative.
         J counted = raw;
         counted["nodes"][0]["params_more"] = 4;

@@ -406,6 +406,14 @@ inline J clean_graph(const J& raw) {
             if (!file.empty() && file[0] != '/' && file.find("..") == std::string::npos && file.find('\n') == std::string::npos) node["file"] = file;
             if (number(n, "line") > 0) node["line"] = number(n, "line");
             if (!text(n, "detail").empty()) node["detail"] = text(n, "detail").substr(0, 200);
+            // the calls of it the reader could not tell apart by name ("send: 2 match"), at most 8
+            if (n.contains("ambiguous") && n["ambiguous"].is_array()) {
+                J list = J::array();
+                for (const auto& a : n["ambiguous"])
+                    if (a.is_object() && !text(a, "name").empty() && count_of(a, "count") > 1 && list.size() < 8)
+                        list.push_back(J{{"name", text(a, "name").substr(0, 80)}, {"count", count_of(a, "count")}, {"line", count_of(a, "line")}});
+                if (!list.empty()) node["ambiguous"] = list;
+            }
             // A function's signature, for the trace: its return type and at most 16 parameters, each { name, type as
             // written, pass, dir } with pass and dir from closed sets (the syntax reader's desk.map.passing).
             if (!text(n, "returns").empty()) node["returns"] = text(n, "returns").substr(0, 120);
