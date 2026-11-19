@@ -1239,6 +1239,24 @@ class Work(unittest.TestCase):
         self.assertEqual({m["name"] for m in old["metrics"]}, {"p99", "throughput", "coverage", "tests passed", "tests failed"})
         self.assertEqual(json.loads(self.invoke("metrics", "--job", "f" * 32, code=1))["ok"], False)
 
+    def test_metrics_between_two_chosen_runs_with_what_changed_between_them(self):
+        bench = "print(open('figure.txt').read())"
+        (self.repo / "figure.txt").write_text("p99 400ns\n")
+        self.execute(bench)
+        (self.repo / "engine.c").write_text("int tick(void) { return 1; }\n")
+        self.git("add", "engine.c"); self.git("commit", "-qm", "a slower tick")
+        (self.repo / "figure.txt").write_text("p99 480ns\n")
+        self.execute(bench)
+        runs = self.data("jobs")
+        slow, base = runs[0]["id"], runs[1]["id"]
+        got = self.data("metrics", "--job", slow, "--against", base)
+        p99 = got["metrics"][0]
+        self.assertEqual((p99["previous"], p99["delta"], p99["verdict"]), (400, "+80", "worse"), "the slower run against the baseline chosen")
+        self.assertEqual((got["job"]["command"], got["baseline"]["head"] != got["job"]["head"], got["binary"]), (runs[0]["command"], True, "not recorded by the runs"),
+                         "what each run was: its command and the commit it ran at; the binary said not recorded, never guessed")
+        self.assertEqual(([c["subject"] for c in got["commits"]], got["files"]), (["a slower tick"], ["engine.c"]), "… and what changed between them")
+        self.assertEqual(json.loads(self.invoke("metrics", "--job", slow, "--against", "f" * 32, code=1))["ok"], False)
+
     def agent(self, state, *extra):
         return self.data("agent-update", "--agent", "claude", "--session", "s1", "--pid", os.getpid(), "--state", state,
                          "--title", "Queue work", *extra)

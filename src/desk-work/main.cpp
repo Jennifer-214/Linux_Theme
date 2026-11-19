@@ -629,6 +629,41 @@ J begin(const std::string& command, const std::string& root, const std::string& 
 }
 #include "metrics.hpp"
 J tool_figures(const J& job);   // tools.hpp
+// `desk-work metrics --job RUN --against BASELINE`: a benchmark regression from two actual runs (Codex's #20): each
+// run's figures against the baseline's of the same name, what each run was (its command, the commit it ran at and
+// whether the tree was clean, when it ended), the commits between them and the files they changed. The runs do not
+// record the binary they ran: said so, never guessed.
+J metrics_between(const std::string& root, const std::string& id, const std::string& against) {
+    const auto all = runs(root);
+    J job, base;
+    for (const auto& r : all) { if (str(r, "id") == id) job = r; if (str(r, "id") == against) base = r; }
+    if (!job.is_object() || !base.is_object()) return refuse("Both runs must be this checkout's (desk-work jobs --root lists them)");
+    J metrics = J::array();
+    const auto before = run_metrics(base, true);
+    for (const auto& m : run_metrics(job, true)) {
+        J was;
+        for (const auto& b : before) if (str(b, "name") == str(m, "name")) was = b;
+        metrics.push_back(compare_metric(m, was));
+    }
+    const auto said = [](const J& r) {
+        return J{{"id", str(r, "id")}, {"title", str(r, "title")}, {"command", str(r, "command")}, {"head", str(r, "head")},
+                 {"clean", r.value("clean", J())}, {"ended", num(r, "ended")}, {"state", str(r, "state")}};
+    };
+    J out{{"ok", true}, {"root", root}, {"job", said(job)}, {"baseline", said(base)}, {"metrics", metrics},
+          {"binary", "not recorded by the runs"}};
+    const auto a = str(base, "head"), b = str(job, "head");
+    J commits = J::array(), files = J::array();
+    if (!a.empty() && !b.empty() && a != b) {
+        for (const auto& line : split(query({"git", "--no-optional-locks", "-C", root, "log", "--format=%H%x1f%s", "-50", a + ".." + b}), '\n'))
+            if (const auto at = line.find('\x1f'); at != std::string::npos) commits.push_back(J{{"sha", line.substr(0, at)}, {"subject", line.substr(at + 1, 200)}});
+        for (const auto& f : split(query({"git", "--no-optional-locks", "-C", root, "diff", "--name-only", a, b}), '\n'))
+            if (!trim(f).empty() && files.size() < 200) files.push_back(trim(f));
+    }
+    out["commits"] = commits;
+    out["files"] = files;
+    if (a == b && !a.empty()) out["same_commit"] = true;
+    return out;
+}
 // How many runs of the same command in the same checkout failed in a row just before this one; a stop is skipped.
 long long failed_before(const J& job) {
     long long n = 0; const auto started = num(job, "startedNs", num(job, "started") * 1000000000LL);
@@ -1740,7 +1775,7 @@ int dispatch(int argc, char** argv) {
                          "desk-work finish --id RUN --exit N | --state unknown [--why TEXT] [--output - --event ID --instance TOKEN --pid PID]\n"
                          "                 [--output-complete yes|no --output-full PATH --output-why TEXT]\n"
                          "desk-work task-add --root DIR --text TEXT | task-toggle --root DIR --id ID [--done yes]\n"
-                         "desk-work tests --root DIR | compare --id RUN | metrics --root DIR [--job RUN] | metrics-parse --root DIR < LOG | reviewed --root DIR --sha SHA\n"
+                         "desk-work tests --root DIR | compare --id RUN | metrics --root DIR [--job RUN [--against RUN]] | metrics-parse --root DIR < LOG | reviewed --root DIR --sha SHA\n"
                          "desk-work plan|plan-pin --root DIR --session ID [--file PLAN.md --step TEXT]\n"
                          "desk-work attention --root DIR [--scope review] | watch [--root DIR | --all yes] | signal --root DIR\n"
                          "desk-work timeline|digest --root DIR [--consumer NAME --through SEQUENCE] | since --root DIR [--reader NAME --mark yes]\n"
@@ -1951,6 +1986,7 @@ int dispatch(int argc, char** argv) {
         else if (cmd == "overview") out = overview(roots, opts["--fresh"] == "yes", opts["--history"] == "yes");
         else if (cmd == "notebook") out = notebook(root, opts["--session"], opts["--loaded"], opts["--health"] == "yes");
         else if (cmd == "worktrees") out = worktrees(root);
+        else if (cmd == "metrics" && opts.count("--against")) out = metrics_between(root, opts.count("--job") ? opts["--job"] : id, opts["--against"]);
         else if (cmd == "metrics") out = metrics_report(root, opts.count("--job") ? opts["--job"] : id);
         else if (cmd == "since") out = since_page(root, opts["--reader"].empty() ? "nvim" : opts["--reader"], opts["--mark"] == "yes");
         else if (cmd == "map") return map_command(args, opts);

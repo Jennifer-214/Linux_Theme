@@ -245,6 +245,25 @@ function M.figures(root)
   if not ok then vim.notify('desk-work did not start; is it installed?', vim.log.levels.WARN) end
 end
 
+-- Two finished runs of one job that printed figures, picked (the slower, then the baseline), on the map's slowdown page.
+function M.slowdown(root)
+  root = root or vim.fs.root(0, '.git') or vim.fn.getcwd()
+  vim.system({ 'desk-work', 'jobs', '--root', root }, { text = true, timeout = 15000 }, vim.schedule_wrap(function(out)
+    local parsed, runs = pcall(vim.json.decode, out.stdout or '', { luanil = { object = true, array = true } })
+    if out.code ~= 0 or not parsed or type(runs) ~= 'table' then return vim.notify(require('desk.work').refusal({ 'jobs' }, out), vim.log.levels.WARN) end
+    local done = vim.tbl_filter(function(r) return type(r) == 'table' and (r.state == 'passed' or r.state == 'failed') and type(r.metrics) == 'table' and #r.metrics > 0 end, runs)
+    if #done < 2 then return vim.notify('Two finished runs that printed figures are needed; this checkout has ' .. #done .. '.') end
+    local function said(r) return os.date('%m-%d %H:%M', r.ended or 0) .. '  ' .. tostring((r.title or '') ~= '' and r.title or r.command) .. '  ' .. tostring(r.head or ''):sub(1, 7) end
+    vim.ui.select(done, { prompt = 'The slower run', format_item = said }, function(slow)
+      if not slow then return end
+      local others = vim.tbl_filter(function(r) return r.id ~= slow.id end, done)
+      vim.ui.select(others, { prompt = 'Its baseline', format_item = said }, function(base)
+        if base then require('desk.map').regression_on_map(root, slow.id, base.id) end
+      end)
+    end)
+  end))
+end
+
 -- The keys are rows of the action registry (desk/actions.lua): the page's own, and the global one that opens it.
 local function desk_work() return vim.fn.executable('desk-work') == 1 or 'requires desk-work' end
 local ROWS = actions.add({
@@ -252,6 +271,9 @@ local ROWS = actions.add({
     remote = true, also = '`:WorkSince`', available = desk_work,
     about = "Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; `Enter` opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked; with nothing new it shows the last list again",
     run = function() M.open() end },
+  { id = 'since.slowdown', group = 'Work', name = 'A slowdown between two runs', on = 'editor', available = desk_work,
+    about = "Pick a slower run of a job and a baseline: their figures side by side, what each run was (its command, its commit), and the commits and files between them on the project map, kept apart from the slowdown itself",
+    run = function() M.slowdown() end },
   { id = 'since.figures', group = 'Work', name = 'Figures', on = 'editor', available = desk_work,
     about = "The newest job's figures against its previous run (desk-work metrics); `Enter` on one opens that job's output",
     run = function() M.figures() end },

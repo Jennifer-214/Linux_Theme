@@ -2089,6 +2089,7 @@ local function page_of(view)
   if level.kind == 'findings' then return M.level_findings(level) end
   if level.kind == 'stack' then return M.level_stack(level) end
   if level.kind == 'sanitizer' then return M.level_sanitizer(level) end
+  if level.kind == 'regression' then return M.level_regression(level) end
   local answer = cached(view, 'module:' .. level.module)
   if not answer then return nil end
   if level.kind == 'files' then return M.level_files(answer, level.module, level.all) end
@@ -2439,6 +2440,9 @@ local function enter(view, ctx)
     ctx = ctx or {}
     ctx.stayed = true
     M.follow_field(view, t, ctx.origin)
+  elseif t.kind == 'commit' then
+    -- a commit of a slowdown's range: the functions it changed, on the map
+    query(view, { '--q', 'touched', '--commit', t.sha }, item.key)
   elseif t.kind == 'correction' then
     ctx = ctx or {}
     ctx.stayed = true
@@ -3061,6 +3065,46 @@ function M.sanitizer_on_map(text)
   local view = M.open(root)
   push(view, { kind = 'sanitizer', report = report })
   return view
+end
+--- A slowdown between two actual runs (desk-work metrics --job --against; Codex's #20): what was measured and how
+--- each run was made above the change, then the commits between them (Enter: what each changed, on the map) and the
+--- files. The slowdown observed is kept apart from its possible causes.
+function M.level_regression(level)
+  local a = level.answer or {}
+  local job, base = a.job or {}, a.baseline or {}
+  local sections = { { head = 'a slowdown between two runs · ' .. tostring((job.title or '') ~= '' and job.title or job.command or '?') } }
+  local function run_line(label, r)
+    return { { label, nil, true, 'DeskMapDim' }, { tostring(r.command or '?') },
+      { '  at ' .. code(short(r.head)) .. (r.clean == false and ' + edits' or '') .. (tonumber(r.ended) and ('  ended ' .. os.date('%m-%d %H:%M', tonumber(r.ended))) or ''), nil, true, 'DeskMapDim' } }
+  end
+  sections[#sections + 1] = { block = { run_line('slower    ', job), run_line('baseline  ', base),
+    { { 'binaries  ', nil, true, 'DeskMapDim' }, { tostring(a.binary or '?'), nil, true, 'DeskMapDim' } } } }
+  sections[#sections + 1] = { head = 'what was measured (observed)' }
+  local rows = {}
+  for _, m in ipairs(a.metrics or {}) do
+    local was = m.previous ~= nil and m.previous ~= vim.NIL and tostring(m.previous) or 'not in the baseline'
+    rows[#rows + 1] = { { tostring(m.name) .. '  ' }, { tostring(m.value) .. ' ' .. tostring(m.unit or '') .. '  ', nil, nil, m.verdict == 'worse' and 'DeskMapStale' or nil },
+      { 'was ' .. was .. ((m.delta or '') ~= '' and ('  ' .. m.delta) or '') .. '  ' .. tostring(m.verdict or ''), nil, true, 'DeskMapDim' } }
+  end
+  if #rows == 0 then rows[1] = { { 'neither run printed figures desk-work could read', nil, true, 'DeskMapDim' } } end
+  sections[#sections + 1] = { block = rows }
+  sections[#sections + 1] = { head = 'what changed between them (possible causes) · ' .. #(a.commits or {}) .. ' commits · ' .. #(a.files or {}) .. ' files' }
+  if a.same_commit then sections[#sections + 1] = { parts = { { 'Both ran at the same commit: the difference is in the machine, the input or uncommitted edits.' } }, group = 'DeskMapDim' } end
+  local crows = {}
+  for _, c in ipairs(a.commits or {}) do
+    crows[#crows + 1] = { { short(c.sha) .. '  ' .. tostring(c.subject), { name = short(c.sha), key = 'commit:' .. c.sha, target = { kind = 'commit', sha = c.sha } } } }
+  end
+  if #crows > 0 then sections[#sections + 1] = { block = crows } end
+  if #(a.files or {}) > 0 then sections[#sections + 1] = { parts = { { table.concat(a.files, ' · '), nil, true } }, group = 'DeskMapDim' } end
+  return { crumbs = { 'slowdown' }, sections = sections }
+end
+function M.regression_on_map(root, job_id, base_id)
+  root = uv.fs_realpath(root) or root
+  M.desk_work({ 'metrics', '--root', root, '--job', job_id, '--against', base_id }, function(answer, out)
+    if not answer or answer.ok == false then return tell(refusal(answer, out), vim.log.levels.WARN) end
+    local view = M.open(root)
+    push(view, { kind = 'regression', answer = answer })
+  end)
 end
 -- Space c s while stopped: the stack on the map, in the pop-out's map when it shows this checkout.
 function M.stack_on_map()
@@ -3774,6 +3818,8 @@ function M.strip_text(item, G)
       line(n > 1 and ('open call site (' .. n .. ': pick)') or 'open call site') }
   elseif t.kind == 'correction' then
     return { tostring(item.name), line('forget, rebind or open it') }
+  elseif t.kind == 'commit' then
+    return { tostring(item.name), line('show what it changed, on the map') }
   elseif t.kind == 'pick' then
     return { tostring(item.name), line('use this one') }
   end

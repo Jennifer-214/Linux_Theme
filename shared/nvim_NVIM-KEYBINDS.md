@@ -714,6 +714,7 @@ which-key its words.
 | `Space Ce`, `:WorkTests` | The last test run's failures as a jump list (its log when it has no locations) |
 | `Space Ck` | Pinned next steps for this project: pin one, mark it done, or turn it into a note for Claude |
 | `Space Ch`, `:WorkSince` | Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; `Enter` opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked; with nothing new it shows the last list again |
+| home menu: A slowdown between two runs | Pick a slower run of a job and a baseline: their figures side by side, what each run was (its command, its commit), and the commits and files between them on the project map, kept apart from the slowdown itself |
 | home menu: Figures | The newest job's figures against its previous run (desk-work metrics); `Enter` on one opens that job's output |
 | home menu: symdeps | symdeps' own menu (`Space dm`): its cards, lists and checks for C and C++ code. symdeps is an optional plugin |
 | `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is (with several, the first); the same key there goes on to the next, and from the last back here |

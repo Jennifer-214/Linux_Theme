@@ -374,6 +374,23 @@ SUMMARY: AddressSanitizer: heap-use-after-free /w/src/ring.cpp:41:12 in drain(Ri
   eq(row and Map.item_at(page, row, l:find("drain", 1, true)).target.node.file, "src/ring.cpp", "… each frame with source a function to open")
   eq(#Map.sanitizer_stacks("no report here").stacks, 0, "text with no report: no stacks")
 end
+do
+  -- A slowdown between two actual runs (Codex's #20): what was measured and how each run was made, then the commits
+  -- between them, each a way onto the map; the observed slowdown kept apart from its possible causes.
+  local a = { ok = true, job = { id = "j2", command = "make bench", head = "bbbbbbb2", clean = true, ended = 1700000600 },
+    baseline = { id = "j1", command = "make bench", head = "aaaaaaa1", clean = false, ended = 1700000000 }, binary = "not recorded by the runs",
+    metrics = { { name = "p99", value = 480, unit = "ns", previous = 400, delta = "+80", verdict = "worse" } },
+    commits = { { sha = "bbbbbbb2cccc", subject = "a slower tick" } }, files = { "engine.c" } }
+  local page = Map.layout(Map.level_regression({ answer = a }), 110, false)
+  local text = table.concat(page.lines, "\n")
+  ok(text:find("a slowdown between two runs · make bench", 1, true) and text:find("slower    make bench  at bbbbbbb", 1, true)
+    and text:find("baseline  make bench  at aaaaaaa + edits", 1, true) and text:find("binaries  not recorded by the runs", 1, true),
+    "the runs: each its command and commit, the baseline's edits said, the binaries not guessed\n" .. text)
+  ok(text:find("what was measured (observed)", 1, true) and text:find("p99  480 ns  was 400  +80  worse", 1, true), "… the figures, observed")
+  ok(text:find("what changed between them (possible causes) · 1 commits · 1 files", 1, true) and text:find("engine.c", 1, true), "… then the possible causes")
+  local row, l = line_with(page.lines, "a slower tick")
+  eq(row and Map.item_at(page, row, l:find("a slower tick", 1, true)).target, { kind = "commit", sha = "bbbbbbb2cccc" }, "… a commit a way onto the map (what it changed)")
+end
 -- The trace page: a box per step (the function itself double), its parameters under it, the call between steps with
 -- each argument → the parameter it lands in, and the other callers and callees, Enter-able.
 local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16,
