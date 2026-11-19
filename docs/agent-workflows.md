@@ -478,8 +478,9 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   call graph: desk-work's status and the level shown, a query's answer asked again (`R` rebuilds the map). `c` opens
   the call graph centred on the function, as `c` centres a graph: a graph tab here, the call graph in the pop-out. The box
   under the cursor is the default answer to the prompt. On caller and reach pages, `+` reads one more level and `-`
-  takes one off; at one level `-` zooms out, as Backspace does, to the previous page. The gauge marks the current
-  zoom or the selected call level. A call that is part of recursion reads "in a cycle".
+  takes one off; at one level `-` zooms out, as Backspace does, to the previous page. The zoom row under the
+  header lights the current zoom (all, dir, src, cls); the gauge on the left marks the call level. A call that is
+  part of recursion reads "in a cycle".
 - **In the pop-out**: `o` in the map's tab moves it to the pop-out on the other screen, at the level it was on (Space
   Space › "Pop out the project map" opens this checkout's from anywhere; in the pop-out's own menu it is the only map
   row, so a map asked for there opens there). There it is the same map: `Enter` zooms in,

@@ -838,11 +838,20 @@ function M.layout(page, width, retro)
     add(text, group)
   end
   for _, h in ipairs(page.header or {}) do add(fit(h[1], width, G.ellipsis), h[2]) end
+  -- The zoom on a row of its own under the header, the current one lit (2026-11-19: on the rail its labels sat on the
+  -- header's lines, "ALL PROJECT MAP").
   if gauge and page.zoom then
+    local row, lit = G.said('zoom'), nil
     for i, label in ipairs({ 'all', 'dir', 'src', 'cls' }) do
-      if not lines[i] then add('') end
-      bands[#bands + 1] = { first = i, last = i, level = i - 1, label = retro and label:upper() or label, active = i == page.zoom }
+      local active, name = i == page.zoom, G.said(label)
+      local mark = retro and (active and '█ ' or '░ ') or (active and '‹' or ' ')
+      row = row .. '  ' .. mark
+      if active then lit = { #row - (retro and #mark or 0), #row + #name } end
+      row = row .. name .. ((not retro and active) and '›' or '')
     end
+    add(row, 'DeskMapDim')
+    marks[#marks + 1] = { #lines, lit[1], lit[2] + (retro and 0 or #'›'), 'DeskMapFocus', 1 }
+    add('')
   end
   for _, s in ipairs(page.sections or {}) do
     local first = #lines + 1

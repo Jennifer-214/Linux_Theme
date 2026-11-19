@@ -287,10 +287,28 @@ ok(line_with(Map.layout(Map.level_modules(many), 100, true).lines, "+10 MORE · 
   "retro preserves the case of m in the show-more prompt")
 local retro = Map.layout(page, 70, true)
 ok(line_with(retro.lines, "┌") and not line_with(retro.lines, "╭") and line_with(retro.lines, "CALLS BETWEEN PARTS"), "retro: code page 437 boxes and capitals")
-local zoom = Map.layout(vim.tbl_extend("force", page, { zoom = 2 }), 70, true)
-eq(zoom.lines[2]:sub(1, #" █ DIR"), " █ DIR", "retro lights the current zoom bar itself")
-ok(vim.iter(zoom.marks):any(function(m) return vim.deep_equal(m, { 2, 1, #" █", "DeskMapFocus", 1 }) end),
-  "the active zoom bar has the focus colour")
+-- The zoom on a row of its own under the header (2026-11-19, her "space the labels out": the rail's ALL/DIR/SRC/CLS sat
+-- on the header's lines and read "ALL PROJECT MAP").
+local zoom_page = vim.tbl_extend("force", page, { zoom = 2, header = { { "PROJECT MAP · eng", "DeskMapTitle" }, { "BUILT 03:40", "DeskMapDim" } } })
+for _, retro_style in ipairs({ true, false }) do
+  local zoom = Map.layout(zoom_page, 70, retro_style)
+  local said = retro_style and string.upper or function(s) return s end
+  local title_row, title = line_with(zoom.lines, "PROJECT MAP")
+  local zoom_row, row = line_with(zoom.lines, said("zoom"))
+  ok(title and not title:find(said("all"), 1, true) and not zoom.lines[title_row + 1]:find(said("dir"), 1, true),
+    "the header's lines carry no zoom label (" .. (retro_style and "retro" or "paper") .. ")")
+  ok(zoom_row and zoom_row > title_row + 1 and row:find(said("all") .. ".*" .. said("dir") .. ".*" .. said("src") .. ".*" .. said("cls")),
+    "the zoom is one row under the header, its levels in order")
+  eq(vim.trim(zoom.lines[(zoom_row or 0) + 1] or "x"), "", "a blank line between the zoom row and the drawing")
+  local dir_at = row and row:find(said("dir"), 1, true)
+  ok(dir_at and vim.iter(zoom.marks):any(function(m)
+    return m[1] == zoom_row and m[4] == "DeskMapFocus" and m[2] <= dir_at - 1 and m[3] >= dir_at - 1 + 3 end),
+    "the current zoom is lit in the focus colour")
+  ok(not vim.iter(zoom.marks):any(function(m)
+    local all_at = row and row:find(said("all"), 1, true)
+    return all_at and m[1] == zoom_row and m[4] == "DeskMapFocus" and m[2] <= all_at - 1 and m[3] >= all_at + 2 end),
+    "… and only it")
+end
 
 local contents = { ok = true, q = "module", module = "lua",
   files = { { file = "lua/mod.lua", functions = 3, types = 0 }, { file = "lua/other.lua", functions = 2, types = 0 } },
