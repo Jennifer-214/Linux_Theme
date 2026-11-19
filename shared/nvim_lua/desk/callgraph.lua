@@ -63,6 +63,29 @@ function M.fit_name(name, w, ell)
   return fit(lead .. last .. short, w, ell)
 end
 
+-- One way of naming in a drawing (the VM pass, 2026-11-19): clangd names a function without its namespace or class
+-- ("one"), the project map with them ("eng::two"), and a graph mixes both. A box says the short one; the key line
+-- and Enter keep the whole name.
+local function short_name(name)
+  local base, params = name:match('^(.-)(%b())$')
+  base, params = base or name, params or ''
+  local depth, cut = 0, nil
+  for i = 1, #base do
+    local ch = base:sub(i, i)
+    if ch == '<' then depth = depth + 1 elseif ch == '>' then depth = depth - 1
+    elseif depth == 0 and base:sub(i, i + 1) == '::' then cut = i + 2 end
+  end
+  return cut and (base:sub(cut) .. params) or name
+end
+--- pure: the names of one drawing, each short, except where two would read the same: those keep the whole name.
+function M.short_names(names)
+  local out, count = {}, {}
+  for i, n in ipairs(names) do out[i] = short_name(tostring(n or '')) end
+  for i, n in ipairs(out) do count[n] = count[n] or {}; count[n][tostring(names[i] or '')] = true end
+  for i, n in ipairs(out) do if vim.tbl_count(count[n]) > 1 then out[i] = tostring(names[i] or '') end end
+  return out
+end
+
 --- pure: names of one row (siblings) each fitted, and where two would read the same, the part where they differ kept
 --- instead: the end of each from a little before the first character they differ at.
 function M.fit_names(names, w, ell)
@@ -255,7 +278,7 @@ function M.layout(graph, width, retro)
   local narrow, dropped = width < M.NARROW, false
   local function boxes(items, frame, border, name_group, role)
     local built = {}
-    local names = M.fit_names(vim.tbl_map(function(it) return tostring(it.name or '') end, items), width - 4, G.ellipsis)
+    local names = M.fit_names(M.short_names(vim.tbl_map(function(it) return it.name end, items)), width - 4, G.ellipsis)
     local twice = {}
     for _, n in ipairs(names) do twice[n] = (twice[n] or 0) + 1 end
     for k, item in ipairs(items) do
@@ -373,9 +396,10 @@ function M.layout(graph, width, retro)
   local function single(level) return level and #level.items == 1 and level.left == 0 end
   local function chain(side, levels, sign, role)
     local built, wname, wdetail = {}, 1, 0
-    for _, level in ipairs(levels) do
+    local shorts = M.short_names(vim.tbl_map(function(level) return level.items[1].name end, levels))
+    for k, level in ipairs(levels) do
       local item = level.items[1]
-      local name, detail = M.fit_name(item.name, width - 6, G.ellipsis), where_of[item] or item.detail or ''
+      local name, detail = M.fit_name(shorts[k], width - 6, G.ellipsis), where_of[item] or item.detail or ''
       wname = math.max(wname, width_of(name))
       built[#built + 1] = { item = item, name = name, detail = detail, level = level }
     end

@@ -874,6 +874,18 @@ do
   ok(twin:find('q1.cpp:3', 1, true) and twin:find('q2.cpp:7', 1, true), '… but two boxes of one name keep them: what tells them apart')
 end
 
+-- ─── one way of naming in a drawing (the VM pass, 2026-11-19: clangd's "one" under the map's "eng::two") ─────────
+do
+  eq(G.short_names({ 'eng::two', 'one', 'fox::Book::apply(const Order&)', 'std::map<a::b, c>::at', 'M.entry' }),
+    { 'two', 'one', 'apply(const Order&)', 'at', 'M.entry' }, 'a box says the name without its namespace or class, as clangd names it')
+  eq(G.short_names({ 'a::push', 'b::push', 'c::pop' }), { 'a::push', 'b::push', 'pop' }, '… unless two would read the same: those keep theirs')
+  local function at(name, line) return { name = name, detail = 'e.cpp:' .. line, uri = 'file:///w/e.cpp', range = { start = { line = line, character = 0 } } } end
+  local mixed = table.concat(G.layout({ center = at('entry', 12), callees = { at('one', 11), at('eng::two', 10) } }, 80, true).lines, '\n')
+  ok(mixed:find('│ two', 1, true) and not mixed:find('eng::', 1, true), 'a box from the map reads like one from clangd: ' .. mixed)
+  local chained = table.concat(G.layout({ center = at('entry', 12), layers = { callees = { { at('one', 11) }, { at('eng::two', 10) } } } }, 80, true).lines, '\n')
+  ok(not chained:find('eng::', 1, true), '… in a straight chain too: ' .. chained)
+end
+
 -- ─── the depth rail beside the drawing, not at the window's edge (Codex's #1) ───────────────────────────────────
 do
   local function at(name, line) return { name = name, detail = 'chain.lua:' .. line, uri = 'file:///w/c.lua', range = { start = { line = line, character = 0 } } } end
