@@ -9,7 +9,7 @@ if headless then package.path = (arg[0]:match('(.*/)') or './') .. '../?.lua;' .
 local actions = require('desk.actions')
 local ns = api.nvim_create_namespace('desk_callgraph')
 local PREPARE = 'textDocument/prepareCallHierarchy'
-M.WAIT_MS, M.GRACE_MS, M.DEBOUNCE_MS, M.PANEL_WIDTH, M.MAX = 15000, 2000, 300, 36, 24
+M.WAIT_MS, M.GRACE_MS, M.DEBOUNCE_MS, M.PANEL_WIDTH = 15000, 2000, 300, 36
 
 local function tell(text, level) vim.notify(text, level or vim.log.levels.INFO, { title = 'Call graph' }) end
 local function width_of(s) return api.nvim_strwidth(s) end
@@ -212,7 +212,7 @@ end
 --- is the centre or on a level with more below it.
 function M.edge_of(graph, item)
   for _, side in ipairs(SIDES) do
-    local tiers = (graph.layers or {})[side] or (graph[side] and { vim.list_extend(vim.list_slice(graph[side]), graph.hidden and graph.hidden[side] or {}) }) or {}
+    local tiers = (graph.layers or {})[side] or (graph[side] and { graph[side] }) or {}
     local last = tiers[#tiers]
     for _, it in ipairs(last or {}) do if it == item then return side, #tiers end end
   end
@@ -241,12 +241,12 @@ M._link = link
 -- item: { name, detail, uri?, range?, enc? }. Returns the lines, the highlights and the boxes in reading order
 -- (callers row by row, the centre, callees row by row), each with its role (caller, centre, callee), its top line, the
 -- line its name is on (line), its byte span on each of its four lines, where its name starts and its column and width
--- on screen, and left_out: how many boxes M.MAX left out ("+N more"). Boxes flow left to right, wrap at `width`, and
--- every row is centred.
+-- on screen. Every box is drawn (2026-11-19: "+N more" and m went, the page scrolls); boxes flow left to right, wrap
+-- at `width`, and every row is centred.
 function M.layout(graph, width, retro)
   width = math.max(16, width or 80)
   local G = M.glyphs(retro)
-  local lines, boxlist, marks, bands, left_out = {}, {}, {}, {}, 0
+  local lines, boxlist, marks, bands = {}, {}, {}, {}
   local gauge = graph.layers and width >= 36
   if gauge then width = width - M.GAUGE_WIDTH end
   local function add(text, group, from, to)
@@ -266,7 +266,6 @@ function M.layout(graph, width, retro)
     take(graph.center)
     for _, side in ipairs(SIDES) do
       for _, tier in ipairs(layers_of(graph, side)) do for _, it in ipairs(tier) do take(it) end end
-      for _, it in ipairs(graph.hidden and graph.hidden[side] or {}) do take(it) end
     end
     local said = M.details(vim.tbl_map(function(it) return { file = vim.uri_to_fname(it.uri), line = it.range.start.line + 1 } end, all))
     for i, it in ipairs(all) do
@@ -326,29 +325,12 @@ function M.layout(graph, width, retro)
       for k = 1, 4 do lines[#lines + 1] = texts[k] end
     end
   end
-  local function group(label, items, more, none, role)
+  local function group(label, items, none, role)
     if items == nil then return end
-    centred(G.said(label .. (#items > 0 and (' · ' .. (#items + (more or 0))) or '')), 'DeskCallGraphHead')
+    centred(G.said(label .. (#items > 0 and (' · ' .. #items) or '')), 'DeskCallGraphHead')
     if #items == 0 then centred(G.said(none), 'DeskCallGraphDim') else boxes(items, G.single, 'DeskCallGraphBox', 'DeskCallGraphName', role) end
-    if (more or 0) > 0 then
-      -- The key that draws them, as typed (between backticks: retro keeps its case) and marked as a key.
-      local key = M.typed('more')
-      centred(G.said('+' .. more .. ' more · `' .. key .. '` shows them'), 'DeskCallGraphDim')
-      local at = lines[#lines]:find(' · ' .. key .. ' ', 1, true)
-      if at then marks[#marks + 1] = { #lines, at + #' · ' - 1, at + #' · ' - 1 + #key, 'DeskCallGraphKey', 1 } end
-      left_out = left_out + more
-    end
   end
-  local more = graph.more or {}
-  local function display_layers(side)
-    local tiers = layers_of(graph, side)
-    local hidden = graph.hidden and graph.hidden[side]
-    if graph.layers and not graph.layers[side] and hidden and #hidden > 0 then
-      return { vim.list_extend(vim.list_slice(tiers[1]), hidden) }
-    end
-    return tiers
-  end
-  local above, below = display_layers('callers'), display_layers('callees')
+  local above, below = layers_of(graph, 'callers'), layers_of(graph, 'callees')
   local nearest, used = {}, {}
   if graph.center then used[identity(graph.center)] = true end
   if graph.layers then
@@ -365,20 +347,18 @@ function M.layout(graph, width, retro)
       #below == 0 and '0' or '+' .. #below, vim.tbl_count(nearest) + (graph.center and 1 or 0)
         - (graph.center and nearest[identity(graph.center)] and 1 or 0))), 'DeskCallGraphHead')
   end
-  -- Each level's own functions (each once, at its nearest depth; M.MAX of them unless every one is asked for), in the
-  -- order they are drawn: callers deepest first, then callees.
+  -- Each level's own functions (each once, at its nearest depth), in the order they are drawn: callers deepest first,
+  -- then callees.
   local function picked(side, list, depth)
-    local items, left = list, more[side]
+    local items = list
     if graph.layers then
       items = {}
       for _, item in ipairs(list) do
         local id = identity(item)
         if not used[id] and nearest[id] == depth then used[id] = true; items[#items + 1] = item end
       end
-      left = not graph.all_layers and math.max(0, #items - M.MAX) or 0
-      if left > 0 then items = vim.list_slice(items, 1, M.MAX) end
     end
-    return { items = items, left = left or 0, depth = depth }
+    return { items = items, depth = depth }
   end
   local up, down = {}, {}
   for d = #above, 1, -1 do up[d] = picked('callers', above[d], d) end
@@ -386,14 +366,14 @@ function M.layout(graph, width, retro)
   local function tier(side, level, sign, none, role)
     local first = #lines + 1
     local before = #boxlist
-    group(level.depth == 1 and side or (side .. ' ' .. level.depth), level.items, level.left, none, role)
+    group(level.depth == 1 and side or (side .. ' ' .. level.depth), level.items, none, role)
     for i = before + 1, #boxlist do boxlist[i].level = sign * level.depth end
     bands[#bands + 1] = { first = first, last = #lines, level = sign * level.depth }
   end
-  -- A straight run (two or more levels in a row of one function each, nothing left out): one heading, then a row a
+  -- A straight run (two or more levels in a row of one function each): one heading, then a row a
   -- function, names on one left edge, the rail counting depth (Codex's #2: five single-callee hops were five box
   -- stacks and five headings). Boxes stay where a level has a choice.
-  local function single(level) return level and #level.items == 1 and level.left == 0 end
+  local function single(level) return level and #level.items == 1 end
   local function chain(side, levels, sign, role)
     local built, wname, wdetail = {}, 1, 0
     local shorts = M.short_names(vim.tbl_map(function(level) return level.items[1].name end, levels))
@@ -456,7 +436,7 @@ function M.layout(graph, width, retro)
     if piece.run then chain('callees', piece.run, 1, 'callee') else tier('callees', piece.level, 1, 'calls nothing found', 'callee') end
   end
   if dropped then centred(G.said('narrow: places in the key line'), 'DeskCallGraphDim') end
-  local drawn = { lines = lines, boxes = boxlist, marks = marks, left_out = left_out }
+  local drawn = { lines = lines, boxes = boxlist, marks = marks }
   M.neighbours(graph, boxlist)
   if gauge then M.gauge(drawn, bands, retro); width = width + M.GAUGE_WIDTH end
   if graph.message then
@@ -476,7 +456,7 @@ function M.layout(graph, width, retro)
       for _, span in ipairs(spans) do marks[#marks + 1] = { #lines, span[1], span[2], 'DeskCallGraphKey', 1 } end
       text, spans = '', {}
     end
-    for _, k in ipairs(vim.tbl_filter(function(k) return not k.more or left_out > 0 end, graph.keys)) do
+    for _, k in ipairs(graph.keys) do
       local part = fit(k[1] .. ' ' .. G.said(k[2]), width, G.ellipsis)
       if text ~= '' and width_of(text .. ' · ' .. part) > width then flush() end
       if text ~= '' then text = text .. ' · ' end
@@ -903,32 +883,7 @@ local function calls(list, field, enc)
     if raw and not seen[key] then seen[key] = true; out[#out + 1] = M.item(raw, enc) end
   end
   table.sort(out, function(a, b) return a.name < b.name end)
-  local more, rest = math.max(0, #out - M.MAX), {}
-  while #out > M.MAX do table.insert(rest, 1, table.remove(out)) end
-  return out, more, rest
-end
-
--- m: what M.MAX left out ("+N more") drawn too, on both sides; the boxes stay in name order.
-function M.show_all(graph)
-  for _, side in ipairs({ 'callers', 'callees' }) do
-    local rest = graph.hidden and graph.hidden[side]
-    if graph[side] and rest and #rest > 0 then
-      vim.list_extend(graph[side], rest)
-      table.sort(graph[side], function(a, b) return a.name < b.name end)
-    end
-  end
-  graph.hidden, graph.more = nil, nil
-  if graph.layers then graph.all_layers = true end
-end
-local function left_out(graph)
-  local more = graph and graph.more or {}
-  local count = (more.callers or 0) + (more.callees or 0)
-  if graph and graph.layers and not graph.all_layers then
-    for _, tiers in pairs(graph.layers) do
-      for _, tier in ipairs(tiers) do count = count + math.max(0, #tier - M.MAX) end
-    end
-  end
-  return count
+  return out
 end
 
 -- Its centre's file edited since the graph was read (unsaved: the server answered for the text before the edit).
@@ -959,11 +914,10 @@ function M.fetch(client, target, done)
     local file_buf = raw.uri and vim.fn.bufnr(vim.uri_to_fname(raw.uri)) or -1
     if file_buf > 0 then graph.read_at = { buf = file_buf, tick = api.nvim_buf_get_changedtick(file_buf) } end
     step('callHierarchy/incomingCalls', { item = raw }, function(incoming)
-      local more, hidden = {}, {}
-      graph.callers, more.callers, hidden.callers = calls(incoming, 'from', enc)
+      graph.callers = calls(incoming, 'from', enc)
       step('callHierarchy/outgoingCalls', { item = raw }, function(outgoing)
-        graph.callees, more.callees, hidden.callees = calls(outgoing, 'to', enc)
-        graph.more, graph.hidden, graph.layers = more, hidden, {}
+        graph.callees = calls(outgoing, 'to', enc)
+        graph.layers = {}
         done(graph)
       end)
     end)
@@ -988,8 +942,7 @@ local function location(item)
   if item.buf and api.nvim_buf_is_valid(item.buf) and item.row then return api.nvim_buf_get_name(item.buf), item.row + 1 end
 end
 
---- pure: every function the graph has read — the centre, then each side level by level, what M.MAX left out ("+N
---- more") included — as location-list items, each once at its nearest level: "Caller, depth 2 · Queue::flush · q.cpp:84".
+--- pure: every function the graph has read — the centre, then each side level by level — as location-list items, each once at its nearest level: "Caller, depth 2 · Queue::flush · q.cpp:84".
 --- A box with no file (no working source) is left out and counted. → items, left out.
 function M.loclist_items(graph)
   local items, seen, missing = {}, {}, 0
@@ -1008,7 +961,7 @@ function M.loclist_items(graph)
     local word = side == 'callers' and 'Caller' or 'Callee'
     local tiers = graph.layers and graph.layers[side]
     if not tiers then
-      tiers = graph[side] and { vim.list_extend(vim.list_slice(graph[side]), graph.hidden and graph.hidden[side] or {}) } or {}
+      tiers = graph[side] and { graph[side] } or {}
     end
     for depth, tier in ipairs(tiers) do
       for _, item in ipairs(tier) do add(item, word .. ', depth ' .. depth) end
@@ -1034,7 +987,7 @@ local function to_loclist(graph)
 end
 M._to_loclist = to_loclist
 
--- Expand through every member of a frontier, including boxes hidden by the display limit.
+-- Expand through every member of a frontier.
 local function server_layers(graph, side, depth, active, done)
   local source = graph.source
   local client = source and api.nvim_buf_is_valid(source) and vim.iter(M.clients(source)):find(function(c) return c.id == graph.client_id end)
@@ -1042,7 +995,7 @@ local function server_layers(graph, side, depth, active, done)
     done(nil, 'requires a project map or a language server with call hierarchy')
     return function() end
   end
-  local tiers = { vim.list_extend(vim.list_slice(graph[side]), graph.hidden and graph.hidden[side] or {}) }
+  local tiers = { vim.list_slice(graph[side]) }
   local kept = graph.layer_source and graph.layer_source[side] == 'server' and layers_of(graph, side)
   if kept then tiers = vim.list_slice(kept) end
   local visited = { [identity(graph.center)] = true }
@@ -1090,11 +1043,11 @@ local function server_layers(graph, side, depth, active, done)
   return stop
 end
 
--- The levels a side shows now, level 1 with what M.MAX left out of it.
+-- The levels a side shows now.
 local function shown_layers(graph, side)
   if graph.layers and graph.layers[side] then return vim.list_slice(graph.layers[side]) end
   if not graph[side] then return {} end
-  return { vim.list_extend(vim.list_slice(graph[side]), graph.hidden and graph.hidden[side] or {}) }
+  return { vim.list_slice(graph[side]) }
 end
 
 -- Where a function is, as file:line keys: the lines from where its definition starts to its name. The language server
@@ -1913,19 +1866,7 @@ local ROWS = actions.add({
       local request = (holder.depth_requests or {})[side]
       if request then request.name = tostring(item.name or '') end
     end },
-  -- m and gs on every graph, the panel too (2026-11-16: there m set a Vim mark and gs slept a second).
-  { id = 'callgraph.more', group = 'Call graph', name = 'Show every caller and callee', key = 'm', on = BOTH, remote = true,
-    about = 'Draw the callers and callees past the first ' .. M.MAX .. ' on each level (where it says "+N more")',
-    available = function(ctx)
-      local graph = ctx.view and ctx.view.graph or (ctx.graph and ctx.graph.graph)
-      return left_out(graph) > 0 or 'nothing is left out'
-    end,
-    run = function(ctx)
-      if ctx.view then M.show_all(ctx.view.graph); return pop().redraw(ctx.view) end
-      M.show_all(ctx.graph.graph)
-      if ctx.graph == panel then return panel_show(panel.graph, true) end
-      render(ctx.graph, true)
-    end },
+  -- gs on every graph, the panel too (2026-11-16: there gs slept a second).
   -- On every graph (2026-11-16: in the panel and the pop-out r was Vim's own, an error on their read-only buffers).
   { id = 'callgraph.reload', group = 'Call graph', name = 'Read the graph again', key = 'r', on = BOTH, remote = true,
     about = 'Ask the language server for the graph again (a graph that follows the cursor: for the function under it)',
@@ -2003,13 +1944,11 @@ function M.typed(...)
 end
 -- ? (desk.keys, every view's) lists them all, the ones these lines leave out too.
 local KEYS = { actions.key('desk.keys') or '?', 'keys' }
--- m only while the drawing leaves something out (M.layout reads `more`).
-local MORE = { M.typed('more'), 'show all', more = true }
 M.VIEW_KEYS = { { M.typed('down', 'up', 'left', 'right'), 'move' }, { M.typed('go'), 'go' }, { M.typed('back'), 'back' },
-  { M.typed('centre'), 'centre' }, { M.typed('reload'), 'reload' }, { M.typed('close'), 'close' }, MORE, KEYS }
+  { M.typed('centre'), 'centre' }, { M.typed('reload'), 'reload' }, { M.typed('close'), 'close' }, KEYS }
 function M.panel_keys(pinned)
   return { { M.typed('down', 'up', 'left', 'right'), 'move' }, { M.typed('go'), 'go' }, { M.typed('pin'), pinned and 'unpin' or 'pin' },
-    { M.typed('panel-close'), 'close' }, MORE, KEYS }
+    { M.typed('panel-close'), 'close' }, KEYS }
 end
 
 -- ─── what is here: the selected box ────────────────────────────────────────────────────────────────────────────
@@ -2312,12 +2251,11 @@ end
 
 local GROUPS = { 'DeskCallGraphCentre', 'DeskCallGraphBox', 'DeskCallGraphName', 'DeskCallGraphDim', 'DeskCallGraphHead', 'DeskCallGraphFaint',
   'DeskCallGraphKey', 'DeskCallGraphSelected' }
--- Its key line in the pop-out (the header shows PINNED; ? lists every key); m while the drawing leaves boxes out.
-local function footer(pinned, more)
+-- Its key line in the pop-out (the header shows PINNED; ? lists every key).
+local function footer(pinned)
   local keys = { { ids = { 'callgraph.down', 'callgraph.up', 'callgraph.left', 'callgraph.right' }, words = 'move' },
     { ids = { 'callgraph.go' }, words = 'go' }, { ids = { 'popout.go-focus' }, words = 'go+focus' },
     { ids = { 'popout.pin' }, words = pinned and 'follow' or 'pin' } }
-  if more then keys[#keys + 1] = { ids = { 'callgraph.more' }, words = 'show all' } end
   keys[#keys + 1] = { ids = { 'popout.keys' }, words = 'keys' }
   return keys
 end
@@ -2347,28 +2285,9 @@ local function render_view(view, width, style)
       centre = box.centre, gauge = box.gauge, gauge_band = box.gauge_band, gauge_col = box.gauge_col, name = tostring(box.item.name or ''), ref = box.item }
   end
   local center = graph.center
-  -- What "+N more" leaves out, findable with / in the pop-out: by the key its box will have once drawn.
-  local hidden, drawn_keys = {}, {}
-  for _, item in ipairs(items) do drawn_keys[item.key] = true end
-  if drawn.left_out > 0 then
-    for _, side in ipairs(SIDES) do
-      local role = side == 'callers' and 'caller' or 'callee'
-      local tiers = graph.layers and graph.layers[side]
-        or (graph[side] and { vim.list_extend(vim.list_slice(graph[side]), graph.hidden and graph.hidden[side] or {}) }) or {}
-      for _, tier in ipairs(tiers) do
-        for _, item in ipairs(tier) do
-          local key = box_key({ item = item, role = role })
-          if not drawn_keys[key] then
-            drawn_keys[key] = true
-            hidden[#hidden + 1] = { key = key, name = tostring(item.name or ''), where = item.detail }
-          end
-        end
-      end
-    end
-  end
   return { title = 'call graph' .. (center and center.name and (' · ' .. center.name) or ''), state = '',
-    tab = 'calls', subject = center and center.name or nil, hidden = hidden,
-    lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer(view.pinned, drawn.left_out > 0),
+    tab = 'calls', subject = center and center.name or nil,
+    lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer(view.pinned),
     news = view.news == true }
 end
 
@@ -2404,8 +2323,6 @@ M.view_kind = {
   end,
   save = save_view,
   restore = restore_view,
-  -- / in the pop-out chose a box under "+N more": every box drawn (as m does).
-  reveal = function(view) if view.graph then M.show_all(view.graph) end end,
 }
 -- Registered as the module loads (not run headless for the notebook), so its Views row is in the registry.
 if not headless then pop().kind(M.view_kind) end

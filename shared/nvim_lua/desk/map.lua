@@ -10,7 +10,7 @@ local headless = type(arg) == 'table' and arg[1] == '--syntax-graph' and type(ar
 if headless then package.path = (arg[0]:match('(.*/)') or './') .. '../?.lua;' .. package.path end
 local actions = require('desk.actions')
 local ns = api.nvim_create_namespace('desk_map')
-M.MAX_BOXES, M.MAX_SIDE, M.MAX_TIER, M.POLL_MS, M.BUILD_WAIT_MS = 60, 24, 24, 1000, 15 * 60 * 1000
+M.POLL_MS, M.BUILD_WAIT_MS = 1000, 15 * 60 * 1000
 
 local function tell(text, level) vim.notify(text, level or vim.log.levels.INFO, { title = 'Project map' }) end
 local function one_line(s) return vim.trim(tostring(s or ''):gsub('%s+', ' ')) end
@@ -1033,7 +1033,6 @@ function M.layout(page, width, retro)
       local left = string.rep(' ', math.max(0, math.floor((width - wide) / 2)))
       for _, row_ in ipairs(rows) do put_parts(row_.parts, left, row_.group or s.group) end
     elseif s.blank then add('') end
-    if (s.more or 0) > 0 then centred(with_key(G, '+' .. s.more .. ' more · ', 'more', ' shows them'), 'DeskMapDim') end
     if s.level and #lines >= first then bands[#bands + 1] = { first = first, last = #lines, level = s.level } end
   end
   -- Notes wrap at the width (a "requires …" line is worth reading whole), between its " · " parts where it has them,
@@ -1130,35 +1129,18 @@ function M.layers(keys, edges)
   return tiers
 end
 
--- At most `cap` keys, the most connected first; the rest are counted.
-local function busiest(keys, degree, cap)
-  if #keys <= cap then return keys, 0 end
-  local order = vim.list_slice(keys)
-  local at = {}
-  for i, k in ipairs(keys) do at[k] = i end
-  table.sort(order, function(a, b)
-    local da, db = degree[a] or 0, degree[b] or 0
-    if da ~= db then return da > db end
-    return at[a] < at[b]
-  end)
-  local kept = {}
-  for i = 1, cap do kept[order[i]] = true end
-  return vim.tbl_filter(function(k) return kept[k] end, keys), #keys - cap
-end
-
--- Boxes in layers, with an arrow between layers.
-local function layered(sections, keys, edges, item_of, degree, cap)
-  local shown, more = busiest(keys, degree, cap)
-  for i, tier in ipairs(M.layers(shown, edges)) do
+-- Boxes in layers, with an arrow between layers: every one, the page scrolls (2026-11-19, her "why can't it just show
+-- the entire thing at once? and just be scrollable?"; 1000 boxes draw in about 30 ms).
+local function layered(sections, keys, edges, item_of)
+  for i, tier in ipairs(M.layers(keys, edges)) do
     if i > 1 then sections[#sections + 1] = { arrow = true } end
     sections[#sections + 1] = { boxes = vim.tbl_map(item_of, tier), level = i - 1 }
   end
-  if more > 0 then sections[#sections + 1] = { more = more } end
 end
 
--- Boxes of one side (who calls in from elsewhere, what is called out there), at most M.MAX_SIDE: the checkout's own
--- first (rank 0), libraries and what only the binary has after; the busiest first within each.
-local function side(sections, label, items, all)
+-- Boxes of one side (who calls in from elsewhere, what is called out there): the checkout's own first (rank 0),
+-- libraries and what only the binary has after; the busiest first within each.
+local function side(sections, label, items)
   if #items == 0 then return end
   table.sort(items, function(a, b)
     if (a.rank or 0) ~= (b.rank or 0) then return (a.rank or 0) < (b.rank or 0) end
@@ -1167,11 +1149,8 @@ local function side(sections, label, items, all)
     if a.name ~= b.name then return a.name < b.name end
     return (a.target and a.target.node and a.target.node.id or '') < (b.target and b.target.node and b.target.node.id or '')
   end)
-  local total = #items
-  local more = all and 0 or math.max(0, total - M.MAX_SIDE)
-  if more > 0 then items = vim.list_slice(items, 1, M.MAX_SIDE) end
-  sections[#sections + 1] = { head = label .. ' · ' .. total }
-  sections[#sections + 1] = { boxes = items, more = more }
+  sections[#sections + 1] = { head = label .. ' · ' .. #items }
+  sections[#sections + 1] = { boxes = items }
 end
 
 -- A part's size, as its box and the part picker (M) say it.
@@ -1182,32 +1161,25 @@ local function part_size(m)
 end
 
 -- The parts of the checkout (desk-work map query --q module).
-function M.level_modules(answer, all)
-  local keys, degree, by = {}, {}, {}
+function M.level_modules(answer)
+  local keys, by = {}, {}
   for _, m in ipairs(answer.modules or {}) do keys[#keys + 1] = m.name; by[m.name] = m end
-  for _, e in ipairs(answer.edges or {}) do
-    degree[e.from] = (degree[e.from] or 0) + (e.count or 1)
-    degree[e.to] = (degree[e.to] or 0) + (e.count or 1)
-  end
   local function item(name)
     return { name = name, detail = part_size(by[name]), target = { kind = 'module', module = name } }
   end
   local sections = {}
   if #keys == 0 then sections[1] = { parts = { { 'The map is empty: no reader found anything here.' } }, group = 'DeskMapDim' } end
-  layered(sections, keys, answer.edges or {}, item, degree, all and #keys or M.MAX_BOXES)
+  layered(sections, keys, answer.edges or {}, item)
   local edges = answer.edges or {}
   if #edges > 0 then
     sections[#sections + 1] = { blank = true }
     sections[#sections + 1] = { head = 'calls between parts' }
-    local shown = all and #edges or math.min(#edges, 12)
-    for i = 1, shown do
-      local e = edges[i]
+    for _, e in ipairs(edges) do
       -- the count a hit too: Enter shows the crossings themselves (the interface one part uses of the other)
       sections[#sections + 1] = { parts = { { '  ' }, { e.from, item(e.from) }, { ' → ' }, { e.to, item(e.to) }, { ' · ' },
         { e.count .. (e.count == 1 and ' call' or ' calls'), { name = e.from .. ' → ' .. e.to, key = 'crossings:' .. e.from .. '>' .. e.to,
           target = { kind = 'crossings', from = e.from, to = e.to } } } } }
     end
-    if shown < #edges then sections[#sections + 1] = { more = #edges - shown } end
   end
   return { crumbs = { 'parts' }, sections = sections }
 end
@@ -1243,11 +1215,11 @@ end
 -- A part's files (desk-work map query --q module --name M): files in layers by the calls between them, the parts
 -- that call into it above, the parts it calls below. A part with no files (the binary's, the libraries') shows its
 -- functions instead.
-function M.level_files(answer, module, all)
+function M.level_files(answer, module)
   local by, files, keys = node_index(answer), {}, {}
   for _, f in ipairs(answer.files or {}) do files[f.file] = f; keys[#keys + 1] = f.file end
-  if #keys == 0 then return M.level_nodes(answer, module, nil, nil, all) end
-  local between, degree, into, out = {}, {}, {}, {}
+  if #keys == 0 then return M.level_nodes(answer, module) end
+  local between, into, out = {}, {}, {}
   for _, e in ipairs(answer.edges or {}) do
     local a, b = by[e.from], by[e.to]
     if a and b and calls(e.kind) then
@@ -1255,7 +1227,6 @@ function M.level_files(answer, module, all)
       if fa and fb and fa ~= fb then
         local key = fa .. '\0' .. fb
         if not between[key] then between[key] = { from = fa, to = fb } end
-        degree[fa], degree[fb] = (degree[fa] or 0) + 1, (degree[fb] or 0) + 1
       elseif fb and not fa then into[a.module] = (into[a.module] or 0) + 1
       elseif fa and not fb then out[b.module] = (out[b.module] or 0) + 1 end
     end
@@ -1276,7 +1247,7 @@ function M.level_files(answer, module, all)
     return items
   end
   local sections = {}
-  side(sections, 'called from', parts(into), all)
+  side(sections, 'called from', parts(into))
   if #sections > 0 then sections[#sections + 1] = { arrow = true } end
   local edges = {}
   for _, e in pairs(between) do edges[#edges + 1] = e end
@@ -1284,9 +1255,9 @@ function M.level_files(answer, module, all)
     if a.from ~= b.from then return a.from < b.from end
     return a.to < b.to
   end)
-  layered(sections, keys, edges, item, degree, all and #keys or M.MAX_BOXES)
+  layered(sections, keys, edges, item)
   local below = {}
-  side(below, 'calls out', parts(out), all)
+  side(below, 'calls out', parts(out))
   if #below > 0 then sections[#sections + 1] = { arrow = true }; vim.list_extend(sections, below) end
   if (answer.more or 0) > 0 then sections[#sections + 1] = { head = answer.more .. ' more functions in this part were left out' } end
   return { crumbs = { 'parts', module }, sections = sections }
@@ -1294,7 +1265,7 @@ end
 
 -- The functions and classes of one file (or of a part with no files, or of one class): in layers by the calls among
 -- them, the functions elsewhere that call in above, what they call elsewhere below.
-function M.level_nodes(answer, module, file, class, all)
+function M.level_nodes(answer, module, file, class)
   local by, inside, keys = node_index(answer), {}, {}
   local methods = {}
   for _, e in ipairs(answer.edges or {}) do
@@ -1308,13 +1279,12 @@ function M.level_nodes(answer, module, file, class, all)
     local mine = n.module == module and (file == nil or n.file == file) and (not class or members[n.id])
     if mine then inside[n.id] = true; keys[#keys + 1] = n.id end
   end
-  local edges, degree, callers, callees = {}, {}, {}, {}
+  local edges, callers, callees = {}, {}, {}
   for _, e in ipairs(answer.edges or {}) do
     if calls(e.kind) and by[e.from] and by[e.to] then
       local a, b = inside[e.from], inside[e.to]
       if a and b then
         edges[#edges + 1] = e
-        degree[e.from], degree[e.to] = (degree[e.from] or 0) + 1, (degree[e.to] or 0) + 1
       elseif b and not a then callers[e.from] = (callers[e.from] or 0) + 1
       elseif a and not b then callees[e.to] = (callees[e.to] or 0) + 1 end
     end
@@ -1339,12 +1309,12 @@ function M.level_nodes(answer, module, file, class, all)
     sections[#sections + 1] = { boxes = { node_item(class.node or by[class.id] or { label = class.name, id = class.id }) }, frame = 'double' }
     sections[#sections + 1] = { arrow = true }
   end
-  side(sections, 'called from', others(callers), all)
+  side(sections, 'called from', others(callers))
   if #sections > (class and 2 or 0) then sections[#sections + 1] = { arrow = true } end
   if #keys == 0 then sections[#sections + 1] = { head = 'nothing here' } end
-  layered(sections, keys, edges, item, degree, all and #keys or M.MAX_BOXES)
+  layered(sections, keys, edges, item)
   local below = {}
-  side(below, 'calls out', others(callees), all)
+  side(below, 'calls out', others(callees))
   if #below > 0 then sections[#sections + 1] = { arrow = true }; vim.list_extend(sections, below) end
   local crumbs = { 'parts', module }
   if file then crumbs[#crumbs + 1] = file:sub(#module + 2) ~= '' and module:sub(1, 1) ~= '(' and file:sub(#module + 2) or file end
@@ -1874,8 +1844,8 @@ function M.trace_page(answer, folds, layouts, field)
   return { crumbs = { 'trace' }, sections = sections }
 end
 
-function M.level_query(answer, all, level)
-  local page = M.level_query_plain(answer, all, level)
+function M.level_query(answer, level)
+  local page = M.level_query_plain(answer, level)
   -- What this answer was asked without, said where the answer is read: one line, and the key that brings them back.
   if type(answer.excluded) == 'table' and #answer.excluded > 0 and page and page.sections then
     local names = vim.tbl_map(function(id) return tostring(id):match('::(.+)$') or tostring(id) end, answer.excluded)
@@ -1884,7 +1854,7 @@ function M.level_query(answer, all, level)
   end
   return page
 end
-function M.level_query_plain(answer, all, level)
+function M.level_query_plain(answer, level)
   if answer.q == 'trace' then return M.trace_page(answer, level and level.folds, level and level.layouts, level and level.field) end
   local sections = {}
   if answer.q == 'changes' then
@@ -2087,12 +2057,7 @@ function M.level_query_plain(answer, all, level)
   for d = 1, deepest do order[#order + 1] = d end
   if backwards then order = vim.fn.reverse(order) end
   local function tier(d)
-    local list = tiers[d] or {}
-    local shown = all and #list or math.min(#list, M.MAX_TIER)
-    local more = #list - shown
-    local items = {}
-    for i = 1, shown do items[i] = item(list[i]) end
-    sections[#sections + 1] = { boxes = items, more = more, level = backwards and -d or d }
+    sections[#sections + 1] = { boxes = vim.tbl_map(item, tiers[d] or {}), level = backwards and -d or d }
   end
   local label = (backwards and 'who calls ' or 'what ') .. code(start.label) .. (backwards and '' or ' reaches') .. ' · depth ' .. (answer.depth or '?')
   sections[#sections + 1] = { head = label }
@@ -2224,7 +2189,6 @@ function M.footer(view, G, keys)
     if keys == false then return notes end
     local line = {}
     for _, k in ipairs(KEY_LINE) do line[#line + 1] = typed(k[1]) .. ' ' .. G.said(k[2]) end
-    if view.has_more then line[#line + 1] = with_key(G, '', 'more', ' show more') end
     notes[#notes + 1] = { table.concat(line, ' · ') }
     return notes
   end
@@ -2243,7 +2207,6 @@ function M.footer(view, G, keys)
   if keys == false then return notes end
   local line = {}
   for _, k in ipairs(KEY_LINE) do line[#line + 1] = typed(k[1]) .. ' ' .. G.said(k[2]) end
-  if view.has_more then line[#line + 1] = with_key(G, '', 'more', ' show more') end
   notes[#notes + 1] = { table.concat(line, ' · ') }
   return notes
 end
@@ -2253,9 +2216,9 @@ local function cached(view, key) return view.cache[key] or (view.previous or {})
 
 local function page_of(view)
   local level = view.stack[#view.stack]
-  if level.kind == 'modules' then return cached(view, 'modules') and M.level_modules(cached(view, 'modules'), level.all) end
+  if level.kind == 'modules' then return cached(view, 'modules') and M.level_modules(cached(view, 'modules')) end
   if level.kind == 'query' then
-    local page = M.level_query(level.answer, level.all, level)
+    local page = M.level_query(level.answer, level)
     -- a note the asker gave (the review of an older commit: the callers are the map's as it is now)
     if page and level.note then table.insert(page.sections, math.min(2, #page.sections + 1), { block = { { { level.note, nil, true } } }, group = 'DeskMapStale' }) end
     return page
@@ -2268,10 +2231,10 @@ local function page_of(view)
   if level.kind == 'binary' then return M.level_binary(level) end
   local answer = cached(view, 'module:' .. level.module)
   if not answer then return nil end
-  if level.kind == 'files' then return M.level_files(answer, level.module, level.all) end
-  if level.kind == 'functions' then return M.level_nodes(answer, level.module, level.file, nil, level.all) end
+  if level.kind == 'files' then return M.level_files(answer, level.module) end
+  if level.kind == 'functions' then return M.level_nodes(answer, level.module, level.file) end
   if level.kind == 'class' then
-    return M.level_nodes(answer, level.module, level.file, { id = level.id, name = level.name, node = level.node }, level.all)
+    return M.level_nodes(answer, level.module, level.file, { id = level.id, name = level.name, node = level.node })
   end
 end
 
@@ -2294,7 +2257,6 @@ local function page_for(view, G)
     local waiting = ((view.building or (s and s.building)) and 'The map is being built' or 'Reading the map') .. G.ellipsis
     page = page_of(view) or { sections = { { parts = { { waiting } }, group = 'DeskMapDim' } } }
   end
-  view.has_more = vim.iter(page.sections or {}):any(function(section) return (section.more or 0) > 0 end)
   page.header = M.header(view, G)
   local top = view.stack[#view.stack]
   if page.crumbs and top.kind ~= 'query' then
@@ -2761,7 +2723,7 @@ query = function(view, args, from, again, quiet)
     local top = view.stack[#view.stack]
     if again then
       if top ~= again then return end
-      view.stack[#view.stack] = { kind = 'query', answer = answer, args = args, keep = top.keep, selected = top.selected, all = top.all, root = view.root }
+      view.stack[#view.stack] = { kind = 'query', answer = answer, args = args, keep = top.keep, selected = top.selected, root = view.root }
       return load(view)
     end
     local level = { kind = 'query', answer = answer, args = args, root = view.root, note = view.pending_note }
@@ -2788,14 +2750,6 @@ local function keep_selection(view, ctx, top)
     local item = M.item_at(view.drawn, cursor[1], cursor[2])
     top.keep = { box = item and box_of(item), cursor = cursor }
   end
-end
-
-local function reveal(view, ctx)
-  local index = #view.stack
-  local level = vim.tbl_extend('force', view.stack[index], { all = true })
-  keep_selection(view, ctx, level)
-  view.stack[index] = level
-  load(view)
 end
 
 local function change_walk(view, ctx, delta)
@@ -3831,9 +3785,6 @@ local ROWS = actions.add({
       local top = ctx.map and ctx.map.stack and ctx.map.stack[#ctx.map.stack]
       return (top and top.answer and top.answer.q == 'paths') or 'on a ways page (P)'
     end, ON_IT),
-  row('more', 'm', 'Show more boxes and calls',
-    'Show the boxes and calls left out of this page', reveal,
-    function(ctx) return (ctx.map and ctx.map.has_more) or 'nothing else on this page' end, THERE),
   row('module', 'M', 'A part of the checkout', 'Go to a part of the checkout, picked by name', part, needs_map, HERE),
   row('exclude', 'z', 'Leave this function out of the answers',
     'The selected function left out of the map\'s answers (a logger, an allocator every path goes through), its calls with it, until `z` again or `Z`; the page says how many are left out',
@@ -3964,8 +3915,7 @@ local function render_view(view, width, style)
     -- Enter's slot first (Codex's #9: it never moves), what the thing is after it
     if two then it.keys = two[2] .. '   ' .. two[1] end
   end
-  local footer = view.has_more and vim.list_extend(vim.list_slice(FOOTER), { { ids = { 'map.more' }, words = 'show more' } })
-    or FOOTER
+  local footer = FOOTER
   view.follows = tracing(view) ~= nil
   if view.follows then footer = vim.list_extend(vim.list_slice(footer), { { ids = { 'popout.pin' }, words = 'pin/follow' } }) end
   local traced = tracing(view)

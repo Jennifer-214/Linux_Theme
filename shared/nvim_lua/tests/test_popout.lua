@@ -491,20 +491,31 @@ do
     '… and the one chosen is selected: ' .. tostring(state().selected) .. ' (was ' .. tostring(before) .. ')')
   find(before)
   ok(wait(2000, function() return state().selected == before end), '… and back to ' .. tostring(before))
-  -- One box a level: the rest under "+N more", still found by /, and drawn once chosen. (The graph's pin is put back as
-  -- it was found at the end: r while following reads again, and the menu test below toggles from that state.)
+  -- More boxes on a level: every one drawn, none hidden, nothing says "+N more" (2026-11-19: the cap and m went). (The
+  -- graph's pin is put back as it was found at the end: r while following reads again, and the menu test below toggles
+  -- from that state.)
   local was_pinned = host("return require('desk.popout').view_of('graph').pinned == true")
-  host("require('desk.callgraph').MAX = 1; _G.popout_test.extra = 2")
+  host("_G.popout_test.extra = 2")
   press('r')
-  ok(wait(5000, function() return (state().hidden or 0) > 0 end), 'MAX 1 and read again: boxes under "+N more" (' .. tostring(state().hidden) .. ')')
-  local shown_before = #vim.tbl_filter(function(l) return l:find('more', 1, true) end, state().lines or {})
+  ok(wait(5000, function() return popped():find('extra_', 1, true) ~= nil end), 'two more callees read again: drawn at once')
+  ok(not popped():find('%+%d+ more'), '… nothing says "+N more"')
+  -- A big level, past what one message used to carry (2000 lines, 500 boxes): the whole of it drawn and every box
+  -- found by / and selectable.
+  host("_G.popout_test.extra = 2500")
+  local asked_at = vim.uv.hrtime()
+  press('r')
+  ok(wait(20000, function() return popped():find('extra_2500', 1, true) ~= nil end), '2500 callees: the last one drawn too')
+  print(('  (2500 callees read and drawn in the pop-out in %d ms)'):format((vim.uv.hrtime() - asked_at) / 1e6))
+  ok(not popped():find('more lines', 1, true), '… no "more lines" cut')
+  found = find('extra_2500')
+  ok(#found.names > 2500 and wait(4000, function() return state().selected == 'extra_2500' end),
+    '… / lists every box and selects the last: ' .. #found.names .. ' names, selected ' .. tostring(state().selected))
+  host("_G.popout_test.extra = 2")
+  press('r')
+  ok(wait(20000, function() return popped():find('extra_2', 1, true) ~= nil and not popped():find('extra_2500', 1, true) end), '… back to two')
   found = find(nil)
   local last = found.names[#found.names]
-  ok(last and last:find(' · under +N more', 1, true), '/ offers them too, said so: ' .. vim.inspect(found.names))
-  local name = last and last:match('^(.-) · ')
-  ok(wait(4000, function() return state().selected == name and state().hidden == 0 end),
-    '… and the one chosen is drawn and selected: ' .. tostring(state().selected) .. ' (wanted ' .. tostring(name) .. ')')
-  ok(shown_before > 0 and not popped():find('%+%d+ more'), '… every box drawn now, no "+N more" left')
+  ok(last and wait(4000, function() return state().selected == last end), '/ selects the last box, a callee: ' .. tostring(last))
   -- three callees on one level: a wide graph; the selected callee's real neighbour (the centre) lit, the caller dimmed
   ok(wait(2000, function()
     return pop([[local G = require('desk.callgraph'); local n = 0
@@ -513,9 +524,9 @@ do
       end
       return n]]) > 0
   end), 'in the pop-out too: a wide graph dims what the selected box does not call or get called by')
-  host("require('desk.callgraph').MAX = 24; _G.popout_test.extra = 0")
+  host("_G.popout_test.extra = 0")
   press('r')
-  ok(wait(5000, function() return (state().hidden or 0) == 0 and not popped():find('extra_', 1, true) end), 'MAX back')
+  ok(wait(5000, function() return not popped():find('extra_', 1, true) end), 'the extra callees gone again')
   -- … and that read finished (a read still on its way would undo the next test's pin)
   ok(wait(5000, function()
     return host("local v = require('desk.popout').view_of('graph'); return v ~= nil and v.graph ~= nil and not v.graph.reading and v.inflight == nil")

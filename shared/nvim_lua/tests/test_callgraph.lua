@@ -401,30 +401,25 @@ api.nvim_set_current_win(origin)
 ok(vim.wait(1000, function() return #requests > 0 and G.panel.inflight == nil end), "r in the panel asks the language server again")
 eq({ prepares(), G.panel.pinned, text(G.panel.drawn.lines):find("callee_of_callee_of_M.beta", 1, true) ~= nil }, { 0, true, true },
   "… for the function it is pinned on")
--- m and gs in the panel, as on the other graphs (2026-11-16: m set a Vim mark there, gs slept a second).
-local crowded = { center = G.panel.graph.center, callers = { { name = "caller_a", detail = "x:1" } },
-  hidden = { callers = { { name = "caller_b", detail = "x:2" } } }, more = { callers = 1 }, callees = {} }
-G.panel_open_with(crowded, G.panel.target, true)
-ok(text(G.panel.drawn.lines):find("+1 more", 1, true) and not text(G.panel.drawn.lines):find("caller_b", 1, true), "a panel that leaves one out")
-ok(text(G.panel.drawn.lines):find("+1 more · m shows them", 1, true) and text(G.panel.drawn.lines):find("m show all", 1, true),
-  "… its +1 more names m, and so does the panel's key line")
-api.nvim_set_current_win(G.panel.win)
-ok(vim.fn.maparg("m", "n", false, true).callback ~= nil, "m is the panel's own key")
-key("m")
-ok(text(G.panel.drawn.lines):find("caller_b", 1, true) and not text(G.panel.drawn.lines):find("+1 more", 1, true), "… m draws it too")
-ok(not text(G.panel.drawn.lines):find("m show all", 1, true), "… and the key line leaves m out once nothing is left out")
--- A level that + read past M.MAX (level 2 here) is drawn whole by m too.
+-- Every caller and callee drawn, the panel scrolls (2026-11-19, her ask for the map, the graph alike: "show the entire
+-- thing at once? and just be scrollable?"): no "+N more", no m.
 do
-  local deep, near = {}, { name = "near", detail = "x:0" }
-  for i = 1, G.MAX + 3 do deep[i] = { name = string.format("deep%02d", i), detail = "x:" .. i } end
-  G.panel_open_with({ center = G.panel.graph.center, callers = {}, callees = { near }, layers = { callees = { { near }, deep } } }, G.panel.target, true)
+  local many = {}
+  for i = 1, 30 do many[i] = { name = string.format("caller%02d", i), detail = "x:" .. i } end
+  G.panel_open_with({ center = G.panel.graph.center, callers = many, callees = {} }, G.panel.target, true)
   local drawn_text = text(G.panel.drawn.lines)
-  ok(drawn_text:find("callees 2 · " .. (G.MAX + 3), 1, true) and drawn_text:find("+3 more · m shows them", 1, true)
-    and not drawn_text:find(deep[G.MAX + 1].name, 1, true), "level 2 of " .. (G.MAX + 3) .. " functions: +3 more, with its key")
-  key("m")
+  ok(drawn_text:find("callers · 30", 1, true) and drawn_text:find("caller01", 1, true) and drawn_text:find("caller30", 1, true)
+    and not drawn_text:find("more", 1, true), "thirty callers in the panel: every one drawn, nothing says more")
+  local deep, near = {}, { name = "near", detail = "x:0" }
+  for i = 1, 27 do deep[i] = { name = string.format("deep%02d", i), detail = "x:" .. i } end
+  G.panel_open_with({ center = G.panel.graph.center, callers = {}, callees = { near }, layers = { callees = { { near }, deep } } }, G.panel.target, true)
   drawn_text = text(G.panel.drawn.lines)
-  ok(drawn_text:find(deep[G.MAX + 3].name, 1, true) and not drawn_text:find("+3 more", 1, true), "… m draws the rest of that level")
+  ok(drawn_text:find("callees 2 · 27", 1, true) and drawn_text:find("deep01", 1, true) and drawn_text:find("deep27", 1, true)
+    and not drawn_text:find("more", 1, true), "a level + read, 27 functions: every one drawn")
+  api.nvim_set_current_win(G.panel.win)
+  ok(vim.fn.maparg("m", "n", false, true).callback == nil, "m is not the panel's key any more")
 end
+api.nvim_set_current_win(G.panel.win)
 local said_gs = {}
 local real_notify = vim.notify
 vim.notify = function(msg) said_gs[#said_gs + 1] = msg end
@@ -516,8 +511,8 @@ eq({ G.target_at(dir .. "/no-such-file.lua", 1) }, { nil, "that file is no longe
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", "I", ">", "m", "r", "q", "gs", "t", "gl", "o" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", "I", ">", "m", "r", "gs", "t", "p", "q", "gl", "o" }, "the panel's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "+", "-", "I", ">", "r", "q", "gs", "t", "gl", "o" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "c", "+", "-", "I", ">", "r", "gs", "t", "p", "q", "gl", "o" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do
@@ -587,42 +582,17 @@ eq(surface.index, want, "3j moves three boxes down")
 api.nvim_feedkeys("2k", "x", false)
 eq(surface.index, G.nav(laid.boxes, G.nav(laid.boxes, want, "up"), "up"), "… and 2k two up")
 
--- m: what the cap left out ("+N more") drawn too, the boxes still in name order (2026-11-16: no way to see them).
+-- Every box drawn, in name order; the key lines never offer m (2026-11-19).
 do
-  local shown, rest = {}, {}
-  for i = 1, G.MAX do shown[i] = item(string.format("f%02d", i)) end
-  for i = 1, 3 do rest[i] = item(string.format("f%02d", G.MAX + i)) end
-  local capped = { center = item("centre"), callers = shown, more = { callers = 3 }, hidden = { callers = rest } }
-  local before = table.concat(G.layout(vim.deepcopy(capped), 120, false).lines, "\n")
-  ok(before:find("+3 more", 1, true) and not before:find(rest[1].name, 1, true), "capped: +3 more, the rest not drawn")
-  -- The line names its key; the key lines list it while something is left out (her ask, 2026-11-17: "there also isnt
-  -- a way to see the +53 more on the call grap").
-  local keyed = G.layout(vim.tbl_extend("force", vim.deepcopy(capped), { keys = G.VIEW_KEYS }), 120, false)
-  local row, said = line_with(keyed.lines, "+3 more")
-  eq(vim.trim(said or ""), "+3 more · m shows them", "the +N more line names its key")
-  local key_at = row and said:find(" · m ", 1, true)
-  key_at = key_at and key_at + #" · " - 1
-  ok(key_at and vim.tbl_contains(marked(keyed), table.concat({ row, key_at, key_at + 1, "DeskCallGraphKey" }, ":")), "… marked as a key")
-  eq(vim.trim(G.layout(vim.deepcopy(capped), 120, true).lines[row] or ""), "+3 MORE · m SHOWS THEM", "… in retro the key keeps its case")
-  eq(keyed.left_out, 3, "the drawing says how many boxes it left out")
-  eq(keyed.lines[#keyed.lines], "j/k/h/l move · Enter go · BS back · c centre · r reload · q close · m show all · ? keys",
-    "the tab's key line lists m while something is left out")
-  local K = G.view_kind
-  local function footer_m(g)
-    return vim.iter(K.render({ graph = g }, 120, "paper").footer):any(function(p) return vim.tbl_contains(p.ids, "callgraph.more") end)
-  end
-  eq(footer_m(vim.deepcopy(capped)), true, "… and so does the pop-out's")
-  local all = vim.deepcopy(capped)
-  G.show_all(all)
-  local after = table.concat(G.layout(all, 120, false).lines, "\n")
-  ok(not after:find("+3 more", 1, true) and after:find(rest[3].name, 1, true), "m: every caller drawn, no +N more")
-  eq({ #all.callers, all.callers[G.MAX + 1].name, all.more, all.hidden }, { G.MAX + 3, rest[1].name, nil, nil }, "… in name order")
-  local unkeyed = G.layout(vim.tbl_extend("force", vim.deepcopy(all), { keys = G.VIEW_KEYS }), 120, false)
-  eq({ unkeyed.left_out, unkeyed.lines[#unkeyed.lines], footer_m(all) },
-    { 0, "j/k/h/l move · Enter go · BS back · c centre · r reload · q close · ? keys", false },
-    "nothing left out: no m in the tab's key line or the pop-out's")
-  local A = require("desk.actions")
-  eq(A.get("callgraph.more").available({ graph = { graph = all } }), "nothing is left out", "m says when nothing is left out")
+  local callers = {}
+  for i = 1, 27 do callers[i] = item(string.format("f%02d", i)) end
+  local every = G.layout({ center = item("centre"), callers = callers, keys = G.VIEW_KEYS }, 120, false)
+  local drawn_text = table.concat(every.lines, "\n")
+  ok(drawn_text:find("f01", 1, true) and drawn_text:find("f27", 1, true) and not drawn_text:find("more", 1, true), "27 callers: every one drawn")
+  eq(every.lines[#every.lines], "j/k/h/l move · Enter go · BS back · c centre · r reload · q close · ? keys", "the tab's key line has no m")
+  local footer = G.view_kind.render({ graph = { center = item("centre"), callers = callers } }, 120, "paper").footer
+  ok(not vim.iter(footer):any(function(p) return vim.tbl_contains(p.ids, "callgraph.more") end), "… nor the pop-out's")
+  eq(require("desk.actions").get("callgraph.more"), nil, "no m action")
 end
 
 do
@@ -1037,10 +1007,10 @@ do
     { '/w/q.cpp', 30, 3, 'Callee, depth 1 · grow · q.cpp:30' } },
     'gl: the centre, then each side level by level, each function once at its nearest depth')
   eq(missing, 0, '… none left out')
-  local flat = { center = at('drain', 'd.cpp', 5), callers = { flush }, hidden = { callers = { push, { name = 'nowhere' } } } }
+  local flat = { center = at('drain', 'd.cpp', 5), callers = { flush, push, { name = 'nowhere' } } }
   items, missing = G.loclist_items(flat)
   eq({ #items, items[3] and items[3].text, missing }, { 3, 'Caller, depth 1 · push · q.cpp:10', 1 },
-    'a graph of one level: what "+N more" left out is listed too; a box with no file is counted, not listed')
+    'a graph of one level: every caller listed; a box with no file is counted, not listed')
   -- Into a code window's location list; the quickfix list (the build's errors) kept.
   local code = vim.fn.tempname() .. '.c'
   vim.fn.writefile({ 'int x;' }, code)

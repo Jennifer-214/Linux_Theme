@@ -276,15 +276,15 @@ local _, l = line_with(drawn.lines, "│ lua")
 eq(Map.item_at(drawn, lua_row, l:find("lua", 1, true)).target, { kind = "module", module = "lua" }, "a box is a hit with where Enter goes")
 local many = { ok = true, modules = {}, edges = {} }
 for i = 1, 70 do many.modules[i] = { name = string.format("m%02d", i), files = 1, functions = 1, types = 0 } end
-ok(line_with(Map.layout(Map.level_modules(many), 100, false).lines, "+10 more · m shows them"), "past 60 boxes on a level: +N more names the key")
+-- Every box and every call drawn, the page scrolls (2026-11-19, her "show the entire thing at once? and just be
+-- scrollable?"): no "+N more", no key to show the rest.
 for i=1,15 do many.edges[i] = { from = "m01", to = ("m%02d"):format(i+1), count = 1 } end
-ok(line_with(Map.layout(Map.level_modules(many), 100, false).lines, "+3 more · m shows them"),
-  "show more advertises omitted connections between parts")
-local expanded_modules = Map.layout(Map.level_modules(many, true), 100, false)
-ok(line_with(expanded_modules.lines, "│ m70") and line_with(expanded_modules.lines, "m01 → m16"),
-  "show more reveals every loaded part and connection")
-ok(line_with(Map.layout(Map.level_modules(many), 100, true).lines, "+10 MORE · m SHOWS THEM"),
-  "retro preserves the case of m in the show-more prompt")
+for _, retro_style in ipairs({ false, true }) do
+  local every = Map.layout(Map.level_modules(many), 100, retro_style)
+  ok(line_with(every.lines, "│ m70") and line_with(every.lines, "│ m61") and line_with(every.lines, "m01 → m16"),
+    "seventy parts and fifteen calls between them: every one drawn (" .. (retro_style and "retro" or "paper") .. ")")
+  ok(not vim.iter(every.lines):any(function(l) return l:lower():find("more", 1, true) end), "… and nothing says more")
+end
 local retro = Map.layout(page, 70, true)
 ok(line_with(retro.lines, "┌") and not line_with(retro.lines, "╭") and line_with(retro.lines, "CALLS BETWEEN PARTS"), "retro: code page 437 boxes and capitals")
 -- The zoom on a row of its own under the header (2026-11-19, her "space the labels out": the rail's ALL/DIR/SRC/CLS sat
@@ -338,10 +338,9 @@ for i = 1, 40 do
 end
 local crowded_ok, crowded = pcall(function() return Map.layout(Map.level_nodes(crowd, "lua", "lua/mod.lua"), 120, false) end)
 ok(crowded_ok, "forty callers of mixed weights lay out: " .. tostring(not crowded_ok and crowded or ""))
-ok(crowded_ok and line_with(crowded.lines, "called from · 41") and line_with(crowded.lines, "+17 more"), "at most 24 on a side, the rest counted")
-local all_sides = Map.layout(Map.level_nodes(crowd, "lua", "lua/mod.lua", nil, true), 120, false)
-ok(line_with(all_sides.lines, "│ caller40") and not line_with(all_sides.lines, "+17 more"),
-  "show more reveals omitted callers on a file page")
+local drawn_callers = crowded_ok and #vim.tbl_filter(function(b) return tostring(b.item and b.item.name or ""):find("^caller%d") end, crowded.boxes) or 0
+ok(crowded_ok and line_with(crowded.lines, "called from · 41") and drawn_callers == 40 and not line_with(crowded.lines, "more"),
+  "forty-one callers on a side: every one drawn (" .. drawn_callers .. " of the 40 callerNN)")
 local reach = { ok = true, q = "reach", depth = 2, from = contents.nodes[5],
   nodes = { vim.tbl_extend("force", contents.nodes[5], { depth = 0 }), vim.tbl_extend("force", contents.nodes[1], { depth = 1 }), vim.tbl_extend("force", contents.nodes[2], { depth = 2 }) },
   steps = { { from = "lua/other.lua::use", to = "lua/mod.lua::M.alpha", depth = 1, mark = "follow" },
@@ -771,7 +770,7 @@ do
   vim.fn.mkdir(root, "p")
   vim.fn.writefile({ "void a() {", "  if (!submit(o)) retry();", "  submit(p);", "}" }, root .. "/a.cpp")
   local page = Map.layout(Map.level_query({ ok = true, q = "calls-into", to = { id = "o.cpp::submit", label = "Mgr::submit" },
-    callers = { { node = { id = "a.cpp::a", label = "a", file = "a.cpp", line = 1 }, sites = { { line = 2 }, { line = 3 } } } } }, nil, { root = root }), 110, false)
+    callers = { { node = { id = "a.cpp::a", label = "a", file = "a.cpp", line = 1 }, sites = { { line = 2 }, { line = 3 } } } } }, { root = root }), 110, false)
   local text = table.concat(page.lines, "\n")
   ok(text:find("where `Mgr::submit`'s result goes · 2 calls", 1, true) or text:find("where Mgr::submit's result goes · 2 calls", 1, true), "the page: how many calls")
   ok(text:find("1 checked · 1 discarded (read from each call's line)", 1, true) and text:find("discarded  a  a.cpp:3  submit(p);", 1, true), "… what each does with it, the line shown")
@@ -821,7 +820,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "gP", "m", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "gP", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -953,15 +952,8 @@ do
   local saved = view.cache.modules
   view.cache.modules = vim.deepcopy(many)
   Map.render(view)
-  cursor_on("m05")
-  local before = #asked
-  ok(line_with(view.drawn.lines, "m show more"), "the map footer advertises m when boxes are left out")
-  press("m")
-  ok(line_with(view.drawn.lines, "│ m70") and not line_with(view.drawn.lines, "more · m"), "m reveals the rest of the parts")
-  local c = api.nvim_win_get_cursor(view.win)
-  local held = Map.item_at(view.drawn, c[1], c[2])
-  eq({ held and held.name, #asked }, { "m05", before }, "expanding keeps selection and uses the loaded answer")
-  view.cache.modules, view.stack[#view.stack].all = saved, nil
+  ok(line_with(view.drawn.lines, "│ m70") and not line_with(view.drawn.lines, "show more"), "the map's tab draws all seventy parts, its key line no m")
+  view.cache.modules = saved
   Map.render(view)
 end
 
@@ -1649,8 +1641,8 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.avoid", "map.callers", "map.centre", "map.changes", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.in-binary", "map.include", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up", "map.why" },
-  "the pop-out can show more and retains its existing navigation keys")
+eq(remote_ids, { "map.avoid", "map.callers", "map.centre", "map.changes", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.in-binary", "map.include", "map.left", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up", "map.why" },
+  "the pop-out keeps its navigation keys (no m: nothing is left out)")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do
   local real_P, real_dw = package.loaded["desk.popout"], Map.desk_work
@@ -1960,12 +1952,8 @@ end
 do
   local stack, cache = pv.stack, pv.cache
   pv.stack, pv.cache = { { kind = "modules" } }, { modules = many }
-  local partial = shown()
-  local item = item_named(partial, "m05")
-  ok(item and not item_named(partial, "m70"), "the pop-out initially shows a bounded preview")
-  eq(act("map.more", item), { true }, "m is available from the pop-out")
-  ok(item_named(shown(), "m70") and not pv.has_more, "the pop-out shows the rest after m")
-  eq(pv.stack[1].selected, item.key, "the pop-out keeps the selected item while expanding")
+  local every = shown()
+  ok(item_named(every, "m05") and item_named(every, "m70"), "the pop-out draws all seventy parts too")
   pv.stack, pv.cache, pv.select = stack, cache, nil
   shown()
 end

@@ -374,9 +374,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   every box, as `s` does in code (flash.nvim); typing one selects that box. For C and C++, `gs` opens the function in symdeps when that
   plugin is installed (every use by role); without it the line reads "requires symdeps".
 - **Call depth**. `+` expands the selected side of the graph, and `-` collapses it or cancels the level being read.
-  From the centre, both keys act on the callee side. The gauge shows the depth of the selected box, and `m` reveals
-  functions past the first 24 on each level: their line says "+N more · m shows them", and the key line lists `m` while
-  any are left out. The language server's first level stays; the built project map adds the level under the last one
+  From the centre, both keys act on the callee side. The gauge shows the depth of the selected box. Every function on
+  a level is drawn, however many: the graph scrolls. The language server's first level stays; the built project map adds the level under the last one
   shown when it can match the source location and has read every function of the checkout on that level, and the
   language server reads the level otherwise. The tab, panel, and pop-out share these controls.
 - **Live panel**: `Space co` (`:CallGraphPanel`) opens a narrow split on the right that follows the cursor. It redraws
@@ -385,8 +384,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   Enter goes to the selected one; `q` or closing the last window beside it closes it. `p` pins it: it keeps the graph
   it shows (its first line reads `PINNED`) while the cursor goes elsewhere, Enter goes there without re-centring it,
   and saving that graph's file reads it again. `p` again follows the cursor from where it is. `c` centres it on the
-  selected box and pins it there, as in the pop-out; `r` reads it again, `m` draws what "+N more" left out and `gs`
-  shows the selected function in symdeps.
+  selected box and pins it there, as in the pop-out; `r` reads it again and `gs` shows the selected function in
+  symdeps.
 - **The pop-out**: with a second monitor, `Space Space` → views → "Pop out the call graph" opens the live graph in a
   window of its own (kitty, class `desk-popout`): it opens without taking the keyboard, at the side of the screen, and
   moves, tiled, to the workspace showing on the other screen (the first one `~/.config/foxml/monitor-layout.conf` lists
@@ -458,13 +457,13 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   and classes. Callers sit above what they call. Enter zooms in, and on a function goes to its code; Backspace (or
   `-`) zooms out, and at the top goes back to the code with the map left open; `q` closes. One tab per checkout:
   `Space cm` again brings it back as it was (one in the pop-out comes back from there). `?` lists every key: they are
-  rows of the action registry, as the call graph's are, and so is its keybinds table. A level draws at most 60 boxes (24 on each side) and says "+N more" for
-  the rest. Without desk-work the page opens and says "requires desk-work"; before the first build, it says
+  rows of the action registry, as the call graph's are, and so is its keybinds table. A level draws every box and every call, however many: the page
+  scrolls. Without desk-work the page opens and says "requires desk-work"; before the first build, it says
   "no map built yet · R builds it". Where no reader can build one (a folder that is not a git checkout, and no binary
   given) it says what each reader needs instead, and `R` is greyed with that reason.
 - **Queries**: `D` what a function reaches, down the calls (a count before the key sets the depth; 3 without one),
   `U` what calls it, up the calls, transitively, `P` the ways from one function to another (shortest first, at most
-  20). Where the map says `+N more`, `m` shows the remaining boxes and connections from the loaded answer.
+  20).
   `M` picks a part of the checkout from a menu (`/` filters it by name). `gs` on a C or C++ function shows it in
   symdeps' card, as in the call graph (requires symdeps). `t` traces through the function: one lane up its callers to where it
   starts and down its callees to where it ends (at most 16 calls each way), each step with its parameters (in, or
@@ -486,7 +485,7 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   row, so a map asked for there opens there). There it is the same map: `Enter` zooms in,
   or goes to a function in the editor while the keyboard stays in the pop-out. `-` takes a level off a callers or
   reach page of more than one, and otherwise zooms out.
-  `m` shows the rest of the loaded boxes and connections here too. `D` and `U` ask about the
+  `D` and `U` ask about the
   selected function, `c` shows its call graph there (`Ctrl+o` comes back to the map), `P` asks only where to; `r` reads
   it again, `R` rebuilds. `Ctrl+o` and Backspace go back through its zooms, answers and
   the code spots Enter went to; its name in the pop-out's header is marked when an answer or a rebuild lands behind

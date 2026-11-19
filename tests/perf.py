@@ -204,7 +204,7 @@ end
 local out = {}
 -- a wide graph: three levels of 40 functions each, every one linked to two above it
 local function at(name, line) return { name = name, detail = 'f' .. line .. '.cpp:' .. line, uri = 'file:///w/f' .. line .. '.cpp', range = { start = { line = line, character = 0 } } } end
-local g = { center = at('Engine::tick', 1), layers = { callees = {} }, all_layers = true }
+local g = { center = at('Engine::tick', 1), layers = { callees = {} } }
 for d = 1, 3 do
   local tier = {}
   for k = 1, 40 do tier[k] = at(('Level%d::fn_%02d(const Order&)'):format(d, k), d * 100 + k) end
@@ -236,7 +236,16 @@ for k = 1, 1500 do
   msteps[#msteps + 1] = { from = k <= 500 and 'r' or ('n' .. (k - 500)), to = 'n' .. k, depth = (k % 3) + 1, mark = 'follow' }
 end
 local reach = { ok = true, q = 'reach', from = nodes[1], depth = 3, nodes = nodes, steps = msteps }
-out.map_reach = median(function() Map.layout(Map.level_query(reach, true), 200, true) end, 10)
+out.map_reach = median(function() Map.layout(Map.level_query(reach), 200, true) end, 10)
+-- the map draws every box (2026-11-19, no "+N more"): a file of 1000 functions in a chain, 1000 callers from elsewhere
+local big = { ok = true, q = 'module', module = 'eng', files = { { file = 'eng/f.c', functions = 1000, types = 0 } }, nodes = {}, edges = {}, outside = {} }
+for k = 1, 1000 do
+  big.nodes[k] = { id = 'eng/f.c::f' .. k, label = 'f' .. k, file = 'eng/f.c', line = k, kind = 'function', module = 'eng' }
+  if k > 1 then big.edges[#big.edges + 1] = { from = 'eng/f.c::f' .. (k - 1), to = 'eng/f.c::f' .. k, kind = 'call' } end
+  big.outside[k] = { id = 'o/c' .. k .. '.c::c' .. k, label = 'c' .. k, file = 'o/c' .. k .. '.c', line = 1, kind = 'function', module = 'o' }
+  big.edges[#big.edges + 1] = { from = 'o/c' .. k .. '.c::c' .. k, to = 'eng/f.c::f1', kind = 'call' }
+end
+out.map_all = median(function() Map.layout(Map.level_nodes(big, 'eng', 'eng/f.c'), 160, true) end, 5)
 -- the review's rows of a large changed C file: 300 functions, each changed
 local left, right = {}, {}
 for k = 1, 300 do
@@ -283,6 +292,7 @@ def desk(env, base):
             {"name": "graph.select", "value": round(p["graph_select"], 2), "unit": "ms"},
             {"name": "trace.page", "value": round(p["trace_page"], 2), "unit": "ms"},
             {"name": "map.reach", "value": round(p["map_reach"], 1), "unit": "ms"},
+            {"name": "map.all", "value": round(p["map_all"], 1), "unit": "ms"},
             {"name": "review.symbols", "value": round(p["review_symbols"], 1), "unit": "ms"},
             {"name": "map.build", "value": round(p["map_build"], 0), "unit": "ms"},
             {"name": "map.rebuild", "value": round(p["map_rebuild"], 0), "unit": "ms"}]

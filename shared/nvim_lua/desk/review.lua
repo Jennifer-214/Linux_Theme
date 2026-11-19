@@ -1342,7 +1342,7 @@ local function ask_server(r, job, done)
     local indexing = G.busy(client)
     cancel = G.fetch(client, target, function(graph, err)
       if not graph then return answer('callers: ' .. tostring(err or 'the language server gave none')) end
-      local n = #(graph.callers or {}) + ((graph.more or {}).callers or 0)
+      local n = #(graph.callers or {})
       stamp.count = n
       answer((n == 1 and '1 caller' or n == 0 and 'no callers' or (n .. ' callers')) .. (indexing and ' (it is still indexing)' or ''))
     end)

@@ -304,7 +304,6 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `-` in a graph | Collapse the outermost level on the selected side, or cancel the level being read |
 | `I` in a graph | For a virtual function (an interface's): the overrides the language server knows, as possible implementations (one of them runs; the graph cannot say which); one opens, several are offered |
 | `>` in a graph | Read the selected box's own callees (or, above the centre, its callers) as the next level, the boxes beside it kept: one branch, where `+` reads the whole level |
-| `m` in a graph | Draw the callers and callees past the first 24 on each level (where it says "+N more") |
 | `r` in a graph | Ask the language server for the graph again (a graph that follows the cursor: for the function under it) |
 | `q` in the graph tab | Close the graph tab |
 | `gs` in a graph | The selected box's function in symdeps' card (C and C++), shown in the code — in the tab, the panel and the pop-out alike |
@@ -374,7 +373,6 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `gs` in the map | The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph |
 | `P` in the map | Every way from one function to another, shortest first |
 | `gP` in the map | On a ways page: the same two ends, every way that does not go through the selected function (can it be reached without it?); a "no" says what was searched |
-| `m` in the map | Show the boxes and calls left out of this page |
 | `M` in the map | Go to a part of the checkout, picked by name |
 | `z` in the map | The selected function left out of the map's answers (a logger, an allocator every path goes through), its calls with it, until `z` again or `Z`; the page says how many are left out |
 | `Z` in the map | Every function `z` left out of the answers back in; the page asked again |

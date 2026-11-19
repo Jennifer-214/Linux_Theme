@@ -10,6 +10,7 @@
   "graph.select": { "max": 8, "unit": "ms", "why": "j in a wide graph repaints the selection and dims the unrelated boxes: 1.5 ms here; a key must stay under a frame" },
   "trace.page": { "max": 40, "unit": "ms", "why": "a 16-step trace, 8 parameters each, every fold open: 10 ms here" },
   "map.reach": { "max": 150, "unit": "ms", "why": "what a function reaches, 1500 functions: 42 ms here" },
+  "map.all": { "max": 200, "unit": "ms", "why": "the map draws every box (2026-11-19, no +N more): a file of 1000 chained functions and 1000 callers from elsewhere, 55 ms here" },
   "review.symbols": { "max": 150, "unit": "ms", "why": "the review's rows of a file with 300 changed functions (owners, parameters, #if branches): 44 ms here" },
   "map.build": { "max": 3000, "unit": "ms", "why": "the syntax reader over 120 C files, nothing cached: 690 ms here" },
   "map.rebuild": { "max": 300, "unit": "ms", "why": "the same 120 files again, every one from the cache (C43): 75 ms here, a ninth of a first build" }
