@@ -619,6 +619,33 @@ SUMMARY: AddressSanitizer: heap-use-after-free /w/src/ring.cpp:41:12 in drain(Ri
   local row, l = line_with(page.lines, "drain  src/ring.cpp:41")
   eq(row and Map.item_at(page, row, l:find("drain", 1, true)).target.node.file, "src/ring.cpp", "… each frame with source a function to open")
   eq(#Map.sanitizer_stacks("no report here").stacks, 0, "text with no report: no stacks")
+  -- how they met (Codex's E16, 2026-11-19): the same file and line, the same function in its file on another line, or
+  -- only the same name (no source, or another file: maybe another overload)
+  eq(vim.tbl_map(function(st) return st.match end, report.stacks), { "function", "function", "function" }, "tick and main: the same function, another line")
+  ok(text:find("where the stacks meet · the same function, another line", 1, true), "… said\n" .. text)
+  local two = Map.sanitizer_stacks([==[
+WARNING: ThreadSanitizer: data race (pid=1)
+  Write of size 8 at 0x7b04 by thread T1:
+    #0 push(Queue&) /w/src/q.cpp:20:5 (app+0x4c1234)
+    #1 worker(void*) /w/src/run.cpp:40:3
+
+  Previous read of size 8 at 0x7b04 by thread T2:
+    #0 pop(Queue&) /w/src/q.cpp:31:9 (app+0x4c1301)
+    #1 worker(void*) /w/src/run.cpp:40:3
+]==])
+  eq(vim.tbl_map(function(st) return #st.frames end, two.stacks), { 2, 2 }, "a race: two stacks, ThreadSanitizer's frames read (no 0x… in)")
+  eq({ two.stacks[1].frames[1].name, two.stacks[1].frames[1].path, two.stacks[1].frames[1].line }, { "push(Queue&)", "/w/src/q.cpp", 20 }, "… its function, file and line")
+  eq({ two.stacks[1].match, two.stacks[2].match }, { "line", "line" }, "the same worker line: the same line")
+  local named = Map.sanitizer_stacks([==[
+READ of size 4 at 0x6020 thread T0
+    #0 0x1 in step() /w/src/a.cpp:5:1
+
+freed by thread T0 here:
+    #0 0x2 in step() /w/src/b.cpp:9:1
+]==])
+  eq(named.stacks[1].match, "name", "step in a.cpp and step in b.cpp: only the same name")
+  local npage = table.concat(Map.layout(Map.level_sanitizer({ report = named }), 110, false).lines, "\n")
+  ok(npage:find("where the stacks meet · only the same name", 1, true), "… said\n" .. npage)
 end
 do
   -- A slowdown between two actual runs (Codex's #20): what was measured and how each run was made, then the commits

@@ -3456,6 +3456,8 @@ function M.sanitizer_stacks(text)
       out.stacks[#out.stacks + 1] = current
     else
       local name, where = line:match('^%s*#%d+%s+0x%x+%s+in%s+(.-)%s+(%S+)%s*$')
+      -- ThreadSanitizer's: no address, the file then (module+offset)
+      if not name then name, where = line:match('^%s*#%d+%s+(.-)%s+(%S+:%d+:?%d*)%s*%(?[^%s]*%)?%s*$') end
       if current and name then
         local path, l = where:match('^(.-):(%d+):%d+$')
         if not path then path, l = where:match('^(.-):(%d+)$') end
@@ -3466,15 +3468,24 @@ function M.sanitizer_stacks(text)
       end
     end
   end
-  -- where the stacks meet: each stack's first frame whose function another has too
+  -- where the stacks meet: each stack's first frame whose function another has too, and how (E16): the same file and
+  -- line ('line'), the same file on another line ('function'), or only the name ('name': no source, or another file)
   local function short(n) return (tostring(n):gsub('%b()', ''):match('([%w_~:]+)%s*$')) or n end
+  local rank = { name = 1, ['function'] = 2, line = 3 }
   for i, st in ipairs(out.stacks) do
     for k, f in ipairs(st.frames) do
-      local hit = false
+      local how
       for j, other in ipairs(out.stacks) do
-        if j ~= i then for _, g in ipairs(other.frames) do if short(g.name) == short(f.name) then hit = true end end end
+        if j ~= i then
+          for _, g in ipairs(other.frames) do
+            if short(g.name) == short(f.name) then
+              local this = (f.path and f.path == g.path) and (f.line == g.line and 'line' or 'function') or 'name'
+              if not how or rank[this] > rank[how] then how = this end
+            end
+          end
+        end
       end
-      if hit then st.shared = k; break end
+      if how then st.shared, st.match = k, how; break end
     end
   end
   return out
@@ -3495,7 +3506,8 @@ function M.level_sanitizer(level)
       local item = f.rel and node_item({ id = f.rel .. ':' .. tostring(f.line), label = f.name, file = f.rel, line = f.line }) or nil
       local here = st.shared == k
       rows[#rows + 1] = { { string.format('#%-2d ', k - 1), nil, nil, 'DeskMapDim' }, { (here and (mark .. ' ') or '') .. short(f.name), item, nil, here and 'DeskMapFocus' or nil },
-        { '  ' .. rel .. (f.line and (':' .. f.line) or '') .. (here and '  where the stacks meet' or ''), nil, nil, here and 'DeskMapFocus' or 'DeskMapDim' } }
+        { '  ' .. rel .. (f.line and (':' .. f.line) or '') .. (here and ('  where the stacks meet' .. (({ line = ' · the same line', ['function'] = ' · the same function, another line',
+          name = ' · only the same name' })[st.match] or '')) or ''), nil, nil, here and 'DeskMapFocus' or 'DeskMapDim' } }
     end
     sections[#sections + 1] = { block = rows }
   end
