@@ -818,6 +818,21 @@ do
     "1. `hot` — e.cpp:12", "2. `tick` — e.cpp:11 (the function asked about)", "   - hands off through tick ring (inferred from the code)", "3. `submit` — e.cpp:10", "",
     "Followed: `Tick.px` (matched by name on this route).", "", "The live caller checks it; replay drops it.", "" },
     "the question, the revision, each step with its place, the handoff relied on and how it was found, the field, her sentence")
+  -- Codex's E15 (2026-11-19): the revision the map read, not HEAD when copied; what has moved since, the map's stale
+  -- reason and what the answer left out, so the note can be read again tomorrow.
+  local function lines_of(at, answer)
+    return vim.split(Map.investigation_md(answer or routed, at, "", nil), "\n")
+  end
+  local function has(list, text) return vim.iter(list):any(function(l) return l == text end) end
+  local same = lines_of({ map = "abc1234", now = "abc1234" })
+  ok(same[3]:find("at `abc1234` (the revision the map read)", 1, true) and not vim.iter(same):any(function(l) return l:find("now at", 1, true) end),
+    "the map's revision, said as the map's; the checkout still there: nothing more")
+  local moved = lines_of({ map = "abc1234", now = "9c41d7e", dirty = true })
+  ok(has(moved, "The checkout is now at `9c41d7e`, with uncommitted edits: lines may have moved since."), "the checkout moved and edited since: said")
+  ok(has(lines_of({ map = "abc1234", now = "abc1234", dirty = true }), "The checkout has uncommitted edits since: lines may have moved."), "… edits alone: said")
+  ok(has(lines_of({ map = "abc1234", now = "9c41d7e", stale = "3 files changed since the build" }), "The map was stale: 3 files changed since the build."), "the map's stale reason")
+  local cut = vim.tbl_extend("force", vim.deepcopy(routed), { excluded = { "lua/log.lua::log", "alloc.c::xmalloc" } })
+  ok(has(lines_of({ map = "abc1234", now = "abc1234" }, cut), "Left out of this answer: `log` · `xmalloc` (`z` on the map)."), "what the answer left out")
 end
 do
   -- Findings on this path: only those inside the route's functions, each with its step.
@@ -1938,6 +1953,31 @@ do
   ok(vim.wait(1000, function() return asked[#asked]:find("--q flow --from e.cpp::drain", 1, true) ~= nil end), "T on a function: the whole trace through it")
   pv.stack, Map.desk_work, P.host.history = stack, inner, history
   pv.pinned = false
+end
+-- y on a trace (Codex's E15): the note names the revision the map read (its build), not HEAD when copied, and its
+-- stale reason.
+do
+  local stack, status, root, path = pv.stack, pv.status, pv.root, vim.env.PATH
+  vim.env.PATH = saved_path   -- git, for the copy's own HEAD and status (this section keeps PATH empty otherwise)
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  local function git(...) return vim.system({ "git", "-C", dir, ... }, { text = true }):wait() end
+  git("init", "-q")
+  vim.fn.writefile({ "x" }, dir .. "/e.cpp")
+  git("add", "e.cpp")
+  git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "e")
+  local now = vim.trim(git("rev-parse", "--short=7", "HEAD").stdout)
+  pv.root = dir
+  pv.stack = { { kind = "modules" }, { kind = "query", answer = trace_answer, args = { "--q", "trace", "--from", "e.cpp::tick" } } }
+  pv.status = { head = "0123456789abcdef0123", built = true, stale = true, stale_why = "2 files changed since the build" }
+  vim.fn.setreg('"', "")
+  eq(act("map.copy", nil), { true }, "y on a trace, from the pop-out")
+  local md = vim.fn.getreg('"')
+  ok(md:find("at `0123456` (the revision the map read)", 1, true), "y: the revision the map read, not HEAD: " .. md:sub(1, 300))
+  ok(md:find("The checkout is now at `" .. now .. "`: lines may have moved since.", 1, true), "… HEAD said as where the checkout is now")
+  ok(md:find("The map was stale: 2 files changed since the build.", 1, true), "… and its stale reason")
+  pv.stack, pv.status, pv.root, vim.env.PATH = stack, status, root, path
+  vim.fn.delete(dir, "rf")
 end
 -- A route she chose holds: e in the pop-out pins it; pinned, moving through its code selects the step there and asks
 -- nothing; saved, it comes back after a restart with its question, open folds and selected step.

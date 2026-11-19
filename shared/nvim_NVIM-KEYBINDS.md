@@ -371,7 +371,7 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `a` in the map | On a trace: this function hands its data on to the one you name (a queue or a callback the map missed), so the trace goes on through it |
 | `F` in the map | On a trace: the findings of the checkout's tools (desk-work's, docs/desk-tools.md) that fall inside the route's functions, each with its tool; `Enter` opens its line |
 | `K` in the map | On a function: the test commands desk-work has seen touch its file, each with why it is suggested and whether its result is stale; one chosen runs on the saved files |
-| `y` in the map | On a trace: its question, the checkout's revision, each step with its file:line, the handoffs it relies on and a sentence of yours, as Markdown for a review, an issue or the notebook |
+| `y` in the map | On a trace: its question, the revision the map read (and what has moved since, why it was stale, what was left out), each step with its file:line, the handoffs it relies on and a sentence of yours, as Markdown for a review, an issue or the notebook |
 | `gs` in the map | The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph |
 | `P` in the map | Every way from one function to another, shortest first |
 | `gP` in the map | On a ways page: the same two ends, every way that does not go through the selected function (can it be reached without it?); a "no" says what was searched |

@@ -3533,9 +3533,13 @@ function M.level_findings(level)
   return { crumbs = { 'findings' }, sections = sections }
 end
 
--- A trace as a short note to hand to another person (y on a trace): the question, the checkout's revision, the steps
+-- A trace as a short note to hand to another person (y on a trace): the question, the revision the map read, the steps
 -- with their file:line, the handoffs it relies on (inferred or hers), the field followed, and her sentence. Pure.
-function M.investigation_md(answer, revision, sentence, field)
+-- at: { map = the map's commit, now = HEAD when copied, dirty = edits in the checkout, stale = why the map was stale }
+-- (Codex's E15, 2026-11-19: it named HEAD when copied, not what the map had read), or a revision alone.
+function M.investigation_md(answer, at, sentence, field)
+  if type(at) ~= 'table' then at = { map = at } end
+  local revision = at.map
   local steps, calls = answer.steps or {}, answer.calls or {}
   local focus
   for _, st in ipairs(steps) do if st.id == answer.focus then focus = st end end
@@ -3543,9 +3547,22 @@ function M.investigation_md(answer, revision, sentence, field)
   if #steps > 1 then
     out[#out + 1] = ('A possible path from `%s` (%s) to `%s` (%s), %d functions, at %s.'):format(steps[1].label,
       answer.start and 'chosen' or 'the farthest start the map found', steps[#steps].label, answer.to and 'chosen' or 'where the calls end',
-      #steps, revision and ('`' .. revision .. '`') or 'an unknown revision')
+      #steps, revision and ('`' .. revision .. '`' .. (at.now and ' (the revision the map read)' or '')) or 'an unknown revision')
     out[#out + 1] = ''
   end
+  -- what a reader tomorrow needs to see the same route: what moved since, why the map was stale, what was left out
+  local notes = {}
+  if at.now and revision and at.now ~= revision then
+    notes[#notes + 1] = 'The checkout is now at `' .. at.now .. '`' .. (at.dirty and ', with uncommitted edits' or '') .. ': lines may have moved since.'
+  elseif at.dirty then
+    notes[#notes + 1] = 'The checkout has uncommitted edits since: lines may have moved.'
+  end
+  if at.stale then notes[#notes + 1] = 'The map was stale: ' .. tostring(at.stale):gsub('%.$', '') .. '.' end
+  if type(answer.excluded) == 'table' and #answer.excluded > 0 then
+    notes[#notes + 1] = 'Left out of this answer: ' .. table.concat(vim.tbl_map(function(id)
+      return '`' .. (tostring(id):match('::(.+)$') or tostring(id)) .. '`' end, answer.excluded), ' · ') .. ' (`z` on the map).'
+  end
+  if #notes > 0 then vim.list_extend(out, notes); out[#out + 1] = '' end
   for k, st in ipairs(steps) do
     local at = st.file and (st.file .. (st.line and (':' .. st.line) or '')) or 'no source'
     out[#out + 1] = ('%d. `%s` — %s%s'):format(k, st.label, at, st.id == answer.focus and ' (the function asked about)' or '')
@@ -3564,11 +3581,19 @@ local function sh_ok(root) return type(root) == 'string' and root ~= '' and vim.
 local function copy_investigation(view, ctx)
   local top = view.stack[#view.stack]
   if not (top and top.answer and top.answer.q == 'trace') then return tell('Open a trace first (`t` on a function).') end
-  local out = {}
-  local revision = sh_ok(view.root) and vim.trim(vim.fn.system({ 'git', '-C', view.root, 'rev-parse', '--short', 'HEAD' })) or nil
-  if vim.v.shell_error ~= 0 then revision = nil end
+  -- the revision the map read (its build), and what has moved in the checkout since
+  local s = view.status or {}
+  local at = { map = type(s.head) == 'string' and s.head ~= '' and s.head:sub(1, 7) or nil,
+    stale = s.stale and ((s.stale_why or '') ~= '' and s.stale_why or 'built at an older commit') or nil }
+  if sh_ok(view.root) then
+    local head = vim.system({ 'git', '-C', view.root, 'rev-parse', '--short=7', 'HEAD' }, { text = true }):wait()
+    if head.code == 0 then at.now = vim.trim(head.stdout) end
+    local dirty = vim.system({ 'git', '--no-optional-locks', '-C', view.root, 'status', '--porcelain', '--untracked-files=no' }, { text = true }):wait()
+    at.dirty = dirty.code == 0 and vim.trim(dirty.stdout) ~= '' or nil
+  end
+  at.map = at.map or at.now
   local function go(sentence)
-    local md = M.investigation_md(top.answer, revision, sentence, top.field)
+    local md = M.investigation_md(top.answer, at, sentence, top.field)
     vim.fn.setreg('"', md)
     if vim.fn.has('clipboard') == 1 then pcall(vim.fn.setreg, '+', md) end
     tell('The investigation is copied as Markdown (' .. #vim.split(md, '\n') - 1 .. ' lines).')
@@ -3820,7 +3845,7 @@ local ROWS = actions.add({
       require('desk.work').suggested_tests(view.root .. '/' .. n.file)
     end, needs_function, THERE),
   row('copy', 'y', 'Copy this investigation as Markdown',
-    'On a trace: its question, the checkout\'s revision, each step with its file:line, the handoffs it relies on and a sentence of yours, as Markdown for a review, an issue or the notebook',
+    'On a trace: its question, the revision the map read (and what has moved since, why it was stale, what was left out), each step with its file:line, the handoffs it relies on and a sentence of yours, as Markdown for a review, an issue or the notebook',
     copy_investigation, needs_trace, THERE),
   row('symdeps', 'gs', 'This function in symdeps', "The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph",
     in_symdeps, needs_c_function, ON_IT),
