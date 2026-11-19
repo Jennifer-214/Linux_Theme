@@ -2129,6 +2129,19 @@ function M.mark_partner(view)
       { virt_text = { { ' ◀ ' .. tostring(view.partner or ''):gsub('^following ← ', 'selected in '), 'DeskCallGraphKey' } }, virt_text_pos = 'eol', priority = 200 })
   end
 end
+-- The keyboard came here (true) or went elsewhere: the title filled or not, the selection full or dimmed.
+local away_ns = api.nvim_create_namespace('desk_popout_away')
+M.away_ns = away_ns
+function M.client_focus(here)
+  C.focused = here
+  if next(api.nvim_get_hl(away_ns, { name = 'DeskCallGraphSelected' })) == nil then
+    api.nvim_set_hl(away_ns, 'DeskCallGraphSelected', graphs().retro() and { underline = true, bold = true } or { link = 'CursorLine' })
+  end
+  for _, win in ipairs(api.nvim_list_wins()) do
+    if api.nvim_win_get_config(win).relative == '' then pcall(api.nvim_win_set_hl_ns, win, here and 0 or away_ns) end
+  end
+  vim.cmd('redrawtabline')
+end
 local function tabline()
   local retro = graphs().retro()
   local said, current, out = actions.voice(retro), api.nvim_get_current_tabpage(), {}
@@ -2149,7 +2162,9 @@ local function tabline()
     elseif view and view.follows then text = text .. ' ' .. (retro and '»' or '↻') end
     if view and view.partner then text = text .. ' · ' .. said(view.partner) end
     if view and view.news then text = text .. ' ' .. (retro and '*' or '✱') end
-    out[#out + 1] = '%' .. n .. 'T' .. (tab == current and '%#DeskPopoutTabSel#' or '%#DeskPopoutTab#') .. escape(text .. ' ')
+    -- filled only where the keyboard is (Codex's #7): in a pop-out without it, its tab reads as any other
+    local filled = tab == current and C.focused ~= false
+    out[#out + 1] = '%' .. n .. 'T' .. (filled and '%#DeskPopoutTabSel#' or '%#DeskPopoutTab#') .. escape(text .. ' ')
   end
   local view = shown()
   local next_key = view and view.displaced and view.displaced['popout.next-view']
@@ -2908,6 +2923,10 @@ function M.client()
     end
     vim.cmd('redrawtabline')
   end })
+  -- Focus, selection, origin and pin each one look (Codex's #7): the filled title is where typing goes; in a pop-out
+  -- without the keyboard the selection is drawn dimmer (its windows in a highlight namespace of their own).
+  C.focused = true
+  api.nvim_create_autocmd({ 'FocusGained', 'FocusLost' }, { group = group, callback = function(a) M.client_focus(a.event == 'FocusGained') end })
   api.nvim_create_autocmd('WinScrolled', { group = group, callback = function(a)
     local view = shown()
     if view and tonumber(a.match) == view.win then graphs().gauge_edges(view.copy) end

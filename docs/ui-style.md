@@ -23,6 +23,17 @@ adds to a base that works in any project.
 A feature that is missing says what it needs ("requires symdeps", "requires API setup"); it never errors and never
 disappears. `tests/test_nvim_review.py` runs the review in a bare project to hold this.
 
+## Four marks, four jobs
+
+A still screenshot of two pop-outs and the editor must say all four (Codex's #7, 2026-11-18):
+
+- **Focus: where typing goes.** The filled title (the pop-out's current tab). A pop-out without the keyboard draws
+  its tab like the others.
+- **Selection: what the next key acts on.** The filled row or box. In a pop-out without the keyboard it is drawn
+  dimmer (underlined in retro), so it never reads as focus.
+- **Origin: what a graph is about.** The double frame round its centre, never anything else.
+- **Pin: whether it follows.** The word `PINNED` in the header (`↻` / `»` while it follows), never a colour.
+
 ## A panel or menu
 
 - **Title line**: the name on the left, the count or mode on the right (`Review                1 of 3 · new`).

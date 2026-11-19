@@ -531,6 +531,16 @@ do
   vim.wait(300, function() return false end)
 end
 
+-- ─── focus and selection each one look (Codex's #7): the keyboard elsewhere, the title unfilled, the selection dimmer
+pop("vim.api.nvim_exec_autocmds('FocusLost', {})")
+eq(pop([[local P = require('desk.popout'); return { P.tabline():find('%#DeskPopoutTabSel#', 1, true) ~= nil,
+  vim.api.nvim_get_hl_ns({ winid = vim.api.nvim_get_current_win() }) == P.away_ns }]]), { false, true },
+  'the keyboard elsewhere: no tab filled, the window drawn in the dimmer namespace')
+pop("vim.api.nvim_exec_autocmds('FocusGained', {})")
+eq(pop([[local P = require('desk.popout'); return { P.tabline():find('%#DeskPopoutTabSel#', 1, true) ~= nil,
+  vim.api.nvim_get_hl_ns({ winid = vim.api.nvim_get_current_win() }) == P.away_ns }]]), { true, false },
+  '… back: its tab filled, the selection full again')
+
 -- ─── a gp pair names its partner (Codex's #6): the graph's header says where its preview is ─────────────────────
 host("local P = require('desk.popout'); P.preview_pop = 2; P.redraw(P.view_of('graph'))")
 ok(wait(3000, function() return (state().header or ''):find('preview → 2', 1, true) end), 'previewed by pop-out 2: its header says so: ' .. tostring(state().header))
