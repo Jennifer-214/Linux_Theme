@@ -129,7 +129,9 @@ J map_syntax(const std::string& root, const J& stamp) {
     const auto request = map_dir(root) / "syntax-request.json", answer = map_dir(root) / "syntax-answer.json";
     std::error_code ec;
     fs::remove(answer, ec);
-    if (!atomic(request, J{{"version", 1}, {"root", root}, {"files", files}, {"limits", J{{"nodes", 50000}, {"edges", 200000}}}}.dump(), false)) {
+    // each file's reading kept by its text in syntax-cache/ (the reader drops what no build asks for again)
+    if (!atomic(request, J{{"version", 1}, {"root", root}, {"files", files}, {"limits", J{{"nodes", 50000}, {"edges", 200000}}},
+                           {"cache", (map_dir(root) / "syntax-cache").string()}}.dump(), false)) {
         result["why"] = "could not write the reader's request in " + map_dir(root).string(); return result;
     }
     A argv{"nvim", "--headless", "--clean", "-l", map_lua(), "--syntax-graph", request.string(), answer.string()};

@@ -365,7 +365,8 @@ function M.preproc_cond(node, src, defines)
   return { text = text:sub(1, 120), active = active }
 end
 
--- request: { root, files = { rel… }, limits = { nodes, edges } }. Returns the map's graph shape plus spans (each
+local CACHE_VERSION = '1'   -- changed whenever what a file's piece holds changes: every cached piece read again
+-- request: { root, files = { rel… }, limits = { nodes, edges }, cache = dir? }. Returns the map's graph shape plus spans (each
 -- unit's first and last line, for "what a commit touched"), notes and counts.
 function M.syntax_graph(request)
   local R = require('desk.review')
@@ -376,7 +377,7 @@ function M.syntax_graph(request)
   local units, calls, spans = {}, {}, vim.empty_dict()
   -- Handoffs (C and C++): pushes and pops by the object they act on, functions passed by name, function pointers set.
   local ops, passed, pointers = {}, {}, {}
-  local stats = { files = 0, parsed = 0, functions = 0, types = 0, calls = 0, edges = 0, ambiguous = 0, outside = 0 }
+  local stats = { files = 0, parsed = 0, cached = 0, functions = 0, types = 0, calls = 0, edges = 0, ambiguous = 0, outside = 0 }
   local no_parser, parsers, complete, why = {}, {}, true, nil
   local function has_parser(lang)
     if parsers[lang] == nil then parsers[lang] = vim.treesitter.language.add(lang) == true end
@@ -405,6 +406,27 @@ function M.syntax_graph(request)
     end
     return commands and commands[vim.fs.normalize(root .. '/' .. rel)] or nil
   end
+  local cache_dir = type(request.cache) == 'string' and request.cache ~= '' and request.cache or nil
+  if cache_dir and vim.fn.isdirectory(cache_dir) == 0 then pcall(vim.fn.mkdir, cache_dir, 'p', tonumber('700', 8)) end
+  if cache_dir and vim.fn.isdirectory(cache_dir) == 0 then cache_dir = nil end
+  local used = {}
+  -- a cached file's units and the rest appended, its indexes made the build's
+  local function absorb(piece)
+    local base = #units
+    for _, u in ipairs(piece.units or {}) do
+      u.owner = u.owner and (u.owner + base) or nil
+      units[#units + 1] = u
+      stats[u.kind == 'type' and 'types' or 'functions'] = stats[u.kind == 'type' and 'types' or 'functions'] + 1
+    end
+    for id, span in pairs(piece.spans or {}) do spans[id] = span end
+    for _, c in ipairs(piece.calls or {}) do c.from = c.from + base; calls[#calls + 1] = c; stats.calls = stats.calls + 1 end
+    for _, o in ipairs(piece.ops or {}) do o.owner = o.owner + base; ops[#ops + 1] = o end
+    for _, o in ipairs(piece.passed or {}) do o.owner = o.owner + base; passed[#passed + 1] = o end
+    for field, list in pairs(piece.pointers or {}) do
+      pointers[field] = pointers[field] or {}
+      vim.list_extend(pointers[field], list)
+    end
+  end
   local function read_one(rel)
     if type(rel) ~= 'string' or rel == '' or rel:sub(1, 1) == '/' or ('/' .. rel .. '/'):find('/%.%./') then return end
     stats.files = stats.files + 1
@@ -417,11 +439,28 @@ function M.syntax_graph(request)
     end
     local src = read_file(root .. '/' .. rel)
     if not src or #src > 1024 * 1024 or src:find('\0', 1, true) then return end
+    -- A file read before, unchanged (its text, language and compile flags): its units, calls and handoffs from the
+    -- cache, and only the matching of names across files done again (Codex's #43: a rebuild in proportion to the edit,
+    -- with a clean rebuild's answer; a new overload elsewhere still makes this file's call ambiguous).
+    local key = cache_dir and vim.fn.sha256(table.concat({ CACHE_VERSION, rel, lang, vim.inspect(defines_for(rel) or {}), src }, '\0'))
+    if key then
+      used[key] = true
+      local hit = cache_dir and read_file(cache_dir .. '/' .. key .. '.json')
+      local okj, piece = pcall(vim.json.decode, hit or '', { luanil = { object = true, array = true } })
+      if okj and type(piece) == 'table' and piece.rel == rel and #units + #(piece.units or {}) <= max_nodes then
+        absorb(piece)
+        stats.parsed, stats.cached = stats.parsed + 1, stats.cached + 1
+        return
+      end
+    end
     local ok, parser = pcall(vim.treesitter.get_string_parser, src, lang)
     if not ok or not parser then return end
     local parsed, trees = pcall(parser.parse, parser)
     if not parsed or not trees or not trees[1] then return end
     stats.parsed = stats.parsed + 1
+    local base_units, base_calls, base_ops, base_passed = #units, #calls, #ops, #passed
+    local outer_pointers, was_complete = pointers, complete
+    local pointers = {}
     local sep, in_file = SEPARATOR[lang] or '.', {}
     local stack = { { trees[1]:root(), nil, {} } }
     while #stack > 0 do
@@ -531,8 +570,35 @@ function M.syntax_graph(request)
       for child in node:iter_children() do if child:named() then children[#children + 1] = child end end
       for i = #children, 1, -1 do stack[#stack + 1] = { children[i], owner, scope } end
     end
+    -- this file's pointers join the others; the file kept in the cache, its indexes its own (from 1)
+    for field, list in pairs(pointers) do
+      outer_pointers[field] = outer_pointers[field] or {}
+      vim.list_extend(outer_pointers[field], list)
+    end
+    if key and complete and was_complete then
+      local piece = { rel = rel, units = {}, calls = {}, ops = {}, passed = {}, pointers = pointers, spans = {} }
+      local function here(i) return i and (i - base_units) or nil end
+      for i = base_units + 1, #units do
+        local u = vim.deepcopy(units[i])
+        u.owner = here(u.owner)
+        for _, prm in ipairs(u.sig and u.sig.params or {}) do prm.seen_more = nil end
+        piece.units[#piece.units + 1] = u
+        piece.spans[u.id] = spans[u.id]
+      end
+      for i = base_calls + 1, #calls do local c = vim.deepcopy(calls[i]); c.from = here(c.from); piece.calls[#piece.calls + 1] = c end
+      for i = base_ops + 1, #ops do local o = vim.deepcopy(ops[i]); o.owner = here(o.owner); piece.ops[#piece.ops + 1] = o end
+      for i = base_passed + 1, #passed do local o = vim.deepcopy(passed[i]); o.owner = here(o.owner); piece.passed[#piece.passed + 1] = o end
+      pcall(vim.fn.writefile, { vim.json.encode(piece) }, cache_dir .. '/' .. key .. '.json')
+    end
   end
   for _, rel in ipairs(type(request.files) == 'table' and request.files or {}) do read_one(rel) end
+  -- cached files no build asked for again go
+  if cache_dir then
+    for name in vim.fs.dir(cache_dir) do
+      local k = name:match('^(%x+)%.json$')
+      if k and not used[k] then os.remove(cache_dir .. '/' .. name) end
+    end
+  end
 
   -- Calls to edges, by name, within the caller's language: a qualified call (M.beta, Queue::push) prefers the
   -- function of that name; self.x and this->x the caller's own class; then the caller's file, then its folder (a

@@ -210,6 +210,9 @@ class Map(unittest.TestCase):
     def test_a_rebuild_says_what_it_changed(self):
         self.build("--provider", "syntax")
         self.assertTrue(self.status()["changes"]["first"], "the first build: nothing to compare")
+        self.build("--provider", "syntax")
+        stats = self.provider(self.status(), "syntax")["stats"]
+        self.assertEqual((stats["cached"], stats["cached"] == stats["parsed"]), (stats["parsed"], True), "unchanged files: every one read from the cache")
         (self.repo / "csrc/prog.c").write_text(C.replace("return leaf(x) * 2;", "return leaf(x) * 2 + extra(x);") + "int extra(int x) { return x; }\n")
         self.build("--provider", "syntax")
         status = self.status()["changes"]

@@ -102,6 +102,35 @@ do
     { "#ifdef LINUX (on)", "#elif defined(MAC) (off)", "#if X > 1" }, "… said on its box; a condition the flags cannot settle, as written")
   vim.fn.delete(pp_root, "rf")
 end
+do
+  -- A rebuild in proportion to the edit (Codex's #43): each file's reading cached by its text, the names matched again
+  -- across every file; the answer a clean build's, also when a new overload elsewhere makes an untouched call ambiguous.
+  local cr = vim.fn.tempname()
+  vim.fn.mkdir(cr .. "/src", "p")
+  vim.fn.writefile({ "int feed(void) { return helper(1); }" }, cr .. "/src/a.c")
+  vim.fn.writefile({ "int helper(int x) { return x; }" }, cr .. "/src/b.c")
+  vim.fn.writefile({ "int other(void) { return 0; }" }, cr .. "/src/d.c")
+  vim.fn.writefile({ "local M = {}", "function M.go() return M.stop() end", "function M.stop() return 1 end", "return M" }, cr .. "/src/c.lua")
+  local files3, cache = { "src/a.c", "src/b.c", "src/c.lua", "src/d.c" }, cr .. "/cache"
+  local function shape(g) return { nodes = g.nodes, edges = g.edges, spans = g.spans } end
+  local clean = Map.syntax_graph({ root = cr, files = files3 })
+  local first = Map.syntax_graph({ root = cr, files = files3, cache = cache })
+  local second = Map.syntax_graph({ root = cr, files = files3, cache = cache })
+  eq({ first.stats.cached, second.stats.cached, #vim.fn.readdir(cache) }, { 0, 4, 4 }, "a second build of unchanged files: all four from the cache")
+  ok(vim.deep_equal(shape(second), shape(clean)), "… with a clean build's answer")
+  ok(vim.iter(second.edges):find(function(e) return e.from == "src/a.c::feed" and e.to == "src/b.c::helper" end), "feed calls helper (one of that name)")
+  -- a second helper in d.c: feed's call in the untouched a.c is ambiguous now
+  vim.fn.writefile({ "int other(void) { return 0; }", "int helper(int x) { return x + 1; }" }, cr .. "/src/d.c")
+  local after = Map.syntax_graph({ root = cr, files = files3, cache = cache })
+  local fresh = Map.syntax_graph({ root = cr, files = files3 })
+  eq(after.stats.cached, 3, "one file changed: only it read again")
+  ok(vim.deep_equal(shape(after), shape(fresh)) and after.stats.ambiguous == fresh.stats.ambiguous, "… the answer a clean rebuild's")
+  local feed_helper = vim.iter(after.edges):find(function(e) return e.from == "src/a.c::feed" and e.to:find("helper", 1, true) end)
+  ok(not feed_helper and (vim.iter(after.nodes):find(function(n) return n.id == "src/a.c::feed" end) or {}).ambiguous ~= nil,
+    "… feed's call to helper, in the file not read again, ambiguous now (said on feed)")
+  eq(#vim.fn.readdir(cache), 4, "the old reading of d.c left the cache")
+  vim.fn.delete(cr, "rf")
+end
 local by_label, ids = {}, {}
 for _, n in ipairs(graph.nodes) do by_label[n.label] = by_label[n.label] or n; ids[n.id] = n end
 local function edge(a, b, kind)
