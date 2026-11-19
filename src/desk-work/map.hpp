@@ -506,6 +506,23 @@ J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
     if (opts["--q"] == "handoffs") return map_handoff_review(root);
     auto doc = corrected_graph(root);
     if (!doc.is_object()) return refuse("No project map of this checkout yet; build one with desk-work map build --root " + root);
+    // --exclude ID\nID…: functions left out of this one question, as if the map did not have them (a logger, an
+    // allocator every path goes through): their calls with them. Said back as `excluded` (the ones the map had).
+    J excluded = J::array();
+    if (!opts["--exclude"].empty()) {
+        std::set<std::string> out_ids;
+        std::stringstream lines(opts["--exclude"]);
+        for (std::string id; std::getline(lines, id) && out_ids.size() < 64;) if (!id.empty()) out_ids.insert(id);
+        J kept = J::array(), edges = J::array();
+        for (const auto& n : desk_map::list(doc, "nodes")) {
+            if (n.is_object() && out_ids.count(desk_map::text(n, "id"))) excluded.push_back(desk_map::text(n, "id"));
+            else kept.push_back(n);
+        }
+        for (const auto& e : desk_map::list(doc, "edges"))
+            if (!(e.is_object() && (out_ids.count(desk_map::text(e, "from")) || out_ids.count(desk_map::text(e, "to"))))) edges.push_back(e);
+        doc["nodes"] = kept;
+        doc["edges"] = edges;
+    }
     const desk_map::Graph g(std::move(doc));
     const auto q = opts["--q"];
     const auto pick = [&](const std::string& name, const char* role, long& index) {
@@ -618,6 +635,7 @@ J map_query(const std::string& root, std::map<std::string, std::string>& opts) {
     J answered = J::array();
     for (const auto& p : desk_map::list(g.doc, "providers")) if (str(p, "state") == "ok") answered.push_back(str(p, "name"));
     out["providers"] = answered;
+    if (!excluded.empty()) out["excluded"] = excluded;
     return out;
 }
 

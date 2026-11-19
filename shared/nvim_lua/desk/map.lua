@@ -1548,6 +1548,16 @@ function M.trace_page(answer, folds, layouts, field)
 end
 
 function M.level_query(answer, all, level)
+  local page = M.level_query_plain(answer, all, level)
+  -- What this answer was asked without, said where the answer is read: one line, and the key that brings them back.
+  if type(answer.excluded) == 'table' and #answer.excluded > 0 and page and page.sections then
+    local names = vim.tbl_map(function(id) return tostring(id):match('::(.+)$') or tostring(id) end, answer.excluded)
+    table.insert(page.sections, 1, { parts = { { #names .. ' left out of this answer: ' .. table.concat(names, ' · ') }, { '  · Z brings them back', nil, true } },
+      group = 'DeskMapFocus' })
+  end
+  return page
+end
+function M.level_query_plain(answer, all, level)
   if answer.q == 'trace' then return M.trace_page(answer, level and level.folds, level and level.layouts, level and level.field) end
   local sections = {}
   if answer.q == 'handoffs' then
@@ -2304,6 +2314,10 @@ end
 query = function(view, args, from, again, quiet)
   local full = { 'map', 'query', '--root', view.root }
   vim.list_extend(full, args)
+  -- z: functions left out of the questions on this map (a logger, an allocator), until Z brings them back
+  if view.excluded and #view.excluded > 0 then
+    vim.list_extend(full, { '--exclude', table.concat(vim.tbl_map(function(x) return x.id end, view.excluded), '\n') })
+  end
   view.asked = (view.asked or 0) + 1
   local asked = view.asked
   M.desk_work(full, function(answer, out)
@@ -3033,6 +3047,28 @@ function M.follow_field(view, t, origin)
   end)
 end
 
+-- z on a function: left out of this map's questions (or back in, pressed again); the page asked again without it.
+-- Z: every one back. Kept with the map tab (view.excluded), not across a restart.
+function M.exclude(view, node)
+  view.excluded = view.excluded or {}
+  for i, x in ipairs(view.excluded) do
+    if x.id == node.id then
+      table.remove(view.excluded, i)
+      tell(tostring(node.label) .. ' is back in the answers.')
+      return reread(view)
+    end
+  end
+  if #view.excluded >= 32 then return tell('32 left out already: Z brings them back.') end
+  view.excluded[#view.excluded + 1] = { id = node.id, label = node.label }
+  tell(tostring(node.label) .. ' left out of the answers (' .. #view.excluded .. ') · z again or Z brings it back.')
+  reread(view)
+end
+function M.include_all(view)
+  local n = #(view.excluded or {})
+  view.excluded = {}
+  tell(n == 1 and 'The one left out is back.' or (n .. ' left out are back.'))
+  reread(view)
+end
 local function needs_function(ctx)
   local why = needs_map(ctx)
   if why ~= true or not ctx.view then return why end
@@ -3200,6 +3236,17 @@ local ROWS = actions.add({
     'Show the boxes and calls left out of this page', reveal,
     function(ctx) return (ctx.map and ctx.map.has_more) or 'nothing else on this page' end, THERE),
   row('module', 'M', 'A part of the checkout', 'Go to a part of the checkout, picked by name', part, needs_map, HERE),
+  row('exclude', 'z', 'Leave this function out of the answers',
+    'The selected function left out of the map\'s answers (a logger, an allocator every path goes through), its calls with it, until `z` again or `Z`; the page says how many are left out',
+    function(view, ctx)
+      local item = about_item(view, ctx)
+      local n = item and item.target and item.target.node
+      if not (n and n.id) then return tell('Put the cursor on a function first.') end
+      M.exclude(view, n)
+    end, needs_function, ON_IT),
+  row('include', 'Z', 'Bring back what was left out',
+    'Every function `z` left out of the answers back in; the page asked again', function(view) M.include_all(view) end,
+    function(ctx) return (ctx.map and ctx.map.excluded and #ctx.map.excluded > 0) or 'nothing is left out' end, THERE),
   row('read', 'r', 'Read the map again',
     "Read this page again, as `r` does in a call graph: desk-work's status and the level shown (a query's answer is asked again); `R` rebuilds the map",
     function(view) reread(view) end, needs_map, THERE),

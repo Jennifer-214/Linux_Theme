@@ -621,7 +621,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "m", "M", "z", "Z", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -849,6 +849,22 @@ ok(vim.wait(1000, function() return view.stack[depth].answer.depth == 3 end), "+
 press("-")
 ok(vim.wait(1000, function() return view.stack[depth].answer.depth == 2 end), "- reduces the walk depth in place")
 ok(line_with(view.drawn.lines, "+2"), "reach tiers have a signed gauge")
+-- z: a function left out of the map's answers until Z (Codex's C5); the page says so where the answer is read.
+do
+  local n0, notify = #asked, vim.notify
+  vim.notify = function() end
+  Map.exclude(view, { id = "lua/mod.lua::helper", label = "helper" })
+  ok(vim.wait(1000, function() return #asked >= n0 + 2 end), "z: the page asked again")
+  ok(asked[#asked]:find("--q reach --from lua/other.lua::use --depth 2", 1, true) and asked[#asked]:find("--exclude lua/mod.lua::helper", 1, true), "… the same question, without the function left out: " .. asked[#asked])
+  Map.exclude(view, { id = "csrc/prog.c::log", label = "log" })
+  ok(vim.wait(1000, function() return asked[#asked]:find("--exclude lua/mod.lua::helper\ncsrc/prog.c::log", 1, true) ~= nil end), "… two left out")
+  local n1 = #asked
+  Map.include_all(view)
+  ok(vim.wait(1000, function() return #asked >= n1 + 2 end) and not asked[#asked]:find("--exclude", 1, true), "Z: asked again with everything back")
+  vim.notify = notify
+  local said = Map.layout(Map.level_query({ ok = true, q = "reach", from = { id = "a", label = "a" }, nodes = {}, steps = {}, excluded = { "lua/log.lua::log", "c/alloc.c::alloc" } }), 100, false)
+  ok(line_with(said.lines, "2 left out of this answer: log · alloc  · Z brings them back"), "the page's first line: what was left out, and the key")
+end
 press("<BS>")
 ok(vim.wait(1000, function() return #view.stack == depth - 1 and line_with(view.drawn.lines, "│ M.alpha") end), "Backspace leaves the depth query")
 -- - on a page of one level zooms out, as on every page (review of 2026-11-17, C1: it said "Already showing the first
@@ -1404,7 +1420,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.centre", "map.copy", "map.down", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
+eq(remote_ids, { "map.callers", "map.centre", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.include", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
   "the pop-out can show more and retains its existing navigation keys")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do

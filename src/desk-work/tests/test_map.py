@@ -182,6 +182,18 @@ class Map(unittest.TestCase):
         self.assertEqual([(e["declared_in"].endswith(".desk/tools.json"), e["from"]["state"]) for e in theirs], [(True, "gone")])
 
     @unittest.skipUnless(NVIM, "nvim is not installed")
+    def test_exclude_leaves_functions_out_of_one_question(self):
+        self.build("--provider", "syntax")
+        labels = lambda answer: sorted(n["label"] for n in answer["nodes"] if n.get("depth", 0) > 0)
+        whole = self.query("--q", "reach", "--from", "main", "--depth", "3")
+        self.assertEqual(labels(whole), ["leaf", "middle"])
+        middle = next(n["id"] for n in whole["nodes"] if n["label"] == "middle")
+        cut = self.query("--q", "reach", "--from", "main", "--depth", "3", "--exclude", middle + "\nnot/there.c::x")
+        self.assertEqual((labels(cut), cut["excluded"]), ([], [middle]),
+                         "middle left out of this question: main reaches nothing (leaf only through it); only what the map had is said back")
+        self.assertNotIn("excluded", self.query("--q", "reach", "--from", "main", "--depth", "3"), "… and the next question has it back")
+
+    @unittest.skipUnless(NVIM, "nvim is not installed")
     def test_syntax_build_status_staleness_and_queries(self):
         status = self.build("--provider", "syntax")
         self.assertTrue(status["built"], status)
