@@ -388,6 +388,8 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `q` in the map | Close the project map |
 | `o` in the map | Move this map to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as this tab, as it was |
 | `j` / `k` in the map | The box below / above (the nearest one in that row) |
+| `gc` in the map | Each function on the page marked with whether one test run ran it ("ran 3×" or "not run"), from the run's recorded coverage; `]u` and `[u` go between the ones it did not reach |
+| `]u` / `[u` in the map | With a run's coverage on (`gc`): the next / previous function it did not run |
 | `gj` / `gk` in the map | Along a real call: to what the box calls / to what calls it, again for the next |
 | `h` / `l` in the map | The box to the left / right in the same row |
 | `?` in the map | The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list |

@@ -1188,6 +1188,49 @@ function M.layers(keys, edges)
   return tiers
 end
 
+--- A test run's coverage on a page (Codex's E5, 2026-11-19): each function box from a file the run covered says
+--- whether the run ran it, from its recorded functions (FN/FNDA: by its line, else by its name), "ran 3×" or "not run"
+--- (warn, and unrun for ]u); a file the run did not cover, nothing. Calls keep their style: lcov says which lines ran,
+--- never which caller brought it there. files: the run's coverage, { [rel] = { functions = { { name, line, count } } } }.
+function M.with_coverage(page, files)
+  for _, sec in ipairs(page.sections or {}) do
+    for _, item in ipairs(sec.boxes or {}) do
+      local node = item.target and item.target.node
+      local cov = node and node.file and files and files[node.file]
+      if cov then
+        local found
+        for _, f in ipairs(cov.functions or {}) do
+          if tonumber(f.line) == tonumber(node.line) then found = f; break end
+        end
+        if not found then
+          local tail = tostring(node.label or ''):match('([%w_~]+)$')
+          for _, f in ipairs(cov.functions or {}) do
+            if f.name == node.label or (tail and tostring(f.name):match('([%w_~]+)%s*%(?.-$') == tail) then found = f; break end
+          end
+        end
+        if found then
+          local count = tonumber(found.count) or 0
+          item.detail = tostring(item.detail or '') .. (count > 0 and (' · ran ' .. count .. '×') or ' · not run')
+          if count == 0 then item.warn, item.unrun = true, true end
+        end
+      end
+    end
+  end
+  return page
+end
+--- pure: from box `index`, the next (dir 1) or previous (-1) box the run did not reach, wrapping (itself when it is the
+--- only one); nil when none is marked.
+function M.next_unrun(boxes, index, dir)
+  local n = #boxes
+  if n == 0 then return nil end
+  index = index or 0
+  for step = 1, n do
+    local i = ((index - 1 + dir * step) % n) + 1
+    local b = boxes[i]
+    if b and b.item and b.item.unrun or (b and b.unrun) then return i end
+  end
+end
+
 --- Who calls whom on a page of layers (T1, 2026-11-19: the trader's whole trace drew 93 functions and 129 calls with one
 --- arrow between rows): each box its callees (down) and callers (up), with the call's line where the answer has one
 --- (down_sites, up_sites, as the call graph's), and near (both), so selecting one dims the rest (the call graph's
@@ -2408,6 +2451,10 @@ local function page_for(view, G)
   local top = view.stack[#view.stack]
   if page.crumbs and top.kind ~= 'query' then
     page.zoom = ({ modules = 1, files = 2, functions = 3, class = 4 })[top.kind]
+  end
+  if view.coverage and page.sections then
+    M.with_coverage(page, view.coverage.files)
+    table.insert(page.header, { G.said('coverage of ') .. tostring(view.coverage.name) .. G.said(' · ]u what it did not reach · gc off'), 'DeskMapDim' })
   end
   if page.crumbs then table.insert(page.header, { table.concat(page.crumbs, G.crumb), 'DeskMapDim' }) end
   table.insert(page.header, { '' })
@@ -4055,6 +4102,46 @@ local ROWS = actions.add({
     'Move this map to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as this tab, as it was',
     function(_, ctx) pop().show('map', ctx) end, function() return pop().can_pop() end, HERE),
   moving('down', 'j', 'The box below', nil, 'The box below / above (the nearest one in that row)'),
+  -- A test run's coverage on the page (E5): gc picks the run (or takes it off), ]u / [u go between what it did not reach
+  row('coverage', 'gc', "A test run's coverage on this page",
+    "Each function on the page marked with whether one test run ran it (\"ran 3×\" or \"not run\"), from the run's recorded coverage; `]u` and `[u` go between the ones it did not reach",
+    function(view, ctx)
+      if ctx.choice == 'off' then view.coverage = nil; return load(view) end
+      local got = vim.system({ 'desk-work', 'coverage', '--root', view.root, '--run', tostring(ctx.choice) }, { text = true, timeout = 20000 }):wait()
+      local ok, doc = pcall(vim.json.decode, got.stdout or '')
+      if got.code ~= 0 or not ok or type(doc) ~= 'table' or type(doc.files) ~= 'table' then return tell('That run kept no coverage.', vim.log.levels.WARN) end
+      local label = (doc.command ~= vim.NIL and doc.command) or tostring(ctx.choice)
+      view.coverage = { id = ctx.choice, name = (tostring(label):match('(%S+)%s*$') or label):gsub('^[\'"]', ''):gsub('[\'"]$', ''), files = doc.files }
+      load(view)
+    end, needs_map, { remote = true, input = { choices = function(ctx)
+      local view = ctx and ctx.map
+      local out = {}
+      if valid(view) and view.coverage then out[#out + 1] = { id = 'off', name = 'Take the coverage off' } end
+      local got = valid(view) and vim.system({ 'desk-work', 'jobs', '--root', view.root }, { text = true, timeout = 10000 }):wait()
+      local ok, runs = pcall(vim.json.decode, got and got.stdout or '')
+      for _, r in ipairs(ok and type(runs) == 'table' and runs or {}) do
+        if type(r) == 'table' and type(r.coverage) == 'table' and #out < 20 then
+          out[#out + 1] = { id = r.id, name = os.date('%m-%d %H:%M', r.ended or 0) .. '  ' .. tostring((r.title or '') ~= '' and r.title or r.command) }
+        end
+      end
+      return out
+    end } }),
+  { id = 'map.next-unrun', group = GROUP, name = 'The next box the run did not reach', key = ']u', on = 'map', menu = false, drawn = true,
+    about = 'With a run\'s coverage on the page (`gc`): the next function it did not run, wrapping', doc = 'With a run\'s coverage on (`gc`): the next / previous function it did not run',
+    run = function(ctx)
+      local sel = ctx.copy or (valid(ctx.map) and ctx.map.sel)
+      local j = sel and sel.drawn and M.next_unrun(sel.drawn.boxes, sel.index, 1)
+      if not j then return tell('Nothing on this page the run did not reach (or no run chosen: gc).') end
+      require('desk.callgraph').select(sel, j, true)
+    end },
+  { id = 'map.prev-unrun', group = GROUP, name = 'The previous box the run did not reach', key = '[u', on = 'map', menu = false, drawn = true, line = 'map.next-unrun',
+    about = 'With a run\'s coverage on the page (`gc`): the previous function it did not run, wrapping',
+    run = function(ctx)
+      local sel = ctx.copy or (valid(ctx.map) and ctx.map.sel)
+      local j = sel and sel.drawn and M.next_unrun(sel.drawn.boxes, sel.index, -1)
+      if not j then return tell('Nothing on this page the run did not reach (or no run chosen: gc).') end
+      require('desk.callgraph').select(sel, j, true)
+    end },
   -- gj / gk along a real call, as on the call graph (T1): the selected box's callees and callers, the call's line
   { id = 'map.along-down', group = GROUP, name = 'Along a call, to what it calls', key = 'gj', on = 'map', menu = false, drawn = true,
     about = 'To a function the selected box calls, however far down the page; again, the next one it calls (wrapping), or on down when it calls only one',
@@ -4146,7 +4233,7 @@ local function render_view(view, width, style)
     items[#items + 1] = { key = key, kind = 'box', line = p.line, name_col = p.name_col, x = p.x, w = p.w, spans = p.spans,
       centre = p.centre == true, gauge = p.gauge, gauge_band = p.gauge_band, gauge_col = p.gauge_col, name = tostring(p.item.name or ''),
       where = type(p.item.detail) == 'string' and p.item.detail ~= '' and p.item.detail or nil, ref = p.item,
-      near = p.near, down = p.down, up = p.up, down_sites = p.down_sites, up_sites = p.up_sites }
+      near = p.near, down = p.down, up = p.up, down_sites = p.down_sites, up_sites = p.up_sites, unrun = p.item.unrun == true or nil }
   end
   -- The key line says what the selected thing is and what its keys do there (the pop-out shows it while it is selected).
   for _, it in ipairs(items) do

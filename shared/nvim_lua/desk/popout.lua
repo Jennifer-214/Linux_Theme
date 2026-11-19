@@ -600,7 +600,7 @@ local function payload(view)
       keys = cut(item.keys, 300),
       near = plain_near(item.near),
       -- gj / gk's real calls (Codex's E7): the boxes it calls and that call it, and each call's place
-      down = plain_near(item.down), up = plain_near(item.up),
+      down = plain_near(item.down), up = plain_near(item.up), unrun = item.unrun == true or nil,
       down_sites = type(item.down_sites) == 'table' and vim.tbl_map(function(x) return cut(x, 120) or '' end, vim.list_slice(item.down_sites, 1, M.MAX_ITEMS)) or nil,
       up_sites = type(item.up_sites) == 'table' and vim.tbl_map(function(x) return cut(x, 120) or '' end, vim.list_slice(item.up_sites, 1, M.MAX_ITEMS)) or nil,
       zones = plain_zones(item.zones) }
@@ -2455,12 +2455,13 @@ local function valid_items(raw)
       strip = type(lines[1]) == 'string' and type(lines[2]) == 'string' and { lines[1]:sub(1, 400), lines[2]:sub(1, 400) } or nil,
       keys = type(item.keys) == 'string' and item.keys:sub(1, 300) or nil,
       near = valid_near(item.near),
-      down = valid_near(item.down), up = valid_near(item.up),
+      down = valid_near(item.down), up = valid_near(item.up), unrun = item.unrun == true or nil,
       down_sites = valid_sites(item.down_sites), up_sites = valid_sites(item.up_sites),
       zones = valid_zones(item.zones) }
   end
   return items
 end
+M._valid_items = valid_items -- what the pop-out keeps of a view's items, for tests
 local function valid_footer(raw)
   local out = {}
   for _, part in ipairs(type(raw) == 'table' and raw or {}) do

@@ -473,7 +473,11 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   by name, Enter goes to one. `e` on a trace goes down to a function you name instead, `S` up from one (a thread body: the live
   path rather than the farthest start). `T` is the whole trace: every way through the function in one picture, what
   leads to it above and what it leads to below, as boxes in layers by their calls, the lane `t` follows in double
-  frames; on a trace it keeps the start and end you chose with `S` and `e`. Each step is a card: what it returns, how many lines, and folds for its
+  frames; on a trace it keeps the start and end you chose with `S` and `e`. `gc` puts one test run's coverage on the
+  page (picked from the runs that kept it; `gc` again takes it off): each function says "ran 3×" or "not run", from the
+  run's recorded functions, and `]u` / `[u` go between the ones it did not reach, so on `T` you see where a test stops
+  following the path. A function in a file the run did not cover says nothing, and the calls keep their style: lcov
+  records which lines ran, not which caller led there. Each step is a card: what it returns, how many lines, and folds for its
   parameters (open) and its other callers and callees (Enter on a fold's header opens or closes it). From code, `Space c p` traces
   through the function at the cursor (in the pop-out's map when it shows one). C and C++ have signatures; other
   languages show the lane. `r` reads the page again where it is, as in a

@@ -447,6 +447,31 @@ do
   eq({ A_keys = require("desk.actions").key("map.along-down"), A_up = require("desk.actions").key("map.along-up") }, { A_keys = "gj", A_up = "gk" },
     "gj and gk on the map too")
 end
+do
+  -- A run's coverage on the page (Codex's E5, 2026-11-19): each function box says whether the run ran it, from the
+  -- run's recorded functions; a file the run did not cover says nothing; ]u goes to the next box it did not reach.
+  local function n(id, file, line) return { id = id, label = id, file = file, line = line, kind = "function", lane = true, at = 0 } end
+  local whole = { ok = true, q = "flow", focus = "F", nodes = { n("a", "f.cpp", 1), n("F", "f.cpp", 3), n("g", "f.cpp", 9), n("x", "other.cpp", 3) },
+    edges = { { from = "a", to = "F" }, { from = "a", to = "g" }, { from = "F", to = "x" } }, lane = { "a", "F", "x" } }
+  local files = { ["f.cpp"] = { lines = {}, functions = { { name = "a", line = 1, count = 4 }, { name = "F", line = 3, count = 2 }, { name = "g", line = 9, count = 0 } } } }
+  local page = Map.level_query(whole)
+  Map.with_coverage(page, files)
+  local detail = {}
+  for _, sec in ipairs(page.sections) do
+    for _, b in ipairs(sec.boxes or {}) do detail[b.target.node.id] = b.detail end
+  end
+  ok(detail.F:find("ran 2×", 1, true) and detail.a:find("ran 4×", 1, true), "functions the run ran: how often")
+  ok(detail.g:find("not run", 1, true), "… one it did not: said")
+  ok(not detail.x:find("ran", 1, true) and not detail.x:find("not run", 1, true), "… one in a file it did not cover: nothing (x is on line 3 as F is, in another file)")
+  local drawn = Map.layout(page, 100, false)
+  local idx = {}
+  for i, b in ipairs(drawn.boxes) do if b.item.target and b.item.target.node then idx[b.item.target.node.id] = i end end
+  eq(Map.next_unrun(drawn.boxes, idx.a, 1), idx.g, "]u from a: g, the one it did not reach")
+  eq(Map.next_unrun(drawn.boxes, idx.g, 1), idx.g, "… from g: g again (the only one; wrapping)")
+  eq(Map.next_unrun(Map.layout(Map.level_query(whole), 100, false).boxes, 1, 1), nil, "… no coverage on the page: nothing")
+  eq({ require("desk.actions").key("map.coverage"), require("desk.actions").key("map.next-unrun"), require("desk.actions").key("map.prev-unrun") },
+    { "gc", "]u", "[u" }, "gc picks a run, ]u and [u go between the boxes it did not reach")
+end
 local reach = { ok = true, q = "reach", depth = 2, from = contents.nodes[5],
   nodes = { vim.tbl_extend("force", contents.nodes[5], { depth = 0 }), vim.tbl_extend("force", contents.nodes[1], { depth = 1 }), vim.tbl_extend("force", contents.nodes[2], { depth = 2 }) },
   steps = { { from = "lua/other.lua::use", to = "lua/mod.lua::M.alpha", depth = 1, mark = "follow" },
@@ -1195,7 +1220,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "T", "x", "a", "F", "K", "y", "gs", "P", "gP", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "gj", "gk", "k", "h", "l", "<leader>ic", "<leader>it", "<leader>iT", "<leader>iu", "<leader>id", "<leader>ik", "<leader>ir" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "T", "x", "a", "F", "K", "y", "gs", "P", "gP", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "gc", "]u", "[u", "gj", "gk", "k", "h", "l", "<leader>ic", "<leader>it", "<leader>iT", "<leader>iu", "<leader>id", "<leader>ik", "<leader>ir" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -2016,7 +2041,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.along-down", "map.along-up", "map.avoid", "map.callers", "map.centre", "map.changes", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.in-binary", "map.include", "map.left", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-all", "map.trace-from", "map.trace-to", "map.up", "map.why" },
+eq(remote_ids, { "map.along-down", "map.along-up", "map.avoid", "map.callers", "map.centre", "map.changes", "map.copy", "map.coverage", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.in-binary", "map.include", "map.left", "map.next-unrun", "map.out", "map.paths", "map.prev-unrun", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-all", "map.trace-from", "map.trace-to", "map.up", "map.why" },
   "the pop-out keeps its navigation keys (no m: nothing is left out)")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do
@@ -2233,6 +2258,23 @@ do
   ok(asked[#asked] and asked[#asked]:find("--to e.cpp::submit", 1, true), "… (--to kept)")
   pv.stack, Map.desk_work, P.host.history = stack, inner, history
   pv.pinned = false
+end
+-- A run's coverage in the pop-out (E5): the boxes it did not reach cross over marked, so ]u works on the pop-out's copy.
+do
+  local stack, cov = pv.stack, pv.coverage
+  local function n(id, line) return { id = id, label = id, file = "f.cpp", line = line, kind = "function", lane = true, at = 0 } end
+  local flow = { ok = true, q = "flow", focus = "F", nodes = { n("a", 1), n("F", 3), n("g", 9) },
+    edges = { { from = "a", to = "F" }, { from = "a", to = "g" } }, lane = { "a", "F" } }
+  pv.stack = { { kind = "modules" }, { kind = "query", answer = flow, args = { "--q", "flow", "--from", "F" } } }
+  pv.coverage = { id = "r1", name = "test_f", files = { ["f.cpp"] = { functions = { { name = "a", line = 1, count = 1 }, { name = "F", line = 3, count = 1 }, { name = "g", line = 9, count = 0 } } } } }
+  local sent = P._payload(pv)
+  local kept = P._valid_items(sent.items)
+  local at_a, at_g
+  for i, it in ipairs(kept) do if it.name == "a" then at_a = i elseif it.name == "g" then at_g = i end end
+  ok(at_a and at_g and kept[at_g].unrun == true and not kept[at_a].unrun, "the pop-out keeps which boxes the run did not reach")
+  eq(Map.next_unrun(kept, at_a, 1), at_g, "… ]u on its copy: from a to g")
+  ok(table.concat(shown().lines, "\n"):find("coverage of test_f", 1, true), "… and the page says whose coverage it is")
+  pv.stack, pv.coverage = stack, cov
 end
 -- T on a trace: the whole trace, asked with that trace's question (its function, and the end and start she chose).
 do
