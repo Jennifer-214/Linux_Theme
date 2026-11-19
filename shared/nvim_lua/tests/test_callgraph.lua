@@ -62,6 +62,9 @@ eq({ headed.lines[#headed.lines - 1], headed.lines[#headed.lines] }, { "j/k/h/l 
 -- ─── moving box to box ─────────────────────────────────────────────────────────────────────────────────────────
 -- Five callers in two rows (three, then two), the centre, two callees; at 40 columns the rows sit at known places.
 local function item(name) return { name = name, detail = "x.lua:1" } end
+-- (boxes with their places, as these places were measured: a narrow split drops them, tested on its own below)
+local narrow_was = G.NARROW
+G.NARROW = 0
 local B = G.layout({ callers = { item("aaaa1"), item("aaaa2"), item("aaaa3"), item("aaaa4"), item("aaaa5") },
   center = { name = "the_middle_one", detail = "x.lua:9" }, callees = { item("leaf1"), item("leaf2") } }, 40, false).boxes
 eq(vim.tbl_map(function(b) return b.item.name end, B), { "aaaa1", "aaaa2", "aaaa3", "aaaa4", "aaaa5", "the_middle_one", "leaf1", "leaf2" },
@@ -73,6 +76,7 @@ eq({ G.nav(B, 6, "up"), G.nav(B, 5, "up"), G.nav(B, 2, "up") }, { 5, 2, 2 },
 eq({ G.nav(B, 4, "down"), G.nav(B, 6, "down"), G.nav(B, 8, "down") }, { 6, 8, 8 }, "j: the box below nearest by its centre")
 eq({ G.nav(B, 5, "left"), G.nav(B, 4, "left"), G.nav(B, 4, "right"), G.nav(B, 5, "right"), G.nav(B, 3, "right") }, { 4, 4, 5, 5, 3 },
   "h/l: along the row, stopping at its ends")
+G.NARROW = narrow_was
 eq({ G.nav(B, 8, "next"), G.nav(B, 1, "prev"), G.nav(B, 3, "next"), G.nav(B, 5, "first"), G.nav(B, 2, "last") }, { 1, 8, 4, 1, 8 },
   "Tab/S-Tab: every box in order, wrapping; gg/G: the first and the last")
 eq(G.nav({}, nil, "down"), nil, "no boxes, no selection")
@@ -569,8 +573,10 @@ end
 -- A count reaches the move through the registry's mapping: 3j is three steps down.
 local cbuf = api.nvim_create_buf(false, true)
 api.nvim_win_set_buf(0, cbuf)
+G.NARROW = 0   -- (places kept, as measured)
 local laid = G.layout({ callers = { item("aaaa1"), item("aaaa2"), item("aaaa3"), item("aaaa4"), item("aaaa5") },
   center = { name = "the_middle_one", detail = "x.lua:9" }, callees = { item("leaf1"), item("leaf2") } }, 40, false)
+G.NARROW = narrow_was
 api.nvim_buf_set_lines(cbuf, 0, -1, false, laid.lines)
 local surface = { buf = cbuf, win = api.nvim_get_current_win(), drawn = laid }
 A.map("callgraph", { buffer = cbuf, nowait = true, ctx = { graph = surface } })
@@ -858,8 +864,14 @@ do
   local shown = {}
   for _, b in ipairs(d.boxes) do if b.role == 'callee' then shown[#shown + 1] = d.lines[b.line]:match('│ (.-) *│') end end
   ok(#shown == 2 and shown[1] ~= shown[2], 'two overloads in a 24-column window: their boxes read differently: ' .. vim.inspect(shown))
-  local text = table.concat(d.lines, '\n')
-  ok(text:find('feed/queue.hpp:40', 1, true) and text:find('replay/queue.hpp:40', 1, true), '… and their files say which queue.hpp')
+  local text = table.concat(G.layout(g, 100, true).lines, '\n')
+  ok(text:find('feed/queue.hpp:40', 1, true) and text:find('replay/queue.hpp:40', 1, true), '… and, wide enough for places, their files say which queue.hpp')
+  -- a narrow split on purpose (Codex's #8): names kept, places dropped (the key line has the selected one's), said
+  local text40 = table.concat(G.layout(g, 40, true).lines, '\n')
+  ok(not text40:find('queue.hpp', 1, true) and text40:find('NARROW: PLACES IN THE KEY LINE', 1, true), 'at 40 columns: no places, and the page says so')
+  local same = G.layout({ center = at('run', '/w/a.cpp', 1), callees = { at('push', '/w/q1.cpp', 3), at('push', '/w/q2.cpp', 7) } }, 40, true)
+  local twin = table.concat(same.lines, '\n')
+  ok(twin:find('q1.cpp:3', 1, true) and twin:find('q2.cpp:7', 1, true), '… but two boxes of one name keep them: what tells them apart')
 end
 
 -- ─── the depth rail beside the drawing, not at the window's edge (Codex's #1) ───────────────────────────────────

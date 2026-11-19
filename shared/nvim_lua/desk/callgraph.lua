@@ -125,6 +125,7 @@ end
 
 
 M.GAUGE_WIDTH = 7
+M.NARROW = 56   -- the layout's width (the window's less its margin) under which boxes drop their places
 function M.gauge_range(boxes)
   local first, last
   for _, box in ipairs(boxes) do
@@ -249,11 +250,17 @@ function M.layout(graph, width, retro)
       if said[i]:find('/', 1, true) then where_of[it] = said[i] end
     end
   end
+  -- A narrow split (under M.NARROW columns, Codex's #8): a box keeps its name and drops its place (the key line says
+  -- it for the selected box), unless two boxes share a name; the drawing says what it dropped.
+  local narrow, dropped = width < M.NARROW, false
   local function boxes(items, frame, border, name_group, role)
     local built = {}
     local names = M.fit_names(vim.tbl_map(function(it) return tostring(it.name or '') end, items), width - 4, G.ellipsis)
+    local twice = {}
+    for _, n in ipairs(names) do twice[n] = (twice[n] or 0) + 1 end
     for k, item in ipairs(items) do
       local name, detail = names[k], fit(where_of[item] or item.detail or '', width - 4, G.ellipsis)
+      if narrow and twice[name] == 1 and frame ~= G.double and detail ~= '' then detail, dropped = '', true end
       local inner = math.max(width_of(name), width_of(detail), 1)
       built[#built + 1] = { item = item, name = name, detail = detail, inner = inner, w = inner + 4 }
     end
@@ -372,6 +379,9 @@ function M.layout(graph, width, retro)
       wname = math.max(wname, width_of(name))
       built[#built + 1] = { item = item, name = name, detail = detail, level = level }
     end
+    if narrow then
+      for _, b in ipairs(built) do if b.detail ~= '' then dropped = true end; b.detail = '' end
+    end
     for _, b in ipairs(built) do wdetail = math.max(wdetail, width_of(b.detail)) end
     local total = 2 + wname + (wdetail > 0 and (2 + wdetail) or 0)
     if total > width then wdetail = math.max(0, width - 4 - wname); total = math.min(width, 2 + wname + (wdetail > 0 and (2 + wdetail) or 0)) end
@@ -421,6 +431,7 @@ function M.layout(graph, width, retro)
     if graph.center or i > 1 then centred(G.down, 'DeskCallGraphBox') end
     if piece.run then chain('callees', piece.run, 1, 'callee') else tier('callees', piece.level, 1, 'calls nothing found', 'callee') end
   end
+  if dropped then centred(G.said('narrow: places in the key line'), 'DeskCallGraphDim') end
   local drawn = { lines = lines, boxes = boxlist, marks = marks, left_out = left_out }
   M.neighbours(graph, boxlist)
   if gauge then M.gauge(drawn, bands, retro); width = width + M.GAUGE_WIDTH end
