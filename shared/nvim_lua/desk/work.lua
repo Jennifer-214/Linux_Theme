@@ -675,6 +675,78 @@ function M.coverage_marks(buf, cov)
   end
   return ran, missed
 end
+--- pure: where each line of `before` is in `after` when it is unchanged (a diff's hunks left out) → { [old] = new }.
+function M.map_lines(before, after)
+  local a, b = table.concat(before, '\n') .. '\n', table.concat(after, '\n') .. '\n'
+  local hunks = (vim.text and vim.text.diff or vim.diff)(a, b, { result_type = 'indices' }) or {}
+  local map, old, new = {}, 1, 1
+  local function same_until(stop)   -- unchanged lines up to old line `stop` (exclusive)
+    while old < stop do map[old] = new; old, new = old + 1, new + 1 end
+  end
+  for _, h in ipairs(hunks) do
+    local start_a, count_a, start_b, count_b = h[1], h[2], h[3], h[4]
+    -- a hunk that only adds lines says the line it comes after; one that removes or changes, its first line
+    same_until(count_a == 0 and start_a + 1 or start_a)
+    old, new = old + count_a, (count_b == 0 and start_b + 1 or start_b) + count_b
+  end
+  same_until(#before + 1)
+  return map
+end
+
+-- Coverage on the version that ran (Codex's E2, 2026-11-19; the marks were put at the recorded line numbers in the open
+-- file whatever had changed since). The file read at the run's commit: the same as this buffer, marks here; changed,
+-- the version that ran in a read-only split by default (gf there to today's file, as the review's kept versions), or
+-- today's file with the lines unchanged since only. info: { head, id, said, clean, name? (the split's: the run) }; pick(choices, done) is
+-- vim.ui.select's shape (tests give their own).
+function M.show_coverage(buf, root, rel, cov, info, pick)
+  pick = pick or function(choices, done)
+    vim.ui.select(choices, { prompt = rel .. ' changed since that run', format_item = function(c) return c.label end }, done)
+  end
+  local short = tostring(info.head or ''):sub(1, 7)
+  local edits = info.clean == false and (' (the run had uncommitted edits: shown at ' .. short .. ', edited lines may differ)') or ''
+  local function marked(target, c, extra)
+    local ran, missed = M.coverage_marks(target, c)
+    vim.b[target].desk_coverage = info.id
+    vim.notify('Coverage of ' .. info.said .. ': ' .. ran .. ' lines ran, ' .. missed .. ' did not' .. (extra or '') .. edits .. '.')
+  end
+  local then_lines
+  if (info.head or '') ~= '' then
+    local got = vim.system({ 'git', '-C', root, 'show', info.head .. ':' .. rel }, { text = true }):wait()
+    if got.code == 0 then then_lines = vim.split(got.stdout:gsub('\n$', ''), '\n', { plain = true }) end
+  end
+  if not then_lines then
+    return marked(buf, cov, ' (' .. (short ~= '' and short or 'its commit') .. ' is not in this checkout: where the file changed since, the marks may be off)')
+  end
+  local now = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  if vim.deep_equal(then_lines, now) then return marked(buf, cov) end
+  pick({ { label = 'The version that ran (' .. short .. ')', how = 'then' }, { label = 'This file, the lines unchanged since', how = 'map' } }, function(choice)
+    if not choice then return end
+    if choice.how == 'map' then
+      local map, shifted, lost = M.map_lines(then_lines, now), { lines = {}, functions = {} }, 0
+      for n, c in pairs(cov.lines or {}) do
+        local to = map[tonumber(n)]
+        if to then shifted.lines[tostring(to)] = c else lost = lost + 1 end
+      end
+      for _, f in ipairs(cov.functions or {}) do
+        local to = map[tonumber(f.line)]
+        if to then shifted.functions[#shifted.functions + 1] = vim.tbl_extend('force', f, { line = to }) end
+      end
+      return marked(buf, shifted, lost > 0 and (' · ' .. lost .. (lost == 1 and ' line' or ' lines') .. ' changed since, not marked') or '')
+    end
+    local view = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(view, 0, -1, false, then_lines)
+    vim.bo[view].bufhidden, vim.bo[view].modifiable = 'wipe', false
+    pcall(vim.api.nvim_buf_set_name, view, rel .. ' · as ' .. (info.name or info.said) .. ' tested it')
+    local kind = vim.filetype.match({ filename = rel })
+    if kind then vim.bo[view].filetype = kind end
+    vim.cmd('sbuffer ' .. view)
+    local path = root .. '/' .. rel
+    vim.keymap.set('n', 'q', '<cmd>bwipeout<cr>', { buffer = view, desc = 'Close the tested version' })
+    vim.keymap.set('n', 'gf', function() vim.cmd('edit ' .. vim.fn.fnameescape(path)) end, { buffer = view, desc = 'Open the file as it is now' })
+    marked(view, cov, ' (the version that ran: gf opens the file as it is now)')
+  end)
+end
+
 function M.coverage(root)
   local buf = vim.api.nvim_get_current_buf()
   local path = vim.api.nvim_buf_get_name(buf)
@@ -698,9 +770,9 @@ function M.coverage(root)
         local said = 'run ' .. tostring(r.id):sub(1, 8) .. ' · ' .. tostring(doc.command or r.command) .. ' · ' .. (doc.executable ~= vim.NIL and doc.executable or 'executable not named')
           .. ' · at ' .. tostring(doc.head or ''):sub(1, 7)
         if not cov then return vim.notify(rel .. ' is not in the coverage of ' .. said .. '.') end
-        local ran, missed = M.coverage_marks(buf, cov)
-        vim.b[buf].desk_coverage = r.id
-        vim.notify('Coverage of ' .. said .. ': ' .. ran .. ' lines ran, ' .. missed .. ' did not.')
+        local head = doc.head ~= vim.NIL and doc.head or r.head
+        M.show_coverage(buf, real_root, rel, cov, { head = head, id = r.id, said = said, clean = r.clean,
+          name = 'run ' .. tostring(r.id):sub(1, 8) .. ' (' .. tostring(head or ''):sub(1, 7) .. ')' })
       end)
     end)
   end)
@@ -721,7 +793,7 @@ local ROWS = actions.add({
   { id = 'work.tests', group = 'Work', name = 'Claude test failures', key = '<leader>Ce', on = 'editor', remote = true, also = '`:WorkTests`',
     available = desk_work, about = "The last test run's failures as a jump list (its log when it has no locations)", run = function() M.tests() end },
   { id = 'work.coverage', group = 'Work', name = "A test run's coverage in this file", on = 'editor', available = desk_work,
-    about = "The lines and functions one test run covered, marked in this file (a run that wrote lcov.info, or one desk-work coverage add gave): another run's replaces it, to see whether it takes another branch; the run, its command, executable and commit said with it",
+    about = "The lines and functions one test run covered, marked in this file (a run that wrote lcov.info, or one desk-work coverage add gave): another run's replaces it, to see whether it takes another branch; the run, its command, executable and commit said with it. When the file changed since that run, the version that ran opens beside it with the marks (gf: the file as it is now), or this file gets them on the lines unchanged since",
     run = function() M.coverage() end },
   { id = 'work.tasks', group = 'Work', name = 'Project next steps', key = '<leader>Ck', on = 'editor', available = desk_work,
     about = 'Pinned next steps for this project: pin one, mark it done, or turn it into a note for Claude', run = function() M.tasks() end },

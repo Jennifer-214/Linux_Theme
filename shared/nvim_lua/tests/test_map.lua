@@ -494,6 +494,66 @@ do
   eq({ texts[1], texts[5] }, { "  ran 3×", "  not run" }, "… and each function's count beside it")
   vim.api.nvim_buf_delete(cbuf, { force = true })
 end
+do
+  -- Coverage on the version that ran (Codex's E2, 2026-11-19): marks were put at the recorded line numbers in the open
+  -- file whatever changed since. Now: the same file, marks there; a changed one, the version that ran (read from the
+  -- run's commit) in a read-only split by default, or today's file with only the lines unchanged since.
+  local W = require("desk.work")
+  eq(W.map_lines({ "a", "b", "c", "d" }, { "x", "a", "b", "C", "d" }), { [1] = 2, [2] = 3, [4] = 5 },
+    "map_lines: each unchanged line to where it is now, a changed one to nothing")
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  local function git(...) return vim.system({ "git", "-C", dir, ... }, { text = true }):wait() end
+  git("init", "-q")
+  local body = { "int tick() {", "  if (x) return 1;", "  return 0;", "}" }
+  vim.fn.writefile(body, dir .. "/f.c")
+  git("add", "f.c")
+  git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "f")
+  local head = vim.trim(git("rev-parse", "HEAD").stdout)
+  local cov = { lines = { ["1"] = 3, ["2"] = 0, ["3"] = 3 } }
+  local function marked(buf)
+    local at = {}
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, W.cover_ns, 0, -1, { details = true })) do
+      if m[4].sign_hl_group then at[#at + 1] = m[2] + 1 end
+    end
+    table.sort(at)
+    return at
+  end
+  local said, real_notify = {}, vim.notify
+  vim.notify = function(m) said[#said + 1] = m end
+  vim.cmd("edit " .. vim.fn.fnameescape(dir .. "/f.c"))
+  local code_buf, code_win = vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win()
+  local twenty = {}
+  for i = 1, 20 do twenty[i] = "// " .. i end
+  vim.api.nvim_buf_set_lines(code_buf, 0, 0, false, twenty)
+  local offered
+  W.show_coverage(code_buf, dir, "f.c", cov, { head = head, id = "r1", said = "run r1" }, function(choices, done) offered = choices; done(choices[1]) end)
+  local then_buf = vim.api.nvim_get_current_buf()
+  ok(offered and #offered == 2 and offered[1].label:find("version that ran", 1, true), "a changed file: the version that ran offered first")
+  ok(then_buf ~= code_buf and vim.api.nvim_buf_get_name(then_buf):find("as run r1 tested it", 1, true), "… opened beside it: " .. vim.api.nvim_buf_get_name(then_buf))
+  eq(vim.api.nvim_buf_get_lines(then_buf, 0, -1, false), body, "… the file as it was at the run's commit")
+  eq({ marked(then_buf), marked(code_buf) }, { { 1, 2, 3 }, {} }, "… the marks on its lines, none on today's file")
+  eq({ vim.bo[then_buf].modifiable, vim.fn.maparg("gf", "n", false, true).buffer }, { false, 1 }, "… read-only, gf to today's file")
+  vim.cmd("close")
+  vim.api.nvim_set_current_win(code_win)
+  W.show_coverage(code_buf, dir, "f.c", cov, { head = head, id = "r1", said = "run r1" }, function(choices, done) done(choices[2]) end)
+  eq(marked(code_buf), { 21, 22, 23 }, "mapped onto today's file: each line where it is now (20 lines above it)")
+  vim.api.nvim_buf_set_lines(code_buf, 20, 21, false, { "int tick(void) {" })
+  W.show_coverage(code_buf, dir, "f.c", cov, { head = head, id = "r1", said = "run r1" }, function(choices, done) done(choices[2]) end)
+  eq(marked(code_buf), { 22, 23 }, "… a line changed since is not marked")
+  ok(said[#said]:find("1 line changed since", 1, true), "… and the note says how many: " .. tostring(said[#said]))
+  -- the same file: marks there, nothing asked; a run with edits says so; a commit not here, marks with a warning
+  vim.api.nvim_buf_set_lines(code_buf, 0, -1, false, body)
+  local asked = false
+  W.show_coverage(code_buf, dir, "f.c", cov, { head = head, id = "r1", said = "run r1", clean = false }, function() asked = true end)
+  eq({ asked, marked(code_buf) }, { false, { 1, 2, 3 } }, "the file as it ran: marks here, nothing asked")
+  ok(said[#said]:find("uncommitted edits", 1, true), "… a run with uncommitted edits says so: " .. tostring(said[#said]))
+  W.show_coverage(code_buf, dir, "f.c", cov, { head = string.rep("d", 40), id = "r2", said = "run r2" }, function() asked = true end)
+  ok(not asked and #marked(code_buf) == 3 and said[#said]:find("not in this checkout", 1, true), "a commit not here: marks with a warning: " .. tostring(said[#said]))
+  vim.notify = real_notify
+  vim.cmd("bwipeout!")
+  vim.fn.delete(dir, "rf")
+end
 -- The trace page: a box per step (the function itself double), its parameters under it, the call between steps with
 -- each argument → the parameter it lands in, and the other callers and callees, Enter-able.
 local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16,
