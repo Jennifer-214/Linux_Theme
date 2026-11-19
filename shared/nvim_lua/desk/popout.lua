@@ -688,6 +688,8 @@ function M.redraw(view)
   end
   view.refs, view.count = refs, #msg.items
   msg.gen, msg.select, msg.front = view.gen, cut(view.select, 120), view.front == true
+  msg.behind = view.behind == true or nil
+  view.behind = nil
   -- The views this editor has there: the pop-out closes a tab of any other (a view.clear it never got, made while it
   -- did not answer and so never sent).
   msg.views, msg.tiled = p.order, p.tiled == true
@@ -1328,7 +1330,9 @@ function M.show(name, ctx, opts)
     end
     if was then M.stepped(view, was) end
   end
-  if opts.behind and before and before ~= view.id then M.redraw(view); M.save_layout(); return end
+  -- told as behind, so the pop-out does not bring it forward as a view it gets anew (it did, when it came after the one
+  -- it was sent behind: a race the tests saw under load)
+  if opts.behind and before and before ~= view.id then view.behind = true; M.redraw(view); M.save_layout(); return end
   if before and before ~= view.id and p.views[before] then push_step(p, { type = 'switch', from = before, to = view.id }) end
   to_front(view)
   M.save_layout()
@@ -2453,7 +2457,7 @@ local function valid_view(msg)
     partner_line = type(msg.partner_line) == 'number' and msg.partner_line >= 1 and math.floor(msg.partner_line) or nil,
     lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer), hidden = valid_hidden(msg.hidden),
     strip = type(msg.strip) == 'number' and msg.strip >= 1 and msg.strip < #lines and math.floor(msg.strip) or nil,
-    select = short(msg.select, 120), front = msg.front == true, news = msg.news == true, views = valid_ids(msg.views),
+    select = short(msg.select, 120), front = msg.front == true, behind = msg.behind == true, news = msg.news == true, views = valid_ids(msg.views),
     pinned = msg.pinned == true, follows = msg.follows == true,
     tick = mirror and msg.tick or nil, total = mirror and msg.total or nil,
     lang = type(msg.lang) == 'string' and #msg.lang <= 32 and msg.lang:match('^[%w_]+$') and msg.lang or nil,
@@ -2665,7 +2669,7 @@ local function handle(msg)
     C.received = (C.received or 0) + 1
     draw(view, got.lines, got.select or (before and before.key), not got.select and held or nil)
     -- A view the editor sends anew, or asks to show, comes to the front; one drawn again behind another stays behind.
-    if fresh or got.front or not shown() then show(view) else vim.cmd('redrawtabline') end
+    if (fresh and not got.behind) or got.front or not shown() then show(view) else vim.cmd('redrawtabline') end
     if got.tick then
       finish_snapshot(view)
       watch_chunk(view)

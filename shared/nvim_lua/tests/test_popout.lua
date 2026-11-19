@@ -532,6 +532,15 @@ do
   vim.wait(300, function() return false end)
 end
 
+-- ─── a view sent behind stays behind, even arriving after the one in front (a race seen under load, 2026-11-19) ──
+local rows_opens = host('return (_G.rows_test or {}).opens')
+host("require('desk.popout').show('rows', require('desk.actions').context(), { behind = true })")
+ok(wait(3000, function() return vim.tbl_contains(state().views or {}, 'rows') end), 'rows sent behind the graph: there')
+eq(state().shown, 'graph', '… and the graph still in front')
+host("require('desk.popout').clear('rows')")
+ok(wait(3000, function() return not vim.tbl_contains(state().views or {}, 'rows') end), '… taken off again')
+host('if _G.rows_test then _G.rows_test.opens = ' .. ((rows_opens == nil or rows_opens == vim.NIL) and 'nil' or tostring(rows_opens)) .. ' end')   -- the rows test below counts its own opens
+
 -- ─── focus and selection each one look (Codex's #7): the keyboard elsewhere, the title unfilled, the selection dimmer
 pop("vim.api.nvim_exec_autocmds('FocusLost', {})")
 eq(pop([[local P = require('desk.popout'); return { P.tabline():find('%#DeskPopoutTabSel#', 1, true) ~= nil,
