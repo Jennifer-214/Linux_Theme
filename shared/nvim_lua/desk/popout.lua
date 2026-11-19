@@ -2080,7 +2080,10 @@ local function keyline(view)
   -- The selected thing's own line (a map's function: what it is, Enter source · t trace …), its view's keys otherwise.
   local selected = view.copy and view.copy.index and view.items and view.items[view.copy.index]
   if selected and selected.keys and not vim.tbl_contains(C.tiles, view.id) then
-    return '%#DeskPopoutWords# ' .. escape(selected.keys) .. ' · %#DeskPopoutKey#?%#DeskPopoutWords# ' .. escape(said('keys')) .. ' '
+    -- cut at the end in a narrow window, never before Enter's slot (the first of its parts)
+    local first, rest = selected.keys:match('^(.-)( · .*)$')
+    if not first then first, rest = selected.keys, '' end
+    return '%#DeskPopoutWords# ' .. escape(first) .. '%<' .. escape(rest) .. ' · %#DeskPopoutKey#?%#DeskPopoutWords# ' .. escape(said('keys')) .. ' '
   end
   if vim.tbl_contains(C.tiles, view.id) then
     local label = view.title
@@ -2129,8 +2132,9 @@ function M.mark_partner(view)
   api.nvim_buf_clear_namespace(view.buf, partner_ns, 0, -1)
   local line = view.partner_line
   if line and line <= api.nvim_buf_line_count(view.buf) then
+    -- a line of its own above it: never cut at the window's edge (an end-of-line mark was, in the VM pass)
     pcall(api.nvim_buf_set_extmark, view.buf, partner_ns, line - 1, 0,
-      { virt_text = { { ' ◀ ' .. tostring(view.partner or ''):gsub('^following ← ', 'selected in '), 'DeskCallGraphKey' } }, virt_text_pos = 'eol', priority = 200 })
+      { virt_lines = { { { '▼ ' .. tostring(view.partner or ''):gsub('^following ← ', 'selected in '), 'DeskCallGraphKey' } } }, virt_lines_above = true, priority = 200 })
   end
 end
 -- The keyboard came here (true) or went elsewhere: the title filled or not, the selection full or dimmed.

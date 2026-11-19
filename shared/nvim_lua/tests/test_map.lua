@@ -1727,9 +1727,10 @@ end
   eq(Map.strip_text({ name = "a → b", target = { kind = "call", caller = "a", callee = "b", sites = { { line = 3 }, { line = 9 } } } }, G),
     { "a → b — 2 calls", "Enter open call site (2: pick)" }, "a call with two sites: Enter lists them")
   local payload = P._payload(pv)
-  ok(vim.iter(payload.items):any(function(i) return type(i.keys) == "string" and i.keys:find(" — Enter ", 1, true) ~= nil end), "the pop-out's items carry their line")
-  local line = P._keyline({ id = "v", copy = { index = 1 }, items = { { keys = "tt::tick · e.cpp:11 — Enter source · t trace" } }, footer = {} })
-  ok(line:find("tt::tick · e.cpp:11 — Enter source · t trace", 1, true) and line:find("?%#DeskPopoutWords# keys", 1, true), "the key line shows the selected thing's own line: " .. line)
+  ok(vim.iter(payload.items):any(function(i) return type(i.keys) == "string" and i.keys:find("^Enter ") ~= nil end), "the pop-out's items carry their line, Enter's slot first")
+  local line = P._keyline({ id = "v", copy = { index = 1 }, items = { { keys = "Enter open tt::tick (e.cpp:11) · t trace   tt::tick · e.cpp:11" } }, footer = {} })
+  ok(line:find("Enter open tt::tick (e.cpp:11)%< · t trace   tt::tick · e.cpp:11", 1, true) and line:find("?%#DeskPopoutWords# keys", 1, true),
+    "the key line: Enter's slot, then where a narrow window may cut (%<), then the rest: " .. line)
 end
 eq(P._payload(pv).follows, false, "the map's pages do not follow the cursor (no ↻ sent)")
 eq({ P._payload(pv).tab, P._payload(pv).subject }, { "map", vim.fn.fnamemodify(tab_root, ":t") }, "its tab: map · the checkout")
@@ -1890,7 +1891,7 @@ do
   vim.api.nvim_buf_set_lines(mbuf, 0, -1, false, { "a", "b", "c" })
   P.mark_partner({ buf = mbuf, partner_line = 3, partner = "following ← 1: M.alpha" })
   local marks = vim.api.nvim_buf_get_extmarks(mbuf, -1, 0, -1, { details = true })
-  eq(vim.tbl_map(function(m) return { m[2] + 1, m[4].virt_text and m[4].virt_text[1][1] } end, marks), { { 3, " ◀ selected in 1: M.alpha" } },
+  eq(vim.tbl_map(function(m) return { m[2] + 1, m[4].virt_lines and m[4].virt_lines[1][1][1], m[4].virt_lines_above } end, marks), { { 3, "▼ selected in 1: M.alpha", true } },
     "… and the preview marks that line, saying where it is selected")
   vim.api.nvim_buf_delete(mbuf, { force = true })
   eq(P._selected({ pop = pv.pop, view = pv.id, gen = (pv.gen or 0) + 1, item = 1 }), { refused = "this view moved on" }, "… an older drawing's selection refused")

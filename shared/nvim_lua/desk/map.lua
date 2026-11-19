@@ -3952,7 +3952,8 @@ local function render_view(view, width, style)
   -- The key line says what the selected thing is and what its keys do there (the pop-out shows it while it is selected).
   for _, it in ipairs(items) do
     local two = M.strip_text(it.ref, G)
-    if two then it.keys = two[1] .. ' — ' .. two[2] end
+    -- Enter's slot first (Codex's #9: it never moves), what the thing is after it
+    if two then it.keys = two[2] .. '   ' .. two[1] end
   end
   local footer = view.has_more and vim.list_extend(vim.list_slice(FOOTER), { { ids = { 'map.more' }, words = 'show more' } })
     or FOOTER
