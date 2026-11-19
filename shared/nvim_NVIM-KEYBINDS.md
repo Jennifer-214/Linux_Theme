@@ -364,6 +364,7 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `x` in the map | On a trace, on a `══[ handoff ]══`: the map inferred it wrongly, so it is dropped (one you added is forgotten). Kept by desk-work outside the checkout, in `~/.config/foxml/desk.d/` |
 | `a` in the map | On a trace: this function hands its data on to the one you name (a queue or a callback the map missed), so the trace goes on through it |
 | `F` in the map | On a trace: the findings of the checkout's tools (desk-work's, docs/desk-tools.md) that fall inside the route's functions, each with its tool; `Enter` opens its line |
+| `K` in the map | On a function: the test commands desk-work has seen touch its file, each with why it is suggested and whether its result is stale; one chosen runs on the saved files |
 | `y` in the map | On a trace: its question, the checkout's revision, each step with its file:line, the handoffs it relies on and a sentence of yours, as Markdown for a review, an issue or the notebook |
 | `gs` in the map | The selected function in symdeps' card (C and C++), shown in the code, as `gs` in the call graph |
 | `P` in the map | Every way from one function to another, shortest first |
@@ -773,6 +774,9 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `s` in the file list | Labels on the rows on screen, as `s` draws them in code (flash.nvim): typing one moves there, as `j` and `k` would; `Esc` stays |
 | `gs` / `Space dd` | Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line) |
 | `Space dm` | Open symdeps in the working C/C++ file near the reviewed line |
+| `U` | The project map's callers of the selected changed function, up three levels — the callers as they are now (on an older commit the page says so); `Backspace` there comes back here |
+| `T` | The project map's trace through the selected changed function, in its working version: where its thread starts, where it leads, each step's parameters |
+| `M` | The functions this commit changed, on the project map, by file (a file changed since may have moved its lines) |
 | `gf` | Open the editable working file in a separate tab |
 | `S` | Compare the current struct's layout with the selected commit's parent |
 | `r` | Refresh the comparison |

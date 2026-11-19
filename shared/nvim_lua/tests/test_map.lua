@@ -587,7 +587,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "y", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "x", "a", "F", "K", "y", "gs", "P", "m", "M", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -1329,7 +1329,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.centre", "map.copy", "map.down", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
+eq(remote_ids, { "map.callers", "map.centre", "map.copy", "map.down", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.in", "map.left", "map.more", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-from", "map.trace-to", "map.up" },
   "the pop-out can show more and retains its existing navigation keys")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do
@@ -1531,6 +1531,40 @@ do
   K.close(fresh_view)
   host_pop.views[fresh_view.id] = nil
   pv.stack, Map.desk_work, P.host.history, pv.pinned = stack, inner, history, false
+end
+-- The review as a starting point: U (callers, with the note on an older commit), T (a path), M (a commit on the map).
+do
+  local R = require("desk.review")
+  local real = { R.current, Map.walk_at, Map.trace_at, Map.touched_on_map }
+  local got = {}
+  Map.walk_at = function(q, path, line, opts) got[#got + 1] = { "walk", q, vim.fs.basename(path), line, opts and opts.note } end
+  Map.trace_at = function(path, line) got[#got + 1] = { "trace", vim.fs.basename(path), line } end
+  Map.touched_on_map = function(root, sha) got[#got + 1] = { "touched", sha } end
+  R.current = { files = { { path = "/r/lua/mod.lua", rel = "lua/mod.lua" } }, index = 1, symbol = { name = "M.alpha", line = 4, side = "after" },
+    row = { kind = "commit", sha = "abc1234def", short = "abc1234" } }
+  R.on_map("callers"); R.on_map("trace"); R.on_map("touched")
+  eq(got, { { "walk", "callers", "mod.lua", 4, "These are the callers in the map as it is now (the working tree), not as they were at abc1234." },
+    { "trace", "mod.lua", 4 }, { "touched", "abc1234def" } }, "U, T and M from the review: the changed function's line, the note on an older commit, the commit")
+  eq(A.get("review.callers").available(), true, "… U there while a changed function is selected")
+  R.current.symbol.side = "before"
+  eq(A.get("review.callers").available(), "select a changed function first", "… not on a removed one")
+  R.current, Map.walk_at, Map.trace_at, Map.touched_on_map = unpack(real)
+  -- the note under the page's heading; a commit's page by file
+  local stack = pv.stack
+  pv.stack = { { kind = "modules" }, { kind = "query", answer = { ok = true, q = "callers", from = { id = "x", label = "M.alpha" }, nodes = {}, steps = {} }, note = "These are the callers in the map as it is now." } }
+  ok(vim.iter(K.render(pv, 90, "paper").lines):any(function(l) return l:find("These are the callers in the map as it is now.", 1, true) ~= nil end), "the note shown under the page's heading")
+  pv.stack = stack
+  local changed = table.concat(Map.layout(Map.level_query({ ok = true, q = "touched", commit = "abc1234def", subject = "Fix the ring",
+    nodes = { { id = "lua/mod.lua::M.alpha", label = "M.alpha", file = "lua/mod.lua", line = 3 } }, files = { { file = "lua/mod.lua", nodes = { "lua/mod.lua::M.alpha" }, moved = true } } }), 90, false).lines, "\n")
+  ok(changed:find("what abc1234d changed · 1 functions", 1, true) and changed:find("lua/mod.lua  (changed since: its lines may have moved)", 1, true) and changed:find("M.alpha", 1, true),
+    "a commit on the map: its functions by file, a moved file said")
+  -- K: the known tests of a function's file
+  local W = require("desk.work")
+  local real_tests, asked_tests = W.suggested_tests, nil
+  W.suggested_tests = function(path) asked_tests = path end
+  act("map.tests", { ref = { target = { kind = "node", node = { id = "lua/mod.lua::M.alpha", label = "M.alpha", file = "lua/mod.lua", line = 3 } } } })
+  W.suggested_tests = real_tests
+  eq(asked_tests, pv.root .. "/lua/mod.lua", "K: the known tests of that function's file")
 end
 do
   local stack, cache = pv.stack, pv.cache

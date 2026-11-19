@@ -1523,6 +1523,24 @@ end
 function M.level_query(answer, all, level)
   if answer.q == 'trace' then return M.trace_page(answer, level and level.folds, level and level.layouts, level and level.field) end
   local sections = {}
+  if answer.q == 'touched' then
+    -- What a commit changed, on the map: the functions its hunks touch, by file (a file changed since may have moved).
+    local by = node_index(answer)
+    sections[#sections + 1] = { head = 'what ' .. tostring(answer.commit or ''):sub(1, 8) .. ' changed · ' .. #(answer.nodes or {}) .. ' functions' }
+    if (answer.subject or '') ~= '' then sections[#sections + 1] = { parts = { { answer.subject } }, group = 'DeskMapDim' } end
+    for _, f in ipairs(answer.files or {}) do
+      local rows = { { { f.file, nil, nil, 'DeskMapHead' }, { f.moved and '  (changed since: its lines may have moved)' or '', nil, true, 'DeskMapDim' } } }
+      local names = {}
+      for _, id in ipairs(f.nodes or {}) do
+        local n = by[type(id) == 'table' and id.id or id] or (type(id) == 'table' and id) or nil
+        if n then names[#names + 1] = { '    ' }; names[#names + 1] = { n.label, node_item(n) } end
+      end
+      if #names > 0 then rows[#rows + 1] = names end
+      sections[#sections + 1] = { block = rows }
+    end
+    if #(answer.files or {}) == 0 then sections[#sections + 1] = { parts = { { 'No function in the map is in its change.' } }, group = 'DeskMapDim' } end
+    return { crumbs = { 'change' }, sections = sections }
+  end
   if answer.q == 'calls-into' then
     -- Where a function's result goes, call by call (read from each call's line: a first answer, said as such).
     local to = answer.to or {}
@@ -1759,7 +1777,12 @@ local function cached(view, key) return view.cache[key] or (view.previous or {})
 local function page_of(view)
   local level = view.stack[#view.stack]
   if level.kind == 'modules' then return cached(view, 'modules') and M.level_modules(cached(view, 'modules'), level.all) end
-  if level.kind == 'query' then return M.level_query(level.answer, level.all, level) end
+  if level.kind == 'query' then
+    local page = M.level_query(level.answer, level.all, level)
+    -- a note the asker gave (the review of an older commit: the callers are the map's as it is now)
+    if page and level.note then table.insert(page.sections, math.min(2, #page.sections + 1), { block = { { { level.note, nil, true } } }, group = 'DeskMapStale' }) end
+    return page
+  end
   if level.kind == 'pick' then return M.level_pick(level) end
   if level.kind == 'findings' then return M.level_findings(level) end
   if level.kind == 'stack' then return M.level_stack(level) end
@@ -2249,7 +2272,8 @@ query = function(view, args, from, again, quiet)
       view.stack[#view.stack] = { kind = 'query', answer = answer, args = args, keep = top.keep, selected = top.selected, all = top.all, root = view.root }
       return load(view)
     end
-    local level = { kind = 'query', answer = answer, args = args, root = view.root }
+    local level = { kind = 'query', answer = answer, args = args, root = view.root, note = view.pending_note }
+    view.pending_note = nil
     -- a trace restored after a restart: its folds and selected step as she left them
     if view.restoring and answer.q == 'trace' then
       level.folds, level.selected, view.select = view.restoring.folds, view.restoring.selected, view.restoring.selected
@@ -2499,6 +2523,39 @@ local function adopt(to, from) for _, k in ipairs(STATE) do to[k] = from[k] end 
 -- Space c p: the trace through the function at the cursor, by its file and line (desk-work finds the function whose
 -- lines hold it): in the pop-out's map when the pop-out shows this checkout's map, else in the map's tab.
 function M.trace_here() return M.trace_at(api.nvim_buf_get_name(0), api.nvim_win_get_cursor(0)[1]) end
+
+-- The map for `root` where an answer for it goes: the pop-out's map when it shows that checkout, else a map here.
+local function map_for(root)
+  local P = package.loaded['desk.popout']
+  local out = P and P.view_of('map')
+  local view = (out and out.out and not out.gone and out.root == root) and out or nil
+  if view then P.show('map', actions.context(), { pop = view.pop }) else view = M.open(root) end
+  return view
+end
+local function rel_of(path)
+  local root = path ~= '' and vim.fs.root(path, '.git')
+  if not root then return nil, nil, 'Open a file of a git checkout first.' end
+  root = uv.fs_realpath(root) or root
+  local real = uv.fs_realpath(path) or path
+  local rel = real:sub(1, #root + 1) == root .. '/' and real:sub(#root + 2) or nil
+  if not rel then return nil, nil, 'This file is not in the checkout.' end
+  return root, rel
+end
+-- Who calls (or what reaches) the function at line `line` of `path` (the review's U: a changed function's callers).
+-- opts.note: said under the page's heading (the review of an older commit: these are the callers as the map has them now).
+function M.walk_at(q, path, line, opts)
+  local root, rel, why = rel_of(path)
+  if not root then return tell(why) end
+  local view = map_for(root)
+  view.pending_note = opts and opts.note or nil
+  query(view, { '--q', q, '--file', rel, '--line', tostring(line), '--from', '', '--depth', '3' })
+end
+-- The functions a commit changed, on the map (the review's M on a commit).
+function M.touched_on_map(root, sha)
+  root = uv.fs_realpath(root) or root
+  local view = map_for(root)
+  query(view, { '--q', 'touched', '--commit', sha })
+end
 
 -- The debugger's stack where it stopped (nvim-dap's stopped thread, innermost first): { name, path, line }, or nil, why.
 function M.dap_frames()
@@ -3011,6 +3068,14 @@ local ROWS = actions.add({
   row('findings', 'F', 'Findings on this path',
     "On a trace: the findings of the checkout's tools (desk-work's, docs/desk-tools.md) that fall inside the route's functions, each with its tool; `Enter` opens its line",
     findings_on_path, needs_trace, THERE),
+  row('tests', 'K', 'Known tests for this file',
+    "On a function: the test commands desk-work has seen touch its file, each with why it is suggested and whether its result is stale; one chosen runs on the saved files",
+    function(view, ctx)
+      local item = about_item(view, ctx)
+      local n = item and item.target and item.target.node
+      if not (n and n.file) then return tell('Put the cursor on a function with a file first.') end
+      require('desk.work').suggested_tests(view.root .. '/' .. n.file)
+    end, needs_function, THERE),
   row('copy', 'y', 'Copy this investigation as Markdown',
     'On a trace: its question, the checkout\'s revision, each step with its file:line, the handoffs it relies on and a sentence of yours, as Markdown for a review, an issue or the notebook',
     copy_investigation, needs_trace, THERE),

@@ -1658,6 +1658,21 @@ M.rows = actions.add({
   { id = 'review.symdeps-menu', group = 'Review', name = 'symdeps for the working file', key = '<leader>dm', on = BOTH,
     available = symdeps_here, remote = false, about = 'Open symdeps in the working C/C++ file near the reviewed line',
     run = function() M.symdeps_menu() end },
+  -- A changed function as a starting point (her pick: review and test failures as starting points): its callers on the
+  -- map, a possible path through its working version; a commit's change on the map. The map's callers are the working
+  -- tree's: on an older commit the page says so.
+  { id = 'review.callers', group = 'Review', name = 'Who calls this changed function (on the map)', key = 'U', on = BOTH, remote = false,
+    about = "The project map's callers of the selected changed function, up three levels — the callers as they are now (on an older commit the page says so); `Backspace` there comes back here",
+    available = function() return (M.current and M.current.symbol and M.current.symbol.side ~= 'before') or 'select a changed function first' end,
+    run = function() M.on_map('callers') end },
+  { id = 'review.trace', group = 'Review', name = 'Trace a possible path through this changed function', key = 'T', on = BOTH, remote = false,
+    about = 'The project map\'s trace through the selected changed function, in its working version: where its thread starts, where it leads, each step\'s parameters',
+    available = function() return (M.current and M.current.symbol and M.current.symbol.side ~= 'before') or 'select a changed function first' end,
+    run = function() M.on_map('trace') end },
+  { id = 'review.on-map', group = 'Review', name = 'Show this commit on the map', key = 'M', on = BOTH, remote = false,
+    about = 'The functions this commit changed, on the project map, by file (a file changed since may have moved its lines)',
+    available = function() return (M.current and M.current.row and M.current.row.kind == 'commit' and M.current.row.sha) and true or 'select a commit first' end,
+    run = function() M.on_map('touched') end },
   { id = 'review.source', group = 'Review', name = 'Open the working file for this change', key = 'gf', on = BOTH, remote = false,
     about = 'Open the editable working file in a separate tab', run = function() M.open_source() end },
   { id = 'review.layout', group = 'Review', name = 'Compare struct layout with review base', key = 'S', on = BOTH, available = symdeps_here,
@@ -2517,6 +2532,24 @@ function M.tree(rows)
     r.sets[#r.sets + 1] = set
   end
   M.show_panel(true); panel(r, true)
+end
+
+-- U, T and M: the selected changed function (or commit) on the project map.
+function M.on_map(what)
+  local r = M.current
+  if not r then return end
+  if api.nvim_get_current_win() == r.panel_win and what ~= 'touched' and not M.enter(true) then return end
+  local Map = require('desk.map')
+  local file = r.files and r.files[r.index]
+  if what == 'touched' then
+    local root = vim.fs.root(file and file.path or vim.fn.getcwd(), '.git') or vim.fn.getcwd()
+    return Map.touched_on_map(root, r.row.sha)
+  end
+  if not (file and r.symbol and r.symbol.line) then return tell('Select a changed function first.') end
+  if what == 'trace' then return Map.trace_at(file.path, r.symbol.line) end
+  local note = r.row and r.row.kind == 'commit' and ('These are the callers in the map as it is now (the working tree), not as they were at '
+    .. tostring(r.row.short or r.row.sha or 'that commit'):sub(1, 12) .. '.') or nil
+  Map.walk_at('callers', file.path, r.symbol.line, { note = note })
 end
 
 function M.open_source()
