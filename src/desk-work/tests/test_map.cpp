@@ -398,6 +398,9 @@ int main(int, char** argv) {
               && !e.count("s>x"), "… and the calls on those ways, the cycle's too; none round F, none from a caller past it (s → x)");
         for (const auto& n : fl["nodes"])
             if (n["id"] == "entry2") CHECK(n["at"] == -3, "… a caller's place: 3 calls above F");
+        bool lined = false;
+        for (const auto& ed : fl["edges"]) if (ed["from"] == "a" && ed["to"] == "F") lined = ed.value("line", 0) == 12;
+        CHECK(lined, "… each call with its line where the map read one (a → F at 12), for gj's hint");
         const auto fl_x = desk_map::flow(wg, wg.at.at("F"), 16, static_cast<long>(wg.at.at("x")));
         CHECK(fl_x["to"] == "x" && ids(fl_x, false) == std::set<std::string>({"entry", "entry2", "mid", "a", "s", "F", "x"}),
               "--to x: below F only the ways that reach x");

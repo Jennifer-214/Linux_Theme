@@ -413,6 +413,39 @@ do
     local _, gl = line_with(page.lines, G.single.v .. " g ")
     eq(Map.item_at(page, (line_with(page.lines, G.single.v .. " g ")), gl:find("g ", 1, true) - 1).target.node.id, "g", "… a box is a hit: Enter goes to its code")
   end
+  -- who calls whom on it (T1, 2026-11-19, the trader's whole trace: 93 functions, 129 calls, one ↓ between rows): each
+  -- box knows its real callers and callees, so selecting one dims the rest (the graph's painter) and gj/gk follow a call
+  local Gr = require("desk.callgraph")
+  whole.edges[#whole.edges + 1] = { from = "a", to = "F", line = 7 }
+  local page = Map.layout(Map.level_query(whole), 100, false)
+  local idx = {}
+  for i, b in ipairs(page.boxes) do if b.item and b.item.target and b.item.target.node then idx[b.item.target.node.id] = i end end
+  local function names(list) local out = {}; for _, j in ipairs(list or {}) do out[#out + 1] = page.boxes[j].item.target.node.id end; table.sort(out); return out end
+  eq({ names(page.boxes[idx.a].down), names(page.boxes[idx.a].up), names(page.boxes[idx.b].up) }, { { "F", "g" }, { "entry2" }, { "F", "g" } },
+    "a calls F and g, entry2 calls a; b is called by F and g")
+  eq(names(page.boxes[idx.a].near), { "F", "entry2", "g" }, "… a's neighbours, for the dimming")
+  local buf = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(buf, 0, -1, false, page.lines)
+  local sel = { buf = buf, drawn = page }
+  Gr.select(sel, idx.a)
+  local faint = {}
+  for _, m in ipairs(api.nvim_buf_get_extmarks(buf, Gr.sel_ns, 0, -1, { details = true })) do
+    if m[4].hl_group == "DeskCallGraphFaint" then faint[api.nvim_buf_get_lines(buf, m[2], m[2] + 1, false)[1]:sub(m[3] + 1, m[4].end_col):match("[%w_]+") or "?"] = true end
+  end
+  ok(faint["end"] and not faint.F and not faint.g, "selecting a: what it is not connected to dims (end), its callees do not")
+  Gr.along(sel, "down")
+  ok(page.boxes[sel.index].item.target.node.id == "F" or page.boxes[sel.index].item.target.node.id == "g", "gj from a: to what it calls")
+  local hint
+  for _, m in ipairs(api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+    if m[4].virt_text and m[4].virt_text[1][1]:find("↓", 1, true) then hint = m[4].virt_text[1][1] end
+  end
+  ok(hint and hint:find("1 of 2", 1, true), "… the hint counts its two callees: " .. tostring(hint))
+  Gr.select(sel, idx.b)
+  Gr.along(sel, "up")
+  ok(page.boxes[sel.index].item.target.node.id == "F" or page.boxes[sel.index].item.target.node.id == "g", "gk from b: to one that calls it")
+  api.nvim_buf_delete(buf, { force = true })
+  eq({ A_keys = require("desk.actions").key("map.along-down"), A_up = require("desk.actions").key("map.along-up") }, { A_keys = "gj", A_up = "gk" },
+    "gj and gk on the map too")
 end
 local reach = { ok = true, q = "reach", depth = 2, from = contents.nodes[5],
   nodes = { vim.tbl_extend("force", contents.nodes[5], { depth = 0 }), vim.tbl_extend("force", contents.nodes[1], { depth = 1 }), vim.tbl_extend("force", contents.nodes[2], { depth = 2 }) },
@@ -1119,7 +1152,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "T", "x", "a", "F", "K", "y", "gs", "P", "gP", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "k", "h", "l", "<leader>ic", "<leader>it", "<leader>iT", "<leader>iu", "<leader>id", "<leader>ik", "<leader>ir" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "T", "x", "a", "F", "K", "y", "gs", "P", "gP", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "gj", "gk", "k", "h", "l", "<leader>ic", "<leader>it", "<leader>iT", "<leader>iu", "<leader>id", "<leader>ik", "<leader>ir" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -1940,7 +1973,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.avoid", "map.callers", "map.centre", "map.changes", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.in-binary", "map.include", "map.left", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-all", "map.trace-from", "map.trace-to", "map.up", "map.why" },
+eq(remote_ids, { "map.along-down", "map.along-up", "map.avoid", "map.callers", "map.centre", "map.changes", "map.copy", "map.down", "map.exclude", "map.expand", "map.findings", "map.handoff-add", "map.handoff-drop", "map.handoffs", "map.in", "map.in-binary", "map.include", "map.left", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.symdeps", "map.tests", "map.trace", "map.trace-all", "map.trace-from", "map.trace-to", "map.up", "map.why" },
   "the pop-out keeps its navigation keys (no m: nothing is left out)")
 -- An answer goes to the pop-out it was asked from: t on pop-out 2's graph traces in pop-out 2's map, never pop-out 1's.
 do

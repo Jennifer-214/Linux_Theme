@@ -888,6 +888,7 @@ function M.layout(page, width, retro)
   -- (its count dropped: the location says it) up to the next arrow or heading, each trace step, and the page's title
   -- around them all, counting the page's layers of boxes
   local heads, open_head, steps_total, step_n, layer_first, layer_last = {}, nil, 0, 0, nil, nil
+  local links = {}
   for _, s in ipairs(page.sections or {}) do if s.card and s.card.column then steps_total = steps_total + 1 end end
   local function close_head()
     if open_head then open_head.last, open_head.last_line = #placed, #lines; heads[#heads + 1] = open_head end
@@ -904,6 +905,7 @@ function M.layout(page, width, retro)
       local double = s.frame == 'double'
       boxes(s.boxes, double and G.double or G.single, double and 'DeskMapFocus' or 'DeskMapBox', double and 'DeskMapFocus' or 'DeskMapName')
     elseif s.arrow then centred(G.down, 'DeskMapBox'); close_head()
+    elseif s.links then vim.list_extend(links, s.links)
     elseif s.parts then
       put_parts(s.parts, '', s.group)
     elseif s.card and s.card.column then
@@ -1110,6 +1112,7 @@ function M.layout(page, width, retro)
     table.insert(heads, 1, { line = 1, text = tostring(page.header[1][1]), of = G.said(' of '), first = layer_first, last = layer_last,
       count = layer_first ~= nil, last_line = #lines })
   end
+  M.connect_boxes(placed, links)
   local drawn = { lines = lines, hits = hits, marks = marks, items = placed, boxes = placed, heads = heads }
   if gauge then
     graph.gauge(drawn, bands, retro, 'DeskMapDim', 'DeskMapFocus')
@@ -1185,13 +1188,49 @@ function M.layers(keys, edges)
   return tiers
 end
 
+--- Who calls whom on a page of layers (T1, 2026-11-19: the trader's whole trace drew 93 functions and 129 calls with one
+--- arrow between rows): each box its callees (down) and callers (up), with the call's line where the answer has one
+--- (down_sites, up_sites, as the call graph's), and near (both), so selecting one dims the rest (the call graph's
+--- painter) and gj/gk follow a call (desk.callgraph.along). A box that is in no call gets an empty near.
+function M.connect_boxes(boxes, links)
+  if #links == 0 then return end
+  local at = {}
+  for i, b in ipairs(boxes) do
+    if b.item and b.item.link_key ~= nil and at[b.item.link_key] == nil then at[b.item.link_key] = i end
+  end
+  for _, i in pairs(at) do local b = boxes[i]; b.down, b.up, b.near, b.down_sites, b.up_sites = {}, {}, {}, {}, {} end
+  local seen, sites = {}, {}
+  for _, e in ipairs(links) do
+    local a, b = at[e.from], at[e.to]
+    local key = a and b and (a .. '>' .. b)
+    if key and e.line and not sites[key] then
+      local node = boxes[a].item.target and boxes[a].item.target.node
+      sites[key] = ((node and node.file) and (vim.fs.basename(node.file) .. ':') or 'line ') .. e.line
+    end
+    if key and a ~= b and not seen[key] then
+      seen[key] = true
+      local A, B = boxes[a], boxes[b]
+      A.down[#A.down + 1], B.up[#B.up + 1] = b, a
+      if not vim.tbl_contains(A.near, b) then A.near[#A.near + 1] = b end
+      if not vim.tbl_contains(B.near, a) then B.near[#B.near + 1] = a end
+    end
+  end
+  for _, i in pairs(at) do
+    local b = boxes[i]
+    for k, j in ipairs(b.down) do b.down_sites[k] = sites[i .. '>' .. j] or '' end
+    for k, j in ipairs(b.up) do b.up_sites[k] = sites[j .. '>' .. i] or '' end
+  end
+end
+
 -- Boxes in layers, with an arrow between layers: every one, the page scrolls (2026-11-19, her "why can't it just show
 -- the entire thing at once? and just be scrollable?"; 1000 boxes draw in about 30 ms).
 local function layered(sections, keys, edges, item_of)
   for i, tier in ipairs(M.layers(keys, edges)) do
     if i > 1 then sections[#sections + 1] = { arrow = true } end
-    sections[#sections + 1] = { boxes = vim.tbl_map(item_of, tier), level = i - 1 }
+    sections[#sections + 1] = { boxes = vim.tbl_map(function(key) local it = item_of(key); it.link_key = key; return it end, tier), level = i - 1 }
   end
+  -- the calls between them, for who calls whom on the page (T1): the layout gives each box its callers and callees
+  sections[#sections + 1] = { links = edges }
 end
 
 -- Boxes of one side (who calls in from elsewhere, what is called out there): the checkout's own first (rank 0),
@@ -3953,6 +3992,14 @@ local ROWS = actions.add({
     'Move this map to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as this tab, as it was',
     function(_, ctx) pop().show('map', ctx) end, function() return pop().can_pop() end, HERE),
   moving('down', 'j', 'The box below', nil, 'The box below / above (the nearest one in that row)'),
+  -- gj / gk along a real call, as on the call graph (T1): the selected box's callees and callers, the call's line
+  { id = 'map.along-down', group = GROUP, name = 'Along a call, to what it calls', key = 'gj', on = 'map', menu = false, drawn = true,
+    about = 'To a function the selected box calls, however far down the page; again, the next one it calls (wrapping), or on down when it calls only one',
+    doc = 'Along a real call: to what the box calls / to what calls it, again for the next',
+    run = function(ctx) if ctx.copy then return require('desk.callgraph').along(ctx.copy, 'down') end; if valid(ctx.map) and ctx.map.sel then require('desk.callgraph').along(ctx.map.sel, 'down') end end },
+  { id = 'map.along-up', group = GROUP, name = 'Along a call, to what calls it', key = 'gk', on = 'map', menu = false, drawn = true, line = 'map.along-down',
+    about = 'To a function that calls the selected box, however far up the page; again, the next one that calls it (wrapping), or on up when only one does',
+    run = function(ctx) if ctx.copy then return require('desk.callgraph').along(ctx.copy, 'up') end; if valid(ctx.map) and ctx.map.sel then require('desk.callgraph').along(ctx.map.sel, 'up') end end },
   moving('up', 'k', 'The box above', 'down'),
   moving('left', 'h', 'The box to the left', nil, 'The box to the left / right in the same row'),
   moving('right', 'l', 'The box to the right', 'left'),
@@ -4035,7 +4082,8 @@ local function render_view(view, width, style)
     p.item.key = key
     items[#items + 1] = { key = key, kind = 'box', line = p.line, name_col = p.name_col, x = p.x, w = p.w, spans = p.spans,
       centre = p.centre == true, gauge = p.gauge, gauge_band = p.gauge_band, gauge_col = p.gauge_col, name = tostring(p.item.name or ''),
-      where = type(p.item.detail) == 'string' and p.item.detail ~= '' and p.item.detail or nil, ref = p.item }
+      where = type(p.item.detail) == 'string' and p.item.detail ~= '' and p.item.detail or nil, ref = p.item,
+      near = p.near, down = p.down, up = p.up, down_sites = p.down_sites, up_sites = p.up_sites }
   end
   -- The key line says what the selected thing is and what its keys do there (the pop-out shows it while it is selected).
   for _, it in ipairs(items) do

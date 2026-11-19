@@ -38,7 +38,11 @@ class PopOut(unittest.TestCase):
                                  sandboxes=(ROOT / 'tests', 'po??????'))
         out = (ran.stdout + ran.stderr).strip()
         print('    ' + out.replace('\n', '\n    '))
-        self.assertEqual(ran.returncode, 0, out)
+        # the failed checks last: the changed-files runner shows only the end of the output, which was the pop-out's
+        # closing chatter, so an intermittent failure (2026-11-19, twice) never said which check it was
+        lines = out.splitlines()
+        failed = [l for i, l in enumerate(lines) if l.startswith('FAIL') or (i and lines[i - 1].startswith('FAIL') and l.startswith('  '))]
+        self.assertEqual(ran.returncode, 0, out + ('\n--- the checks that failed ---\n' + '\n'.join(failed[-12:]) if failed else ''))
 
     def test_the_pop_out_and_its_editor(self):
         self.lua('test_popout.lua', 240)

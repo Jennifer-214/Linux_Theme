@@ -1080,8 +1080,13 @@ inline J flow(const Graph& g, size_t focus, int depth, long to = -1, long start 
     }
     for (size_t v = 0; v < g.nodes.size(); ++v)
         for (const auto& [w, mask] : g.out[v])
-            if ((up[v] >= 0 && up[w] >= 0 && v != focus) || (down[v] >= 0 && down[w] >= 0 && w != focus))
-                edges.push_back(J{{"from", text(g.nodes[v], "id")}, {"to", text(g.nodes[w], "id")}, {"kind", mask ? kinds_of(mask) : "none"}});
+            if ((up[v] >= 0 && up[w] >= 0 && v != focus) || (down[v] >= 0 && down[w] >= 0 && w != focus)) {
+                J edge{{"from", text(g.nodes[v], "id")}, {"to", text(g.nodes[w], "id")}, {"kind", mask ? kinds_of(mask) : "none"}};
+                // where the call is, when the map read it (the map's gj/gk say it)
+                const auto facts = g.calls.find({v, w});
+                if (facts != g.calls.end() && facts->second.contains("line")) edge["line"] = facts->second["line"];
+                edges.push_back(edge);
+            }
     J out{{"ok", true}, {"q", "flow"}, {"focus", text(g.nodes[focus], "id")}, {"depth", depth}, {"nodes", nodes}, {"edges", edges}, {"lane", lane}};
     if (to >= 0) { out["to"] = text(g.nodes[static_cast<size_t>(to)], "id"); out["reached"] = t["reached"]; }
     if (start >= 0) { out["start"] = text(g.nodes[static_cast<size_t>(start)], "id"); out["start_reached"] = t["start_reached"]; }
