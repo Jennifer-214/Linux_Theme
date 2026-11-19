@@ -2088,6 +2088,7 @@ local function page_of(view)
   if level.kind == 'pick' then return M.level_pick(level) end
   if level.kind == 'findings' then return M.level_findings(level) end
   if level.kind == 'stack' then return M.level_stack(level) end
+  if level.kind == 'sanitizer' then return M.level_sanitizer(level) end
   local answer = cached(view, 'module:' .. level.module)
   if not answer then return nil end
   if level.kind == 'files' then return M.level_files(answer, level.module, level.all) end
@@ -2976,6 +2977,91 @@ function M.level_stack(level)
   end
   return { crumbs = { 'stack' }, sections = sections }
 end
+--- pure: a sanitizer's report (AddressSanitizer, ThreadSanitizer, LeakSanitizer) as its stacks, each with its title and
+--- frames { name, path, line }: the bad access, where the memory was freed, where it was allocated (Codex's #17). And
+--- for each stack, the first frame whose function another stack has too (where the stories meet): stack.shared = index.
+function M.sanitizer_stacks(text)
+  local out, current = { stacks = {} }, nil
+  for line in (tostring(text or '') .. '\n'):gmatch('([^\n]*)\n') do
+    local kind = line:match('ERROR: (%a+Sanitizer: [%w%-]+)') or line:match('WARNING: (%a+Sanitizer: [%w%- ]+)')
+    if kind and not out.kind then out.kind = vim.trim(kind) end
+    local title = line:match('^%s*((%u%u+) of size %d+ at %S+ by thread %S+)') or line:match('^%s*((%u%u+) of size %d+ at %S+ thread %S+)')
+      or line:match('^%s*(freed by thread %S+) here:') or line:match('^%s*(previously allocated by thread %S+) here:')
+      or line:match('^%s*(allocated by thread %S+) here:') or line:match('^%s*(Previous %a+ of size %d+ at %S+ by thread %S+).*:$')
+      or line:match('^%s*(%a+ of size %d+ at %S+ by thread %S+).*:$') or line:match('^%s*(Direct leak of %d+ byte%(?s?%)? in %d+ object%(?s?%)?) allocated from:')
+    if title then
+      current = { title = title:gsub('^previously ', ''):gsub(' at 0x%x+', ''), frames = {} }
+      out.stacks[#out.stacks + 1] = current
+    else
+      local name, where = line:match('^%s*#%d+%s+0x%x+%s+in%s+(.-)%s+(%S+)%s*$')
+      if current and name then
+        local path, l = where:match('^(.-):(%d+):%d+$')
+        if not path then path, l = where:match('^(.-):(%d+)$') end
+        if not path and where:match('^%(') then path = nil end
+        current.frames[#current.frames + 1] = { name = name, path = path, line = tonumber(l) }
+      elseif line:match('^%s*$') and current and #current.frames > 0 then
+        current = nil
+      end
+    end
+  end
+  -- where the stacks meet: each stack's first frame whose function another has too
+  local function short(n) return (tostring(n):gsub('%b()', ''):match('([%w_~:]+)%s*$')) or n end
+  for i, st in ipairs(out.stacks) do
+    for k, f in ipairs(st.frames) do
+      local hit = false
+      for j, other in ipairs(out.stacks) do
+        if j ~= i then for _, g in ipairs(other.frames) do if short(g.name) == short(f.name) then hit = true end end end
+      end
+      if hit then st.shared = k; break end
+    end
+  end
+  return out
+end
+function M.level_sanitizer(level)
+  local report = level.report or { stacks = {} }
+  local sections = { { head = (report.kind or 'sanitizer report') .. ' · ' .. #report.stacks .. (#report.stacks == 1 and ' stack' or ' stacks') } }
+  if #report.stacks == 0 then
+    sections[#sections + 1] = { parts = { { 'No sanitizer stack in this text (an AddressSanitizer or ThreadSanitizer report has lines like "#0 0x… in f file.c:12").' } }, group = 'DeskMapDim' }
+  end
+  local mark = M.retro() and '♦' or '◆'
+  local short = function(n) return (tostring(n):gsub('%b()', ''):match('([%w_~:]+)%s*$')) or n end
+  for _, st in ipairs(report.stacks) do
+    sections[#sections + 1] = { head = st.title }
+    local rows = {}
+    for k, f in ipairs(st.frames) do
+      local rel = f.rel or (f.path and vim.fs.basename(f.path)) or 'no source'
+      local item = f.rel and node_item({ id = f.rel .. ':' .. tostring(f.line), label = f.name, file = f.rel, line = f.line }) or nil
+      local here = st.shared == k
+      rows[#rows + 1] = { { string.format('#%-2d ', k - 1), nil, nil, 'DeskMapDim' }, { (here and (mark .. ' ') or '') .. short(f.name), item, nil, here and 'DeskMapFocus' or nil },
+        { '  ' .. rel .. (f.line and (':' .. f.line) or '') .. (here and '  where the stacks meet' or ''), nil, nil, here and 'DeskMapFocus' or 'DeskMapDim' } }
+    end
+    sections[#sections + 1] = { block = rows }
+  end
+  return { crumbs = { 'sanitizer' }, sections = sections }
+end
+-- The report in this buffer (a test's log, a pasted report) or, with none there, the clipboard: its stacks on the map.
+function M.sanitizer_on_map(text)
+  text = text or table.concat(api.nvim_buf_get_lines(0, 0, -1, false), '\n')
+  local report = M.sanitizer_stacks(text)
+  if #report.stacks == 0 then
+    local clip = vim.fn.getreg('+')
+    if clip ~= '' then report = M.sanitizer_stacks(clip) end
+  end
+  if #report.stacks == 0 then return tell('No sanitizer report in this buffer or the clipboard.') end
+  local first
+  for _, st in ipairs(report.stacks) do for _, f in ipairs(st.frames) do first = first or (f.path and f.path:sub(1, 1) == '/' and f.path) end end
+  local root = first and vim.fs.root(first, '.git') or vim.fs.root(0, '.git') or vim.fn.getcwd()
+  root = uv.fs_realpath(root) or root
+  for _, st in ipairs(report.stacks) do
+    for _, f in ipairs(st.frames) do
+      local real = f.path and (uv.fs_realpath(f.path) or f.path)
+      if real and real:sub(1, #root + 1) == root .. '/' then f.rel = real:sub(#root + 2) end
+    end
+  end
+  local view = M.open(root)
+  push(view, { kind = 'sanitizer', report = report })
+  return view
+end
 -- Space c s while stopped: the stack on the map, in the pop-out's map when it shows this checkout.
 function M.stack_on_map()
   local frames, why, thread = M.dap_frames()
@@ -3407,6 +3493,9 @@ local ROWS = actions.add({
     about = "While the debugger is stopped: its stack, frame by frame (`Enter` opens each), and which of the stopped function's callers in the map are on it — the live caller or the replay one",
     available = function() local f, why = M.dap_frames(); return f and true or why end,
     run = function() M.stack_on_map() end },
+  { id = 'map.sanitizer', group = GROUP, name = "A sanitizer report's stacks on the map", on = 'editor', remote = false,
+    about = "The AddressSanitizer or ThreadSanitizer report in this buffer (a test's log) or the clipboard: the bad access, where the memory was freed, where it was allocated, each a stack of its own, the function where they meet marked; `Enter` on a frame opens it",
+    run = function() M.sanitizer_on_map() end },
   { id = 'map.trace-here', group = GROUP, name = 'Trace a possible path through this function', key = '<leader>cp', on = 'editor', remote = true,
     about = 'The path through the function at the cursor, up to where it starts and down to where it ends, with each step\'s parameters and the arguments it is called with (in the pop-out\'s map when it shows one)',
     run = function() M.trace_here() end },

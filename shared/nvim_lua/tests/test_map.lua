@@ -333,6 +333,47 @@ do
     and text:find("calls removed · 2", 1, true) and text:find("functions added · 1", 1, true) and text:find("1 lost their source match", 1, true),
     "W: the page, why first, then each list\n" .. text)
 end
+do
+  -- A sanitizer's report as its stacks, where they meet marked (Codex's #17).
+  local report = Map.sanitizer_stacks([==[
+=================================================================
+==12345==ERROR: AddressSanitizer: heap-use-after-free on address 0x602000000010 at pc 0x55d4 bp 0x7ffc sp 0x7ffc
+READ of size 4 at 0x602000000010 thread T0
+    #0 0x55d4c1 in drain(Ring*) /w/src/ring.cpp:41:12
+    #1 0x55d4c2 in tick(Engine&) /w/src/engine.cpp:88:3
+    #2 0x55d4c3 in main /w/src/main.cpp:9:5
+    #3 0x7f00 in __libc_start_main (/usr/lib/libc.so.6+0x27b8a)
+
+0x602000000010 is located 0 bytes inside of 4-byte region [0x602000000010,0x602000000014)
+freed by thread T0 here:
+    #0 0x55aa in operator delete(void*) (/w/build/app+0x1234)
+    #1 0x55d4d1 in reset(Ring*) /w/src/ring.cpp:60:3
+    #2 0x55d4c2 in tick(Engine&) /w/src/engine.cpp:85:3
+    #3 0x55d4c3 in main /w/src/main.cpp:9:5
+
+previously allocated by thread T0 here:
+    #0 0x55bb in operator new(unsigned long) (/w/build/app+0x2234)
+    #1 0x55d4e1 in make_ring() /w/src/ring.cpp:12:10
+    #2 0x55d4c3 in main /w/src/main.cpp:7:5
+
+SUMMARY: AddressSanitizer: heap-use-after-free /w/src/ring.cpp:41:12 in drain(Ring*)
+]==])
+  eq(report.kind, "AddressSanitizer: heap-use-after-free", "the report's kind")
+  eq(vim.tbl_map(function(st) return { st.title, #st.frames, st.shared } end, report.stacks), {
+    { "READ of size 4 thread T0", 4, 2 }, { "freed by thread T0", 4, 3 }, { "allocated by thread T0", 3, 3 } },
+    "three stacks: the access, the free, the allocation; each meets the others first at tick or main")
+  eq({ report.stacks[1].frames[1].name, report.stacks[1].frames[1].path, report.stacks[1].frames[1].line, report.stacks[2].frames[1].path },
+    { "drain(Ring*)", "/w/src/ring.cpp", 41, nil }, "a frame: its function, file and line; one in a library has no source")
+  for _, st in ipairs(report.stacks) do for _, f in ipairs(st.frames) do if f.path then f.rel = f.path:gsub("^/w/", "") end end end
+  local page = Map.layout(Map.level_sanitizer({ report = report }), 110, false)
+  local text = table.concat(page.lines, "\n")
+  ok(text:find("AddressSanitizer: heap-use-after-free · 3 stacks", 1, true) and text:find("freed by thread T0", 1, true)
+    and text:find("◆ tick  src/engine.cpp:88  where the stacks meet", 1, true) and text:find("◆ main  src/main.cpp:7  where the stacks meet", 1, true),
+    "the page: each stack, the frame where it meets the others marked\n" .. text)
+  local row, l = line_with(page.lines, "drain  src/ring.cpp:41")
+  eq(row and Map.item_at(page, row, l:find("drain", 1, true)).target.node.file, "src/ring.cpp", "… each frame with source a function to open")
+  eq(#Map.sanitizer_stacks("no report here").stacks, 0, "text with no report: no stacks")
+end
 -- The trace page: a box per step (the function itself double), its parameters under it, the call between steps with
 -- each argument → the parameter it lands in, and the other callers and callees, Enter-able.
 local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16,
