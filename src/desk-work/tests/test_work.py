@@ -1257,6 +1257,26 @@ class Work(unittest.TestCase):
         self.assertEqual(([c["subject"] for c in got["commits"]], got["files"]), (["a slower tick"], ["engine.c"]), "… and what changed between them")
         self.assertEqual(json.loads(self.invoke("metrics", "--job", slow, "--against", "f" * 32, code=1))["ok"], False)
 
+    def test_a_runs_coverage_kept_with_it(self):
+        lcov = "SF:engine.c\nFN:1,tick\nFN:5,spare\nFNDA:3,tick\nFNDA:0,spare\nDA:1,3\nDA:2,3\nDA:5,0\nend_of_record\nSF:/elsewhere/lib.c\nDA:1,1\nend_of_record\n"
+        # a run that writes lcov.info where it runs: its coverage found and kept with it (Codex's #16)
+        self.execute("open('lcov.info', 'w').write(%r)" % lcov)
+        run = self.data("jobs")[0]
+        self.assertEqual(run["coverage"]["files"], 1, "found after the run: one file of this checkout (the one outside left out)")
+        got = self.data("coverage", "--run", run["id"], "--file", "engine.c")
+        f = got["files"]["engine.c"]
+        self.assertEqual((f["lines"], [(x["name"], x["line"], x["count"]) for x in f["functions"]], got["head"] == run["head"], got["command"] == run["command"]),
+                         ({"1": 3, "2": 3, "5": 0}, [("tick", 1, 3), ("spare", 5, 0)], True, True),
+                         "its lines and functions with their counts, the run's commit and command with them")
+        # attached by hand to another run, with the executable named
+        self.execute("print('no coverage here')")
+        other = self.data("jobs")[0]["id"]
+        self.assertFalse(json.loads(self.invoke("coverage", "--run", other, code=1))["ok"], "a run with none: said")
+        (self.repo / "cov.info").write_text(lcov.replace("DA:2,3", "DA:2,0"))
+        self.assertEqual(self.data("coverage", "add", "--run", other, "--lcov", self.repo / "cov.info", "--executable", "/w/build/app")["files"], 1)
+        again = self.data("coverage", "--run", other)
+        self.assertEqual((again["executable"], again["files"]["engine.c"]["lines"]["2"]), ("/w/build/app", 0), "… another test's run: another branch")
+
     def agent(self, state, *extra):
         return self.data("agent-update", "--agent", "claude", "--session", "s1", "--pid", os.getpid(), "--state", state,
                          "--title", "Queue work", *extra)

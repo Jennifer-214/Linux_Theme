@@ -664,6 +664,62 @@ J metrics_between(const std::string& root, const std::string& id, const std::str
     if (a == b && !a.empty()) out["same_commit"] = true;
     return out;
 }
+// ─── coverage of one run (Codex's #16): an lcov file the run produced, kept with the run ────────────────────────────
+// lcov's SF/FN/FNDA/DA lines → { files: { rel: { lines: { "12": count }, functions: [{ name, line, count }] } } }, paths
+// relative to the checkout (one outside it is left out); at most 4000 files.
+J lcov_coverage(const std::string& text, const std::string& root, const std::string& base) {
+    J files = J::object();
+    std::string rel;
+    std::map<std::string, long long> fn_line;
+    J* cur = nullptr;
+    for (const auto& raw : split(text, '\n')) {
+        const auto line = trim(raw);
+        if (line.rfind("SF:", 0) == 0) {
+            auto path = fs::path(line.substr(3));
+            if (path.is_relative()) path = fs::path(base) / path;
+            const auto r = path.lexically_normal().lexically_relative(root);
+            rel = (r.empty() || *r.begin() == "..") ? std::string() : r.string();
+            fn_line.clear();
+            cur = nullptr;
+            if (!rel.empty() && files.size() < 4000) {
+                if (!files.contains(rel)) files[rel] = J{{"lines", J::object()}, {"functions", J::array()}};
+                cur = &files[rel];
+            }
+        } else if (!cur) continue;
+        else if (line.rfind("FN:", 0) == 0) {
+            const auto comma = line.find(',');
+            if (comma != std::string::npos) fn_line[line.substr(comma + 1)] = std::atoll(line.substr(3, comma - 3).c_str());
+        } else if (line.rfind("FNDA:", 0) == 0) {
+            const auto comma = line.find(',');
+            if (comma != std::string::npos && (*cur)["functions"].size() < 2000) {
+                const auto name = line.substr(comma + 1);
+                (*cur)["functions"].push_back(J{{"name", name.substr(0, 200)}, {"line", fn_line.count(name) ? fn_line[name] : 0},
+                                                {"count", std::atoll(line.substr(5, comma - 5).c_str())}});
+            }
+        } else if (line.rfind("DA:", 0) == 0) {
+            const auto comma = line.find(',');
+            if (comma != std::string::npos) {
+                const auto n = line.substr(3, comma - 3);
+                const auto count = std::atoll(line.substr(comma + 1).c_str());
+                auto& lines = (*cur)["lines"];
+                lines[n] = lines.contains(n) ? lines[n].get<long long>() + count : count;
+            }
+        }
+    }
+    return files;
+}
+// A run's coverage kept beside it: the files, the lcov it came from, the executable (when named), the run's commit.
+bool attach_coverage(J& run, const fs::path& lcov, const std::string& executable) {
+    std::error_code ec;
+    if (!fs::is_regular_file(lcov, ec) || fs::file_size(lcov, ec) > 256u * 1024 * 1024) return false;
+    const auto files = lcov_coverage(read(lcov, 256u * 1024 * 1024), str(run, "root"), str(run, "cwd").empty() ? str(run, "root") : str(run, "cwd"));
+    if (files.empty()) return false;
+    const J doc{{"version", 1}, {"run", str(run, "id")}, {"lcov", lcov.string()}, {"executable", executable.empty() ? J() : J(executable)},
+                {"head", str(run, "head")}, {"files", files}};
+    if (!atomic(run_dir(str(run, "id")) / "coverage.json", doc.dump(), false)) return false;
+    run["coverage"] = J{{"files", files.size()}, {"lcov", lcov.string()}};
+    return true;
+}
 // How many runs of the same command in the same checkout failed in a row just before this one; a stop is skipped.
 long long failed_before(const J& job) {
     long long n = 0; const auto started = num(job, "startedNs", num(job, "started") * 1000000000LL);
@@ -704,6 +760,18 @@ bool finish(J& j, int code, bool truncated, const J& said = J::object()) {
     // Changed while it ran only when that can be told: an incomplete snapshot alone said so of every run.
     std::map<std::string, TreeNow> seen;
     if (source_now(j, snapshot(str(j, "root")), seen) == "stale") j["changedDuringRun"] = true;
+    // An lcov file the run wrote where it ran (lcov.info, coverage.info, coverage/lcov.info), newer than its start: its
+    // coverage, kept with it.
+    if (!tool && !str(j, "cwd").empty()) {
+        std::error_code ec;
+        for (const char* name : {"lcov.info", "coverage.info", "coverage/lcov.info"}) {
+            const auto at = fs::path(str(j, "cwd")) / name;
+            struct stat st{};
+            if (!fs::is_regular_file(at, ec) || ::stat(at.c_str(), &st) != 0) continue;
+            const long long written = static_cast<long long>(st.st_mtim.tv_sec) * 1000000000LL + st.st_mtim.tv_nsec;
+            if (written >= num(j, "startedNs", num(j, "started") * 1000000000LL)) { attach_coverage(j, at, ""); break; }
+        }
+    }
     if (unknown || !complete || j.value("changedDuringRun", false) || num(j["tests"], "failed") > 0) j["baselineEligible"] = false;
     else j["baselineEligible"] = j["testRun"].get<bool>() && code == 0 && num(j["tests"], "passed") > 0 && j["snapshot"].value("complete", false);
     if (!save_run(run_dir(str(j, "id")), j)) return false;
@@ -1797,7 +1865,7 @@ int dispatch(int argc, char** argv) {
         const auto cmd = args[0];
         invoked = cmd;
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "set-aside", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve", "metrics", "metrics-parse", "since", "editors", "editor"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "set-aside", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve", "metrics", "coverage", "metrics-parse", "since", "editors", "editor"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
@@ -1987,6 +2055,27 @@ int dispatch(int argc, char** argv) {
         else if (cmd == "notebook") out = notebook(root, opts["--session"], opts["--loaded"], opts["--health"] == "yes");
         else if (cmd == "worktrees") out = worktrees(root);
         else if (cmd == "metrics" && opts.count("--against")) out = metrics_between(root, opts.count("--job") ? opts["--job"] : id, opts["--against"]);
+        else if (cmd == "coverage") {
+            // coverage --run RUN [--file REL] | coverage add --run RUN --lcov FILE [--executable PATH]
+            auto run = load_run(opts["--run"]);
+            if (!run.is_object() || str(run, "root") != root) out = refuse("That run is not one of this checkout's");
+            else if (args.size() > 1 && args[1] == "add") {
+                out = attach_coverage(run, fs::absolute(opts["--lcov"]), opts["--executable"]) && save_run(run_dir(str(run, "id")), run)
+                    ? J{{"ok", true}, {"files", run["coverage"]["files"]}} : refuse("No coverage of this checkout's files in " + opts["--lcov"]);
+            } else {
+                auto doc = json(run_dir(str(run, "id")) / "coverage.json");
+                if (!doc.is_object()) out = refuse("This run kept no coverage; desk-work coverage add --run RUN --lcov FILE attaches one");
+                else {
+                    if (!opts["--file"].empty()) {
+                        J only = J::object();
+                        if (doc["files"].contains(opts["--file"])) only[opts["--file"]] = doc["files"][opts["--file"]];
+                        doc["files"] = only;
+                    }
+                    doc["ok"] = true; doc["command"] = str(run, "command"); doc["ended"] = num(run, "ended");
+                    out = doc;
+                }
+            }
+        }
         else if (cmd == "metrics") out = metrics_report(root, opts.count("--job") ? opts["--job"] : id);
         else if (cmd == "since") out = since_page(root, opts["--reader"].empty() ? "nvim" : opts["--reader"], opts["--mark"] == "yes");
         else if (cmd == "map") return map_command(args, opts);

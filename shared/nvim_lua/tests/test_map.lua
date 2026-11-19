@@ -401,6 +401,22 @@ do
   ok(inlined:find("No symbol of its own in app: inlined into every caller, or not built into it", 1, true), "none in a binary that was read: why")
   ok(page({ node = { label = "tiny" }, provider = { name = "binary", state = "not built" } }):find("Requires a built binary", 1, true), "no binary read: what it needs")
 end
+do
+  -- A test run's coverage in a file (Codex's #16): covered lines one colour, missed another, each function's count.
+  local W = require("desk.work")
+  local cbuf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(cbuf, 0, -1, false, { "int tick() {", "  if (x) return 1;", "  return 0;", "}", "int spare() { return 2; }", "" })
+  local ran, missed = W.coverage_marks(cbuf, { lines = { ["1"] = 3, ["2"] = 0, ["3"] = 3, ["9"] = 1 }, functions = { { name = "tick", line = 1, count = 3 }, { name = "spare", line = 5, count = 0 } } })
+  eq({ ran, missed }, { 2, 1 }, "two lines ran, one did not (a line past the end left out)")
+  local signs, texts = {}, {}
+  for _, m in ipairs(vim.api.nvim_buf_get_extmarks(cbuf, W.cover_ns, 0, -1, { details = true })) do
+    if m[4].sign_hl_group then signs[m[2] + 1] = m[4].sign_hl_group end
+    if m[4].virt_text then texts[m[2] + 1] = m[4].virt_text[1][1] end
+  end
+  eq({ signs[1], signs[2], signs[3] }, { "DeskCoverRan", "DeskCoverNot", "DeskCoverRan" }, "… each line's mark")
+  eq({ texts[1], texts[5] }, { "  ran 3×", "  not run" }, "… and each function's count beside it")
+  vim.api.nvim_buf_delete(cbuf, { force = true })
+end
 -- The trace page: a box per step (the function itself double), its parameters under it, the call between steps with
 -- each argument → the parameter it lands in, and the other callers and callees, Enter-able.
 local trace_answer = { ok = true, q = "trace", focus = "e.cpp::tick", depth = 16,

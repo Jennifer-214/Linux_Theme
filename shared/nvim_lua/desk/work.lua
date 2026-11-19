@@ -643,6 +643,69 @@ end
 local actions = require('desk.actions')
 local function desk_work() return vim.fn.executable('desk-work') == 1 or 'requires desk-work' end
 local function claude_api() return vim.fn.executable('claude-api') == 1 or 'requires claude-api' end
+-- ─── coverage of one run (Codex's #16) ────────────────────────────────────────────────────────────────────────────
+-- The lines and functions a chosen test run covered, marked in this file: covered lines one colour, missed ones
+-- another, each function's count beside it; the run, its command, executable and commit said with it. Another run's
+-- coverage replaces it (does that test take another branch?); chosen again with the same run, it goes.
+local cover_ns = vim.api.nvim_create_namespace('desk_coverage')
+M.cover_ns = cover_ns
+--- pure-ish: the marks a run's coverage of one file puts in buffer `buf` → how many lines covered / missed.
+function M.coverage_marks(buf, cov)
+  vim.api.nvim_buf_clear_namespace(buf, cover_ns, 0, -1)
+  if vim.fn.hlexists('DeskCoverRan') == 0 or next(vim.api.nvim_get_hl(0, { name = 'DeskCoverRan' })) == nil then
+    vim.api.nvim_set_hl(0, 'DeskCoverRan', { link = 'DiffAdd', default = true })
+    vim.api.nvim_set_hl(0, 'DeskCoverNot', { link = 'DiffDelete', default = true })
+  end
+  local count = vim.api.nvim_buf_line_count(buf)
+  local ran, missed = 0, 0
+  for n, c in pairs(cov.lines or {}) do
+    local line = tonumber(n)
+    if line and line >= 1 and line <= count then
+      if (tonumber(c) or 0) > 0 then ran = ran + 1 else missed = missed + 1 end
+      pcall(vim.api.nvim_buf_set_extmark, buf, cover_ns, line - 1, 0, { sign_text = '▎', sign_hl_group = (tonumber(c) or 0) > 0 and 'DeskCoverRan' or 'DeskCoverNot', priority = 15 })
+    end
+  end
+  for _, f in ipairs(cov.functions or {}) do
+    local line = tonumber(f.line)
+    if line and line >= 1 and line <= count then
+      local c = tonumber(f.count) or 0
+      pcall(vim.api.nvim_buf_set_extmark, buf, cover_ns, line - 1, 0, { virt_text = { { c > 0 and ('  ran ' .. c .. '×') or '  not run', c > 0 and 'DeskCoverRan' or 'DeskCoverNot' } },
+        virt_text_pos = 'eol', priority = 15 })
+    end
+  end
+  return ran, missed
+end
+function M.coverage(root)
+  local buf = vim.api.nvim_get_current_buf()
+  local path = vim.api.nvim_buf_get_name(buf)
+  root = root or vim.fs.root(path ~= '' and path or 0, '.git') or vim.fn.getcwd()
+  local real_root = vim.uv.fs_realpath(root) or root
+  local rel = (vim.uv.fs_realpath(path) or path):sub(#real_root + 2)
+  call('coverage-jobs', { 'jobs', '--root', real_root }, function(runs)
+    local with = vim.tbl_filter(function(r) return type(r) == 'table' and type(r.coverage) == 'table' end, runs or {})
+    if #with == 0 then return vim.notify('No run in this checkout kept coverage (a run that writes lcov.info, or desk-work coverage add).') end
+    vim.ui.select(with, { prompt = 'Coverage of which run', format_item = function(r)
+      return os.date('%m-%d %H:%M', r.ended or 0) .. '  ' .. tostring((r.title or '') ~= '' and r.title or r.command) .. '  ' .. tostring(r.head or ''):sub(1, 7)
+    end }, function(r)
+      if not r then return end
+      if vim.b[buf].desk_coverage == r.id then
+        vim.api.nvim_buf_clear_namespace(buf, cover_ns, 0, -1); vim.b[buf].desk_coverage = nil
+        return vim.notify('Coverage marks taken off.')
+      end
+      call('coverage', { 'coverage', '--root', real_root, '--run', r.id, '--file', rel }, function(doc)
+        if not (doc and doc.ok ~= false) then return vim.notify('That run kept no coverage.', vim.log.levels.WARN) end
+        local cov = (doc.files or {})[rel]
+        local said = 'run ' .. tostring(r.id):sub(1, 8) .. ' · ' .. tostring(doc.command or r.command) .. ' · ' .. (doc.executable ~= vim.NIL and doc.executable or 'executable not named')
+          .. ' · at ' .. tostring(doc.head or ''):sub(1, 7)
+        if not cov then return vim.notify(rel .. ' is not in the coverage of ' .. said .. '.') end
+        local ran, missed = M.coverage_marks(buf, cov)
+        vim.b[buf].desk_coverage = r.id
+        vim.notify('Coverage of ' .. said .. ': ' .. ran .. ' lines ran, ' .. missed .. ' did not.')
+      end)
+    end)
+  end)
+end
+
 local ROWS = actions.add({
   { id = 'work.api-review', group = 'Review', name = 'Review changes using API credits', key = '<leader>CR', on = 'editor', available = claude_api,
     about = 'Review the uncommitted changes on API credits, read-only; you choose the model and a budget first', run = function() M.api_review() end },
@@ -657,6 +720,9 @@ local ROWS = actions.add({
     end },
   { id = 'work.tests', group = 'Work', name = 'Claude test failures', key = '<leader>Ce', on = 'editor', remote = true, also = '`:WorkTests`',
     available = desk_work, about = "The last test run's failures as a jump list (its log when it has no locations)", run = function() M.tests() end },
+  { id = 'work.coverage', group = 'Work', name = "A test run's coverage in this file", on = 'editor', available = desk_work,
+    about = "The lines and functions one test run covered, marked in this file (a run that wrote lcov.info, or one desk-work coverage add gave): another run's replaces it, to see whether it takes another branch; the run, its command, executable and commit said with it",
+    run = function() M.coverage() end },
   { id = 'work.tasks', group = 'Work', name = 'Project next steps', key = '<leader>Ck', on = 'editor', available = desk_work,
     about = 'Pinned next steps for this project: pin one, mark it done, or turn it into a note for Claude', run = function() M.tasks() end },
 })
