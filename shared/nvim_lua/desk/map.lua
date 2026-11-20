@@ -2802,6 +2802,7 @@ local function push(view, level, from)
   load(view)
   if before then pop().stepped(view, before) end
 end
+M._push = push
 
 -- - in the pop-out: out a level (its Backspace is the pop-out's own: back through what happened there).
 local function zoom_out(view)
@@ -4206,16 +4207,31 @@ local ON_IT = { remote = true, subject = map_subject }
 -- j/k/h/l go box to box, as in the call graph (its nav): a box is several lines tall and the gaps hold
 -- nothing, so line by line left the cursor between boxes. In the pop-out they move its selection (ctx.copy); here they
 -- go from the box under the cursor (or the nearest one, from a gap) and put the cursor on the next box's name.
+--- pure: whether h or l on this item toggles its fold (2026-11-19, her "can h and l open and close things like this"):
+--- l on a closed fold's header opens it, h on an open one closes it; anything else moves as before. item: the page's
+--- (target.kind 'fold') or the pop-out's copy of it (its key 'fold:…'), with open.
+function M.fold_move(item, how)
+  if type(item) ~= 'table' then return false end
+  local fold = (type(item.target) == 'table' and item.target.kind == 'fold') or (type(item.key) == 'string' and item.key:sub(1, 5) == 'fold:')
+  if not fold then return false end
+  return (how == 'right' and item.open ~= true) or (how == 'left' and item.open == true)
+end
 local function moving(how, key, name, line, doc)
   return { id = 'map.' .. how, group = GROUP, name = name, about = name, key = key, on = 'map', menu = false, drawn = true,
     line = line and ('map.' .. line) or nil, doc = doc,
     run = function(ctx)
       local G = require('desk.callgraph')
-      if ctx.copy then return G.move(ctx.copy, how) end
+      if ctx.copy then
+        local s = ctx.copy
+        local box = s.drawn and s.index and s.drawn.boxes[s.index]
+        if M.fold_move(box, how) then return actions.get('map.in').run(ctx) end
+        return G.move(ctx.copy, how)
+      end
       local view = ctx.map
       if not (valid(view) and view.drawn and view.win and api.nvim_win_is_valid(view.win)) then return end
       local boxes, cursor = view.drawn.items or {}, api.nvim_win_get_cursor(view.win)
       local under, at = M.item_at(view.drawn, cursor[1], cursor[2]), nil
+      if M.fold_move(under, how) then return enter(view, ctx) end
       for i, b in ipairs(boxes) do if under and b.item == under then at = i end end
       if not at then
         local gap = math.huge
@@ -4447,7 +4463,7 @@ local ROWS = actions.add({
     about = 'To a function that calls the selected box, however far up the page; again, the next one that calls it (wrapping), or on up when only one does',
     run = function(ctx) if ctx.copy then return require('desk.callgraph').along(ctx.copy, 'up') end; if valid(ctx.map) and ctx.map.sel then require('desk.callgraph').along(ctx.map.sel, 'up') end end },
   moving('up', 'k', 'The box above', 'down'),
-  moving('left', 'h', 'The box to the left', nil, 'The box to the left / right in the same row'),
+  moving('left', 'h', 'The box to the left', nil, 'The box to the left / right in the same row; on a fold, close / open it'),
   moving('right', 'l', 'The box to the right', 'left'),
 })
 
@@ -4529,7 +4545,8 @@ local function render_view(view, width, style)
     items[#items + 1] = { key = key, kind = 'box', line = p.line, name_col = p.name_col, x = p.x, w = p.w, spans = p.spans,
       centre = p.centre == true, gauge = p.gauge, gauge_band = p.gauge_band, gauge_col = p.gauge_col, name = tostring(p.item.name or ''),
       where = type(p.item.detail) == 'string' and p.item.detail ~= '' and p.item.detail or nil, ref = p.item,
-      near = p.near, down = p.down, up = p.up, down_sites = p.down_sites, up_sites = p.up_sites, unrun = p.item.unrun == true or nil }
+      near = p.near, down = p.down, up = p.up, down_sites = p.down_sites, up_sites = p.up_sites, unrun = p.item.unrun == true or nil,
+      open = p.item.open == true or nil }
   end
   -- The key line says what the selected thing is and what its keys do there (the pop-out shows it while it is selected).
   for _, it in ipairs(items) do

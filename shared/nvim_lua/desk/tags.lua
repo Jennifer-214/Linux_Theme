@@ -1,11 +1,11 @@
 -- Tag-comment markers: colour the [KEY]_[value] grammar inside // comments by shape (keys, [END_*] closers, values,
--- nested [CHIPS]), never by vocabulary, so it works in any project using the format. Drawn by a decoration provider
--- on the lines being drawn, priority above treesitter (100) and LSP tokens (125).
+-- nested [CHIPS]), never by vocabulary, so it works in any project using the format. Priority above treesitter (100)
+-- and LSP tokens (125).
 --
--- Each line's marks are worked out once per change of the buffer (its changedtick) and painted from that on every
--- redraw: scrolling over unchanged text scans nothing (2026-11-19, her profile: 19% of Neovim's time was every visible
--- line re-read and re-scanned on every redraw). A section banner depends on the lines around it, so any edit starts
--- the buffer's marks again.
+-- The marks are stored on the buffer (extmarks): scanned once when a C or C++ buffer opens, and after an edit only the
+-- lines it changed are scanned again, with a line either side (a banner depends on its neighbours). Redraws, scrolling
+-- and j cost nothing here (2026-11-19, her profiles: 19% of Neovim's time with every visible line scanned on every
+-- redraw, then 21% with the scans kept but every mark painted again on every redraw, hundreds a j on a 4K screen).
 local M = {}
 local api = vim.api
 local ns = api.nvim_create_namespace("foxml_tag_markers")
@@ -54,43 +54,69 @@ function M.scan(line, above, below, headers)
   end
 end
 
--- buf → { tick, rows = { [row] = marks } }
-local kept = {}
+M.ns = ns
+local attached = {}
 
-function M._on_win(_, _, buf)
-  if not TAG_FTS[vim.bo[buf].filetype] then return false end
-  local tick = api.nvim_buf_get_changedtick(buf)
-  local k = kept[buf]
-  if not k or k.tick ~= tick then kept[buf] = { tick = tick, rows = {} } end
+-- rows first..last (0-based, inclusive): their marks cleared and placed again from their text
+local function paint(buf, first, last)
+  local count = api.nvim_buf_line_count(buf)
+  first, last = math.max(0, first), math.min(count - 1, last)
+  if last < first then return end
+  local from = math.max(0, first - 1)
+  local around = api.nvim_buf_get_lines(buf, from, math.min(count, last + 2), false)
+  api.nvim_buf_clear_namespace(buf, ns, first, last + 1)
+  for row = first, last do
+    local i = row - from + 1
+    M._scans = M._scans + 1
+    for _, m in ipairs(M.scan(around[i], around[i - 1], around[i + 1], section_headers)) do
+      pcall(api.nvim_buf_set_extmark, buf, ns, row, m[1] - 1, { end_col = m[2], hl_group = m[3], priority = m[4] })
+    end
+  end
 end
 
-function M._on_line(_, _, buf, row)
-  local k = kept[buf]
-  if not k then return end
-  local marks = k.rows[row]
-  if not marks then
-    M._scans = M._scans + 1
-    local line = api.nvim_buf_get_lines(buf, row, row + 1, false)[1]
-    local above, below
-    if section_headers and line and line:match("^%s*//") then
-      local around = api.nvim_buf_get_lines(buf, math.max(row - 1, 0), row + 2, false)
-      above = row > 0 and around[1] or nil
-      below = around[row > 0 and 3 or 2]
-    end
-    marks = M.scan(line, above, below, section_headers)
-    k.rows[row] = marks
-  end
-  for _, m in ipairs(marks) do
-    api.nvim_buf_set_extmark(buf, ns, row, m[1] - 1, { end_col = m[2], hl_group = m[3], ephemeral = true, priority = m[4] })
-  end
+-- edits arrive inside the change: the rows they touched are gathered and painted once it is done
+local pending = {}
+local function later(buf, first, last)
+  local p = pending[buf]
+  if p then p[1], p[2] = math.min(p[1], first), math.max(p[2], last); return end
+  pending[buf] = { first, last }
+  vim.schedule(function()
+    local q = pending[buf]
+    pending[buf] = nil
+    if q and attached[buf] and api.nvim_buf_is_valid(buf) then paint(buf, q[1], q[2]) end
+  end)
+end
+
+--- Marks a C or C++ buffer's tags and keeps them as it is edited (once per buffer).
+function M.attach(buf)
+  buf = buf or api.nvim_get_current_buf()
+  if attached[buf] or not api.nvim_buf_is_valid(buf) or not TAG_FTS[vim.bo[buf].filetype] then return end
+  attached[buf] = true
+  paint(buf, 0, api.nvim_buf_line_count(buf) - 1)
+  api.nvim_buf_attach(buf, false, {
+    on_lines = function(_, b, _, first, _, last_new)
+      if not attached[b] then return true end
+      later(b, first - 1, last_new)
+    end,
+    on_reload = function(_, b) if attached[b] then later(b, 0, api.nvim_buf_line_count(b)) end end,
+    on_detach = function(_, b) attached[b] = nil end,
+  })
+end
+
+local function forget(buf)
+  if not attached[buf] then return end
+  attached[buf] = nil
+  pcall(api.nvim_buf_clear_namespace, buf, ns, 0, -1)
 end
 
 --- opts.section_headers: banners (// rules, and a title between two) drawn too.
 function M.setup(opts)
   section_headers = opts and opts.section_headers == true
-  api.nvim_set_decoration_provider(ns, { on_win = M._on_win, on_line = M._on_line })
-  api.nvim_create_autocmd("BufWipeout", { group = api.nvim_create_augroup("desk_tags", { clear = true }),
-    callback = function(a) kept[a.buf] = nil end })
+  local group = api.nvim_create_augroup("desk_tags", { clear = true })
+  api.nvim_create_autocmd("FileType", { group = group, callback = function(a)
+    if TAG_FTS[vim.bo[a.buf].filetype] then M.attach(a.buf) else forget(a.buf) end
+  end })
+  for _, b in ipairs(api.nvim_list_bufs()) do if api.nvim_buf_is_loaded(b) then M.attach(b) end end
 end
 
 return M

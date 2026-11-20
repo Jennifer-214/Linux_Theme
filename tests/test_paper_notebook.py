@@ -71,6 +71,18 @@ local parser = vim.env.NOTEBOOK_CPP_PARSER
 if parser and parser ~= '' then
   vim.treesitter.language.add('cpp',{path=parser})
   vim.treesitter.get_parser(buf,'cpp'):parse()
+  -- No saved choice: a new file shows its comments open (2026-11-19: closed comment folds made Neovim's highlighter
+  -- restart its search at every fold, ~100 ms a half-page on her 231-row window). Space tc still folds them.
+  do
+    local fresh = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_buf_set_name(fresh, vim.fn.fnamemodify(vim.env.NOTEBOOK_SOURCE, ':h') .. '/fresh.cpp')
+    vim.api.nvim_buf_set_lines(fresh, 0, -1, false, {'int a;', '// first', '// second', 'int b;'})
+    vim.bo[fresh].filetype = 'cpp'
+    vim.api.nvim_win_set_buf(0, fresh)
+    vim.wait(200, function() return false end)
+    assert(vim.fn.foldclosed(2) == -1, 'with no saved choice a new file opened with its comments folded')
+    vim.api.nvim_win_set_buf(0, buf)
+  end
   toggle()
   assert(vim.wo.foldtext == 'v:lua.FoxPaperFoldText()')
   assert(vim.fn.foldclosed(4) == 4, 'indented comments did not fold')

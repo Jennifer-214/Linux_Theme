@@ -88,6 +88,12 @@ jobs:
       - name: Install the matching test engine and TypeScript
         run: npm install --global --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@$CLAUDE_VERSION" "typescript@$TYPESCRIPT_VERSION"
       - name: Require the real notebook, editor, drawer and installer checks
+        # The checkout is another user's in this container, and the checks run sealed with a home of their own, where
+        # the checkout step's safe.directory (a temporary global config) is not seen: git's environment form is.
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: safe.directory
+          GIT_CONFIG_VALUE_0: "*"
         run: python -B tests/run_work_checks.py --output "$RUNNER_TEMP/work-checks"
       - name: Keep test logs
         if: always()

@@ -4116,7 +4116,9 @@ function _G.FoxCommentFoldExpr()
   return level
 end
 local comment_fold_state = vim.fn.stdpath("state") .. "/fox-comment-fold"
-local comment_fold_auto = vim.fn.filereadable(comment_fold_state) == 0 or vim.fn.readfile(comment_fold_state)[1] ~= "off"
+-- Open unless she chose folded (Space tc): closed comment folds made Neovim's highlighter restart its search at every
+-- fold, ~100 ms a half-page on a tall window (2026-11-19).
+local comment_fold_auto = vim.fn.filereadable(comment_fold_state) == 1 and vim.fn.readfile(comment_fold_state)[1] == "on"
 local function save_comment_fold_auto(on)
   comment_fold_auto = on
   pcall(vim.fn.mkdir, vim.fn.fnamemodify(comment_fold_state, ":h"), "p")

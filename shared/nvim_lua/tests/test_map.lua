@@ -2288,10 +2288,14 @@ do
   local saved_path = vim.env.PATH
   vim.env.PATH = "/usr/bin:/bin" -- git only (this section keeps every other program off PATH)
   local steps = A.how({ message = "callgraph" }, repo)
+  -- git's own word when it refused (CI, 2026-11-20: the sender went missing there only)
+  local said_ok, git_said = pcall(vim.fn.system, { "git", "-C", repo, "grep", "-c", "type: 'callgraph'", "--", ":!*.lua" })
+  git_said = said_ok and vim.trim(git_said) or tostring(git_said)
   vim.env.PATH = saved_path
   local files = vim.tbl_map(function(st) return st.file and vim.fs.basename(st.file) or "-" end, steps or {})
   ok(vim.tbl_contains(files, "work.ts") and vim.tbl_contains(files, "editor.hpp") and files[#files] == "callgraph.lua",
-    "callgraph: sent by the notebook (work.ts), relayed by desk-work (editor.hpp), answered in callgraph.lua: " .. vim.inspect(files))
+    "callgraph: sent by the notebook (work.ts), relayed by desk-work (editor.hpp), answered in callgraph.lua: " .. vim.inspect(files)
+    .. " · git grep said: " .. git_said:sub(1, 300))
   local last = steps[#steps]
   ok(last.text:find("answered here: the callgraph handler", 1, true) and last.line and last.line > 0, "… the handler's own line")
   local row_steps = A.how({ row = A.get("map.trace") }, repo)
@@ -2973,6 +2977,33 @@ eq({ said[#said], #vim.tbl_filter(function(a) return a:find("map build", 1, true
 press("q")
 vim.notify = real_notify
 
+-- h and l on a fold's header (her "can h and l open and close things like this", 2026-11-19): l opens a closed one, h
+-- closes an open one, Enter's own toggle; anywhere else they move between boxes as before.
+do
+  local A = require("desk.actions")
+  eq({ Map.fold_move({ target = { kind = "fold" }, open = false }, "right"), Map.fold_move({ target = { kind = "fold" }, open = true }, "left"),
+       Map.fold_move({ target = { kind = "fold" }, open = true }, "right"), Map.fold_move({ target = { kind = "fold" }, open = false }, "left"),
+       Map.fold_move({ target = { kind = "node" } }, "right"), Map.fold_move({ key = "fold:x|callers", open = false }, "right") },
+     { true, true, false, false, false, true }, "which presses toggle: l on a closed fold, h on an open one (a pop-out's item by its key)")
+  local fv = Map.open(root)
+  ok(vim.wait(2000, function() return fv.drawn ~= nil end), "a map tab for the folds")
+  Map._push(fv, { kind = "query", answer = trace_answer, args = { "--q", "trace", "--from", "e.cpp::tick" } })
+  local function header_row()
+    for i, l in ipairs(api.nvim_buf_get_lines(fv.buf, 0, -1, false)) do if l:find("other callers (1)", 1, true) then return i, l end end
+  end
+  local row, l = header_row()
+  ok(row and l:find("▸", 1, true), "the trace's other callers, folded")
+  api.nvim_set_current_win(fv.win)
+  api.nvim_win_set_cursor(fv.win, { row, l:find("other callers", 1, true) - 1 })
+  A.get("map.right").run(A.context(fv.win))
+  row, l = header_row()
+  ok(l and l:find("▾", 1, true) and fv.stack[#fv.stack].folds["e.cpp::tick|callers"] == true, "l on the closed fold: open (" .. tostring(l) .. ")")
+  api.nvim_win_set_cursor(fv.win, { row, l:find("other callers", 1, true) - 1 })
+  A.get("map.left").run(A.context(fv.win))
+  row, l = header_row()
+  ok(l and l:find("▸", 1, true), "h on the open fold: closed again")
+  pcall(vim.cmd, "tabclose")
+end
 vim.fn.delete(root, "rf")
 print(string.format("test_map: %d passed%s%s", passed, failed > 0 and (", " .. failed .. " failed") or "",
   #skipped > 0 and (" (skipped: " .. table.concat(skipped, ", ") .. ")") or ""))
