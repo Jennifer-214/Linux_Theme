@@ -24,10 +24,12 @@ case "$1" in
     [ "$n" -le "$(cat "$dir/empty_for")" ] && exit 0
     for m in $(cat "$dir/outputs"); do printf 'Monitor %s (ID 0):\n\t1920x1080@60 at 0x0\n' "$m"; done ;;
   eval)
+    [ -f "$dir/nolua" ] && { echo "unknown request"; exit 1; }
     case "$2" in
       "return 1") echo ok ;;
       *) echo "$2" >> "$dir/evals" ;;
     esac ;;
+  dispatch|keyword) echo "$*" >> "$dir/evals" ;;
 esac
 '''
 
@@ -44,7 +46,9 @@ class SelectMonitor(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
 
-    def pick(self, outputs, empty_for):
+    def pick(self, outputs, empty_for, lua=True):
+        if not lua:
+            (self.dir / "nolua").write_text("")
         (self.dir / "outputs").write_text(" ".join(outputs))
         (self.dir / "empty_for").write_text(str(empty_for))
         env = {"PATH": f"{self.dir}:/usr/bin:/bin"}
@@ -53,11 +57,18 @@ class SelectMonitor(unittest.TestCase):
         evals = (self.dir / "evals").read_text().splitlines() if (self.dir / "evals").exists() else []
         return r.returncode, evals, time.monotonic() - started
 
-    def test_late_outputs_still_leave_only_the_laptop_panel_on(self):
+    # 2026-11-19: switching the externals off left the login screen black on her NVIDIA laptop ("Flip event timeout on
+    # head 2" in both boots): a screen turned off while a frame was on its way. The picker now only moves the focus to
+    # the panel, where regreet opens; every screen stays on, nothing changes state.
+    def test_late_outputs_put_the_login_on_the_laptop_panel_and_switch_nothing_off(self):
         rc, evals, _ = self.pick(["DP-2", "HDMI-A-1", "eDP-1"], empty_for=3)
         self.assertEqual(rc, 0)
-        self.assertEqual(evals, ['hl.monitor({ output = "DP-2", disabled = true })',
-                                 'hl.monitor({ output = "HDMI-A-1", disabled = true })'])
+        self.assertEqual(evals, ['hl.dispatch(hl.dsp.focus({ monitor = "eDP-1" }))'])
+        self.assertFalse([e for e in evals if "disable" in e], "no screen is switched off")
+
+    def test_an_older_hyprland_gets_the_same_focus_by_its_own_command(self):
+        rc, evals, _ = self.pick(["HDMI-A-1", "eDP-1"], empty_for=0, lua=False)
+        self.assertEqual((rc, evals), (0, ["dispatch focusmonitor eDP-1"]))
 
     def test_a_desktop_without_a_panel_changes_nothing_and_does_not_wait_long(self):
         rc, evals, took = self.pick(["DP-1", "HDMI-A-1"], empty_for=0)
