@@ -1,5 +1,8 @@
 # An amber monochrome monitor: every colour mapped to amber (phosphor.slang, its own group so the glow sees the
-# result), then a faint phosphor glow, soft scanlines and a slight screen curve (kitty's own bloom and crt shaders).
+# result), then a faint phosphor glow, then soft scanlines and a slight screen curve (kitty's own bloom and crt
+# shaders). Each in its own group: crt re-reads its group's input at the warped place and ignores what the shader
+# before it in the group made, so sharing a group with bloom threw the glow away (her "the curved stuff breaks the
+# glow", 2026-11-19).
 # A theme turns it on with KITTY_SHADER_LINE='custom_shaders crt-glow' (retro-amber does). crt needs
 # background_opacity 1. The crt tint stays off: phosphor already did the colour.
 startgroup
@@ -11,8 +14,13 @@ startgroup
     animation_step 0
     var float BLOOM_STRENGTH = 0.08
     var float BLOOM_THRESHOLD = 0.2
+    shaders bloom
+endgroup
+
+startgroup
+    animation_step 0
     var float WARP = 0.08
     var float SCAN = 0.2
     var float4 TINT = float4(1, 1, 1, 0)
-    shaders bloom crt
+    shaders crt
 endgroup
