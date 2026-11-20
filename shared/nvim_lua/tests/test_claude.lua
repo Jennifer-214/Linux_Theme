@@ -12,6 +12,7 @@ local function eq(got, want, what)
   if vim.deep_equal(got, want) then passed = passed + 1
   else failed = failed + 1; print("FAIL: " .. what .. "\n  got:  " .. vim.inspect(got) .. "\n  want: " .. vim.inspect(want)) end
 end
+local function ok(cond, what) eq(not not cond, true, what) end
 
 local NOW = 1800000000
 local files = {
@@ -32,6 +33,40 @@ local fp = C.footprint("/code/paper/x.lua", NOW * 1000, live)
 eq(C.footprint_text(fp, NOW * 1000), "✎ Ledger tidy · 3m", "a recent edit leaves a footprint")
 eq(fp.pane, "%4", "the footprint knows the pane")
 eq(C.footprint("/code/paper/x.lua", (NOW + 16 * 60) * 1000, live), nil, "after 15 minutes it fades")
+
+-- What a statusline draw costs (2026-11-19, her "id really like nvim to feel smooth"): lualine and bufferline draw on
+-- every cursor move, and each draw went through every edit of every live session, searched the disk for the root,
+-- read the gate file (twice) and resolved every buffer's path.
+do
+  local big = { { id = "z", name = "Long session", pane = "%9", ledger = { edits = {} } } }
+  for i = 1, 5000 do big[1].ledger.edits[i] = { path = "/code/paper/f" .. (i % 500) .. ".lua", at = (NOW - 60) * 1000 + i } end
+  C._footprint_builds = 0
+  local a
+  for _ = 1, 200 do a = C.footprint("/code/paper/f7.lua", NOW * 1000, big) end
+  eq({ C._footprint_builds, a and a.at }, { 1, (NOW - 60) * 1000 + 4507 }, "5000 edits asked 200 times: indexed once, the newest edit found")
+  eq(C.footprint("/code/paper/none.lua", NOW * 1000, big), nil, "… a file nobody edited: none")
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir .. "/.git", "p")
+  vim.fn.mkdir(dir .. "/.claude", "p")
+  vim.fn.writefile({ "a 2026-11-19" }, dir .. "/.claude/.plan-approved")
+  vim.fn.writefile({ "x" }, dir .. "/f.lua")
+  vim.cmd("edit " .. vim.fn.fnameescape(dir .. "/f.lua"))
+  local real_root, real_open, real_realpath = vim.fs.root, io.open, vim.uv.fs_realpath
+  local walks, reads, resolves = 0, 0, 0
+  vim.fs.root = function(...) walks = walks + 1; return real_root(...) end
+  io.open = function(p, ...) if tostring(p):find("plan%-approved") then reads = reads + 1 end; return real_open(p, ...) end
+  vim.uv.fs_realpath = function(...) resolves = resolves + 1; return real_realpath(...) end
+  local saved_live = C.live
+  C.live = live
+  for _ = 1, 50 do C.status_gate(); C.status_gate(); C.status_footprint(); C.bufferline_name({ path = dir .. "/f.lua", name = "f.lua" }) end
+  vim.fs.root, io.open, vim.uv.fs_realpath = real_root, real_open, real_realpath
+  C.live = saved_live
+  ok(walks <= 1, "50 draws: the root searched for at most once (" .. walks .. ")")
+  ok(reads <= 1, "… the gate file read at most once (" .. reads .. ")")
+  ok(resolves <= 2, "… each path resolved at most once (" .. resolves .. ")")
+  vim.cmd("bwipeout!")
+  vim.fn.delete(dir, "rf")
+end
 
 eq(C.gate_text("/code/paper", live, "a 2026-11-07\n"), "gate open ✓", "the gate open for the session here")
 eq(C.gate_text("/code/paper", live, "zzz 2026\n"), "plan first ✎", "the session here is not approved")

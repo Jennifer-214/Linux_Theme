@@ -78,13 +78,34 @@ function M.with_ledgers(peers, dir, read)
 end
 
 -- The live session that edited `path` within the window, newest first.
+-- The live sessions' edits by file, built once per list of sessions (it is replaced, not changed, every few
+-- seconds): the statusline and the tab bar ask on every cursor move, and every edit of every session was gone
+-- through each time (2026-11-19).
+local by_file = setmetatable({}, { __mode = 'k' })
+M._footprint_builds = 0
+local function edits_of(live)
+  local index = by_file[live]
+  if index then return index end
+  M._footprint_builds = M._footprint_builds + 1
+  index = {}
+  for _, p in ipairs(live) do
+    for _, e in ipairs((p.ledger or {}).edits or {}) do
+      if e.path then
+        local list = index[e.path]
+        if not list then list = {}; index[e.path] = list end
+        list[#list + 1] = { p = p, at = e.at }
+      end
+    end
+  end
+  by_file[live] = index
+  return index
+end
 function M.footprint(path, now_ms, live)
   local best
-  for _, p in ipairs(live or {}) do
-    for _, e in ipairs((p.ledger or {}).edits or {}) do
-      if e.path == path and now_ms - e.at <= M.window_s * 1000 and (not best or e.at > best.at) then
-        best = { sid = p.id, name = p.name, pane = p.pane, at = e.at }
-      end
+  for _, hit in ipairs(path and live and edits_of(live)[path] or {}) do
+    local e, p = hit, hit.p
+    if now_ms - e.at <= M.window_s * 1000 and (not best or e.at > best.at) then
+      best = { sid = p.id, name = p.name, pane = p.pane, at = e.at }
     end
   end
   return best
@@ -331,16 +352,43 @@ local function me(root, wait)
   return ""
 end
 
+-- A buffer's real path and its checkout, kept while its name stays the same (the statusline asks on every draw).
+local kept_paths, kept_roots = {}, {}
+local function real_of(name)
+  local hit = kept_paths[name]
+  if hit == nil then
+    hit = uv.fs_realpath(name) or name
+    kept_paths[name] = hit
+  end
+  return hit
+end
 local function realpath(buf)
   local meta = vim.b[buf or 0].desk_review
   if meta then return meta.file end
   local name = vim.api.nvim_buf_get_name(buf or 0)
   if name == "" then return nil end
-  return uv.fs_realpath(name) or name
+  return real_of(name)
 end
 
 local function repo_root(buf)
-  return vim.b[buf or 0].desk_review_root or vim.fs.root(buf or 0, ".git")
+  local given = vim.b[buf or 0].desk_review_root
+  if given then return given end
+  local name = vim.api.nvim_buf_get_name(buf or 0)
+  local key = name ~= "" and name or ("cwd:" .. (uv.cwd() or ""))
+  local hit = kept_roots[key]
+  if hit and (hit.root or uv.now() - hit.at < 5000) then return hit.root end
+  local root = vim.fs.root(buf or 0, ".git")
+  kept_roots[key] = { root = root, at = uv.now() }
+  return root
+end
+-- The gate file, read at most every 2 seconds per checkout (it was read twice on every draw).
+local kept_gates = {}
+local function gate_file(root)
+  local hit = kept_gates[root]
+  if hit and uv.now() - hit.at < 2000 then return hit.text end
+  local text = M.read(root .. "/.claude/.plan-approved")
+  kept_gates[root] = { text = text, at = uv.now() }
+  return text
 end
 
 local function poll()
@@ -369,7 +417,7 @@ end
 function M.status_gate()
   local root = repo_root(0)
   if not root then return "" end
-  return M.gate_text(root, M.live, M.read(root .. "/.claude/.plan-approved"))
+  return M.gate_text(root, M.live, gate_file(root))
 end
 
 function M.status_needs() return M.needs_text(M.live) end
@@ -382,7 +430,7 @@ end
 
 -- bufferline: a ✎ after the name of a buffer a live Claude edited lately.
 function M.bufferline_name(buf)
-  local path = buf.path and (uv.fs_realpath(buf.path) or buf.path)
+  local path = buf.path and real_of(buf.path)
   local fp = path and M.footprint(path, os.time() * 1000, M.live)
   return fp and (buf.name .. " ✎") or buf.name
 end
