@@ -1257,6 +1257,30 @@ class Work(unittest.TestCase):
         self.assertEqual(([c["subject"] for c in got["commits"]], got["files"]), (["a slower tick"], ["engine.c"]), "… and what changed between them")
         self.assertEqual(json.loads(self.invoke("metrics", "--job", slow, "--against", "f" * 32, code=1))["ok"], False)
 
+    def test_metrics_between_says_the_recent_range_and_the_first_difference(self):
+        # Codex's E18 (2026-11-19): each figure's range over the other recent runs of the job, and whether the slower
+        # one is outside it; the first condition the two runs differ in (command, folder, commit, edits)
+        bench = "print(open('figure.txt').read())"
+        for figure in ("p99 410ns", "p99 390ns", "p99 420ns", "p99 400ns"):
+            (self.repo / "figure.txt").write_text(figure + "\n")
+            self.execute(bench)
+        self.execute("print('p99 9000ns')")
+        (self.repo / "engine.c").write_text("int tick(void) { return 1; }\n")
+        self.git("add", "engine.c"); self.git("commit", "-qm", "a slower tick")
+        (self.repo / "figure.txt").write_text("p99 480ns\n")
+        self.execute(bench)
+        runs = [r for r in self.data("jobs") if "figure.txt" in r["command"]]
+        slow, base = runs[0]["id"], runs[1]["id"]
+        got = self.data("metrics", "--job", slow, "--against", base)
+        p99 = got["metrics"][0]
+        self.assertEqual((p99["range"]["low"], p99["range"]["high"], p99["range"]["runs"], p99["range"]["outside"]), (390, 420, 3, True),
+                         "the other three runs of this job: 390–420ns, and 480 is outside it (the other job's figure left out)")
+        self.assertEqual((got["differs"]["what"], got["differs"]["slower"] == got["job"]["head"], got["differs"]["baseline"] == got["baseline"]["head"]),
+                         ("commit", True, True), "the same command and folder: the commit is the first difference")
+        same = self.data("metrics", "--job", runs[1]["id"], "--against", runs[2]["id"])
+        self.assertEqual((same["differs"]["what"], same["metrics"][0]["range"]["outside"]), ("nothing recorded", False),
+                         "two runs of one command at one commit: nothing recorded differs; 400 is inside the others' 390–480")
+
     def test_a_runs_coverage_kept_with_it(self):
         lcov = "SF:engine.c\nFN:1,tick\nFN:5,spare\nFNDA:3,tick\nFNDA:0,spare\nDA:1,3\nDA:2,3\nDA:5,0\nend_of_record\nSF:/elsewhere/lib.c\nDA:1,1\nend_of_record\n"
         # a run that writes lcov.info where it runs: its coverage found and kept with it (Codex's #16)

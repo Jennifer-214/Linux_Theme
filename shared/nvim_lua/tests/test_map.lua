@@ -689,14 +689,27 @@ do
   -- between them, each a way onto the map; the observed slowdown kept apart from its possible causes.
   local a = { ok = true, job = { id = "j2", command = "make bench", head = "bbbbbbb2", clean = true, ended = 1700000600 },
     baseline = { id = "j1", command = "make bench", head = "aaaaaaa1", clean = false, ended = 1700000000 }, binary = "not recorded by the runs",
-    metrics = { { name = "p99", value = 480, unit = "ns", previous = 400, delta = "+80", verdict = "worse" } },
-    commits = { { sha = "bbbbbbb2cccc", subject = "a slower tick" } }, files = { "engine.c" } }
+    metrics = { { name = "p99", value = 480, unit = "ns", previous = 400, delta = "+80", verdict = "worse", range = { low = 390, high = 420, runs = 3, outside = true } } },
+    commits = { { sha = "bbbbbbb2cccc", subject = "a slower tick" } }, files = { "engine.c" },
+    differs = { what = "commit", slower = "bbbbbbb2", baseline = "aaaaaaa1" } }
   local page = Map.layout(Map.level_regression({ answer = a }), 110, false)
   local text = table.concat(page.lines, "\n")
-  ok(text:find("a slowdown between two runs · make bench", 1, true) and text:find("slower    make bench  at bbbbbbb", 1, true)
-    and text:find("baseline  make bench  at aaaaaaa + edits", 1, true) and text:find("binaries  not recorded by the runs", 1, true),
-    "the runs: each its command and commit, the baseline's edits said, the binaries not guessed\n" .. text)
+  -- the two runs in columns, a row per condition (Codex's E18): the first one they differ in marked
+  local function row_of(label) local _, l = line_with(page.lines, label); return l end
+  local head, command, commit, tree = row_of("slower"), row_of("command "), row_of("commit "), row_of("tree ")
+  ok(head and head:find("baseline", 1, true) and command and command:find("make bench", 1, true), "the runs in two columns\n" .. text)
+  eq(command and { command:find("make bench", 1, true), (command:find("make bench", command:find("make bench", 1, true) + 1, true)) },
+    head and { head:find("slower", 1, true), (head:find("baseline", 1, true)) }, "… each value under its run's name")
+  ok(commit and commit:find("bbbbbbb", 1, true) and commit:find("aaaaaaa", 1, true) and commit:find("the first difference", 1, true), "… the commit, the first difference")
+  ok(tree and tree:find("as committed", 1, true) and tree:find("+ edits", 1, true) and not tree:find("first difference", 1, true), "… the baseline's edits said, not marked first")
+  ok(text:find("a slowdown between two runs · make bench", 1, true) and text:find("binaries  not recorded by the runs", 1, true), "… the binaries not guessed")
   ok(text:find("what was measured (observed)", 1, true) and text:find("p99  480 ns  was 400  +80  worse", 1, true), "… the figures, observed")
+  ok(text:find("usually 390–420 over 3 other runs · outside it", 1, true), "… each with its usual range, and whether it is outside\n" .. text)
+  local alike = Map.layout(Map.level_regression({ answer = vim.tbl_extend("force", a, { differs = { what = "nothing recorded" },
+    metrics = { { name = "p99", value = 400, unit = "ns", previous = 410, delta = "-10", verdict = "better", range = { low = 390, high = 480, runs = 3, outside = false } } } }) }), 110, false)
+  local alike_text = table.concat(alike.lines, "\n")
+  ok(alike_text:find("Nothing the runs record differs", 1, true) and alike_text:find("· within it", 1, true) and not alike_text:find("first difference", 1, true),
+    "nothing recorded differs: said; a figure within its range\n" .. alike_text)
   ok(text:find("what changed between them (possible causes) · 1 commits · 1 files", 1, true) and text:find("engine.c", 1, true), "… then the possible causes")
   local row, l = line_with(page.lines, "a slower tick")
   eq(row and Map.item_at(page, row, l:find("a slower tick", 1, true)).target, { kind = "commit", sha = "bbbbbbb2cccc" }, "… a commit a way onto the map (what it changed)")

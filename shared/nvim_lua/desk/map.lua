@@ -3602,18 +3602,46 @@ function M.level_regression(level)
   local a = level.answer or {}
   local job, base = a.job or {}, a.baseline or {}
   local sections = { { head = 'a slowdown between two runs · ' .. tostring((job.title or '') ~= '' and job.title or job.command or '?') } }
-  local function run_line(label, r)
-    return { { label, nil, true, 'DeskMapDim' }, { tostring(r.command or '?') },
-      { '  at ' .. code(short(r.head)) .. (r.clean == false and ' + edits' or '') .. (tonumber(r.ended) and ('  ended ' .. os.date('%m-%d %H:%M', tonumber(r.ended))) or ''), nil, true, 'DeskMapDim' } }
+  -- the two runs in columns, a row per condition, the first one they differ in marked (Codex's E18)
+  local differs = type(a.differs) == 'table' and a.differs or {}
+  local function cell(v) local t = tostring(v or '?'); return #t > 32 and (M.cut_text(t, 31) .. '…') or t end
+  local function tree(r) return r.clean == false and '+ edits' or r.clean == true and 'as committed' or 'not recorded' end
+  local function ended(r) return tonumber(r.ended) and os.date('%m-%d %H:%M', tonumber(r.ended)) or '?' end
+  local conditions = {
+    { 'command', 'command', cell(job.command), cell(base.command) },
+    differs.what == 'folder' and { 'folder', 'folder', cell(differs.slower), cell(differs.baseline) } or false,
+    { 'commit', 'commit', short(job.head), short(base.head) },
+    { 'tree', 'edits', tree(job), tree(base) },
+    { 'ended', nil, ended(job), ended(base) },
+  }
+  local w = #'slower'
+  for _, c in ipairs(conditions) do if c then w = math.max(w, vim.fn.strdisplaywidth(c[3])) end end
+  local function pad(t) return t .. string.rep(' ', w + 2 - vim.fn.strdisplaywidth(t)) end
+  local rows = { { { string.rep(' ', 10), nil, true }, { pad('slower'), nil, true, 'DeskMapDim' }, { 'baseline', nil, true, 'DeskMapDim' } } }
+  for _, c in ipairs(conditions) do
+    if c then
+      local first = c[2] and differs.what == c[2]
+      rows[#rows + 1] = { { c[1] .. string.rep(' ', 10 - #c[1]), nil, true, 'DeskMapDim' }, { pad(c[3]), nil, nil, first and 'DeskMapFocus' or nil },
+        { c[4], nil, nil, first and 'DeskMapFocus' or nil }, first and { '  ' .. (M.retro() and '♦' or '◆') .. ' the first difference', nil, true, 'DeskMapFocus' } or nil }
+    end
   end
-  sections[#sections + 1] = { block = { run_line('slower    ', job), run_line('baseline  ', base),
-    { { 'binaries  ', nil, true, 'DeskMapDim' }, { tostring(a.binary or '?'), nil, true, 'DeskMapDim' } } } }
+  rows[#rows + 1] = { { 'binaries  ', nil, true, 'DeskMapDim' }, { tostring(a.binary or '?'), nil, true, 'DeskMapDim' } }
+  sections[#sections + 1] = { block = rows }
+  if differs.what == 'nothing recorded' then
+    sections[#sections + 1] = { parts = { { 'Nothing the runs record differs (command, folder, commit, edits): the difference is in the machine, its load or the input.' } }, group = 'DeskMapDim' }
+  end
   sections[#sections + 1] = { head = 'what was measured (observed)' }
   local rows = {}
   for _, m in ipairs(a.metrics or {}) do
     local was = m.previous ~= nil and m.previous ~= vim.NIL and tostring(m.previous) or 'not in the baseline'
+    local range = type(m.range) == 'table' and m.range or nil
+    local function num(v) local t = string.format('%.3g', tonumber(v) or 0); return t end
     rows[#rows + 1] = { { tostring(m.name) .. '  ' }, { tostring(m.value) .. ' ' .. tostring(m.unit or '') .. '  ', nil, nil, m.verdict == 'worse' and 'DeskMapStale' or nil },
-      { 'was ' .. was .. ((m.delta or '') ~= '' and ('  ' .. m.delta) or '') .. '  ' .. tostring(m.verdict or ''), nil, true, 'DeskMapDim' } }
+      { 'was ' .. was .. ((m.delta or '') ~= '' and ('  ' .. m.delta) or '') .. '  ' .. tostring(m.verdict or ''), nil, true, 'DeskMapDim' },
+      -- its usual range over the job's other recent runs (E18): outside it, a change; within it, maybe noise
+      range and { '  usually ' .. num(range.low) .. '–' .. num(range.high), nil, true, 'DeskMapDim' } or nil,
+      range and { ' over ' .. tostring(range.runs) .. ' other runs', nil, true, 'DeskMapDim' } or nil,
+      range and { ' · ' .. (range.outside and 'outside it' or 'within it'), nil, true, range.outside and 'DeskMapStale' or 'DeskMapDim' } or nil }
   end
   if #rows == 0 then rows[1] = { { 'neither run printed figures desk-work could read', nil, true, 'DeskMapDim' } } end
   sections[#sections + 1] = { block = rows }

@@ -633,24 +633,61 @@ J tool_figures(const J& job);   // tools.hpp
 // run's figures against the baseline's of the same name, what each run was (its command, the commit it ran at and
 // whether the tree was clean, when it ended), the commits between them and the files they changed. The runs do not
 // record the binary they ran: said so, never guessed.
+// A figure's range over the other recent runs of its job (Codex's E18), in its own unit, and whether it is outside it:
+// { low, high, runs, outside }, or null with fewer than two of them reporting it.
+J recent_range(const J& metric, const std::vector<J>& others) {
+    const auto unit_of = [](const J& m) { return str(m, "unit").empty() ? std::string("count") : metric_unit(str(m, "unit")).dimension; };
+    const auto factor_of = [](const J& m) { return str(m, "unit").empty() ? 1.0 : metric_unit(str(m, "unit")).factor; };
+    if (!metric.contains("value") || !metric["value"].is_number()) return J();
+    double low = 0, high = 0;
+    int n = 0;
+    for (const auto& r : others)
+        for (const auto& m : run_metrics(r, false)) {
+            if (str(m, "name") != str(metric, "name") || !m.contains("value") || !m["value"].is_number() || unit_of(m) != unit_of(metric)) continue;
+            const double v = m["value"].get<double>() * factor_of(m) / factor_of(metric);
+            if (n == 0 || v < low) low = v;
+            if (n == 0 || v > high) high = v;
+            ++n;
+            break;
+        }
+    if (n < 2) return J();
+    const double v = metric["value"].get<double>();
+    return J{{"low", low}, {"high", high}, {"runs", n}, {"outside", v < low || v > high}};
+}
 J metrics_between(const std::string& root, const std::string& id, const std::string& against) {
     const auto all = runs(root);
     J job, base;
     for (const auto& r : all) { if (str(r, "id") == id) job = r; if (str(r, "id") == against) base = r; }
     if (!job.is_object() || !base.is_object()) return refuse("Both runs must be this checkout's (desk-work jobs --root lists them)");
+    // the other recent runs of the job, not the two compared (newest first, at most 10): each figure's usual spread
+    std::vector<J> others;
+    for (const auto& r : all) {
+        if (others.size() >= 10) break;
+        if (str(r, "id") == id || str(r, "id") == against || !finished_run(r) || !same_job(r, job)) continue;
+        others.push_back(r);
+    }
     J metrics = J::array();
     const auto before = run_metrics(base, true);
     for (const auto& m : run_metrics(job, true)) {
         J was;
         for (const auto& b : before) if (str(b, "name") == str(m, "name")) was = b;
-        metrics.push_back(compare_metric(m, was));
+        auto compared = compare_metric(m, was);
+        compared["range"] = recent_range(compared, others);
+        metrics.push_back(compared);
     }
+    // the first condition the two runs differ in, as far as they record it: the command, the folder, the commit, edits
+    J differs{{"what", "nothing recorded"}};
+    for (const auto& [what, field] : std::vector<std::pair<std::string, std::string>>{{"command", "command"}, {"folder", "cwd"}, {"commit", "head"}})
+        if (str(job, field.c_str()) != str(base, field.c_str())) { differs = J{{"what", what}, {"slower", str(job, field.c_str())}, {"baseline", str(base, field.c_str())}}; break; }
+    if (str(differs, "what") == "nothing recorded" && job.value("clean", J()) != base.value("clean", J()))
+        differs = J{{"what", "edits"}, {"slower", job.value("clean", false) ? "the commit as it is" : "uncommitted edits"},
+                    {"baseline", base.value("clean", false) ? "the commit as it is" : "uncommitted edits"}};
     const auto said = [](const J& r) {
         return J{{"id", str(r, "id")}, {"title", str(r, "title")}, {"command", str(r, "command")}, {"head", str(r, "head")},
                  {"clean", r.value("clean", J())}, {"ended", num(r, "ended")}, {"state", str(r, "state")}};
     };
     J out{{"ok", true}, {"root", root}, {"job", said(job)}, {"baseline", said(base)}, {"metrics", metrics},
-          {"binary", "not recorded by the runs"}};
+          {"binary", "not recorded by the runs"}, {"differs", differs}};
     const auto a = str(base, "head"), b = str(job, "head");
     J commits = J::array(), files = J::array();
     if (!a.empty() && !b.empty() && a != b) {
