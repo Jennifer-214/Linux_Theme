@@ -60,6 +60,16 @@ class SessionBack(unittest.TestCase):
         return subprocess.run(["tmux", "-S", str(self.socket), *args], env=self.env, capture_output=True, text=True,
                               timeout=10).stdout.strip()
 
+    def test_kitty_draws_whole_frames(self):
+        # Synchronized output (2026-11-19, her "the cursor jumps everywhere on the screen when scrolling"): without the
+        # sync feature for kitty, tmux draws each redraw in pieces and kitty shows the cursor at every one of them.
+        rendered = self.work / "render"
+        subprocess.run([str(RENDER), str(ROOT / "themes/Paper/palette.sh"), str(ROOT / "templates/tmux"), str(rendered)],
+                       check=True, capture_output=True, timeout=60)
+        self.tmux("-f", str(rendered / ".tmux.conf"), "new-session", "-d", "-s", "frames")
+        features = self.tmux("show", "-s", "terminal-features")
+        self.assertTrue(any("xterm-kitty" in line and "sync" in line for line in features.splitlines()), features)
+
     def test_prefix_backspace_goes_back_to_the_session_before(self):
         rendered = self.work / "render"
         subprocess.run([str(RENDER), str(ROOT / "themes/Paper/palette.sh"), str(ROOT / "templates/tmux"), str(rendered)],

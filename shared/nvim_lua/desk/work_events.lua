@@ -169,10 +169,23 @@ function M.test_label(run, retro)
   return string.rep(' ', marks.width - api.nvim_strwidth(text)) .. text
 end
 
+-- The checkout of the buffer in front, kept per buffer while its name (or, with none, the working folder) stays the
+-- same: the status line asks on every draw and lualine draws on every cursor move, so a vim.fs.root walk there was
+-- three walks per keypress (2026-11-19). One outside any checkout is looked for again after a few seconds (a git init).
+local roots_of = {}
 local function current_root()
+  local buf = api.nvim_get_current_buf()
+  local name = api.nvim_buf_get_name(buf)
+  local key = name ~= '' and name or ('cwd:' .. uv.cwd())
+  local kept = roots_of[buf]
+  if kept and kept.key == key and (kept.root or uv.now() - kept.at < 5000) then return kept.root end
   local root = vim.fs.root(0, '.git')
-  return root and (uv.fs_realpath(root) or root)
+  root = root and (uv.fs_realpath(root) or root)
+  roots_of[buf] = { key = key, root = root, at = uv.now() }
+  return root
 end
+api.nvim_create_autocmd('BufWipeout', { group = api.nvim_create_augroup('DeskWorkRoots', { clear = true }),
+  callback = function(a) roots_of[a.buf] = nil end })
 
 local function read_tests(root, min_age)
   local entry = tests.runs[root]
@@ -251,8 +264,8 @@ function M.tests_state()
 end
 
 function M.status()
-  local root = vim.fs.root(0, '.git')
-  local state = root and M.roots[uv.fs_realpath(root) or root]
+  local root = current_root()
+  local state = root and M.roots[root]
   if not state then return '' end
   if state.watch_failed then return 'work updates delayed' end
   if state.error then return 'work status unavailable' end

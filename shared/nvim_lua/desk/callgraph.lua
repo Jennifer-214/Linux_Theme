@@ -514,15 +514,33 @@ function M.neighbours(graph, boxlist)
   local wide = false
   for _, n in pairs(per) do if n > 1 then wide = true end end
   if not wide then return end
-  local links = graph.links or {}
+  -- by the calls read, not every pair of boxes (2026-11-19: 751 boxes took 537 ms, every pair's identity built)
+  local links, ids, at = graph.links or {}, {}, {}
+  for i, box in ipairs(boxlist) do
+    ids[i] = identity(box.item)
+    if box.level then
+      local key = box.level .. '\1' .. ids[i]
+      at[key] = at[key] or {}
+      table.insert(at[key], i)
+    end
+  end
+  local by_level = {}
+  for i, box in ipairs(boxlist) do if box.level then by_level[box.level] = by_level[box.level] or {}; table.insert(by_level[box.level], i) end end
   for i, a in ipairs(boxlist) do
-    a.near = {}
-    for j, b in ipairs(boxlist) do
-      if i ~= j and a.level and b.level and math.abs(a.level - b.level) == 1 and (a.level == 0 or b.level == 0
-          or (links[identity(a.item)] or {})[identity(b.item)]) then
-        a.near[#a.near + 1] = j
+    local near = {}
+    if a.level then
+      for _, level in ipairs({ a.level - 1, a.level + 1 }) do
+        if a.level == 0 or level == 0 then
+          for _, j in ipairs(by_level[level] or {}) do near[#near + 1] = j end
+        else
+          for other in pairs(links[ids[i]] or {}) do
+            for _, j in ipairs(at[level .. '\1' .. other] or {}) do near[#near + 1] = j end
+          end
+        end
       end
     end
+    table.sort(near)
+    a.near = near
   end
 end
 
@@ -531,24 +549,45 @@ end
 --- "e.cpp:15", or "e.cpp:122 · 2 calls"). The centre and its first level on each side always; deeper, the calls read
 --- (graph.links). Every graph, wide or not; level by level, so 2500 boxes on one level are 2500 pairs, not millions.
 function M.connect(graph, boxlist)
-  local links, sites, by_level = graph.links or {}, graph.sites or {}, {}
+  -- by the calls read, not every pair on two levels (2026-11-19: 1801 boxes took 2.6 s)
+  local links, sites, by_level, ids, at = graph.links or {}, graph.sites or {}, {}, {}, {}
   for i, box in ipairs(boxlist) do
     box.down, box.up, box.down_sites, box.up_sites = {}, {}, {}, {}
-    if box.level then by_level[box.level] = by_level[box.level] or {}; table.insert(by_level[box.level], i) end
+    ids[i] = identity(box.item)
+    if box.level then
+      by_level[box.level] = by_level[box.level] or {}; table.insert(by_level[box.level], i)
+      local key = box.level .. '\1' .. ids[i]
+      at[key] = at[key] or {}
+      table.insert(at[key], i)
+    end
   end
+  local pairs_found = {}
   for level, list in pairs(by_level) do
     for _, i in ipairs(list) do
-      local a = boxlist[i]
-      for _, j in ipairs(by_level[level + 1] or {}) do
-        local b = boxlist[j]
-        if level == 0 or level + 1 == 0 or (links[identity(a.item)] or {})[identity(b.item)] then
-          local got = sites[identity(a.item) .. '\1' .. identity(b.item)]
-          local said = got and (vim.fn.fnamemodify(vim.uri_to_fname(got.uri), ':t') .. ':' .. got.line .. (got.count > 1 and (' · ' .. got.count .. ' calls') or '')) or ''
-          a.down[#a.down + 1], a.down_sites[#a.down + 1] = j, said
-          b.up[#b.up + 1], b.up_sites[#b.up + 1] = i, said
+      if level == 0 or level + 1 == 0 then
+        for _, j in ipairs(by_level[level + 1] or {}) do pairs_found[#pairs_found + 1] = { i, j } end
+      else
+        for other in pairs(links[ids[i]] or {}) do
+          for _, j in ipairs(at[(level + 1) .. '\1' .. other] or {}) do pairs_found[#pairs_found + 1] = { i, j } end
         end
       end
     end
+  end
+  -- in box order, as the pair-by-pair walk gave them
+  table.sort(pairs_found, function(x, y) if x[1] ~= y[1] then return x[1] < y[1] end return x[2] < y[2] end)
+  local named = {}
+  for _, pr in ipairs(pairs_found) do
+    local i, j = pr[1], pr[2]
+    local got = sites[ids[i] .. '\1' .. ids[j]]
+    local said = ''
+    if got then
+      local file = named[got.uri]
+      if not file then file = vim.fn.fnamemodify(vim.uri_to_fname(got.uri), ':t'); named[got.uri] = file end
+      said = file .. ':' .. got.line .. (got.count > 1 and (' · ' .. got.count .. ' calls') or '')
+    end
+    local a, b = boxlist[i], boxlist[j]
+    a.down[#a.down + 1], a.down_sites[#a.down + 1] = j, said
+    b.up[#b.up + 1], b.up_sites[#b.up + 1] = i, said
   end
 end
 
@@ -699,6 +738,47 @@ function M.gauge_edges(s)
   if range[2] > bottom then arrow(bottom, '▼') end
 end
 
+-- The dimming of a wide graph or map page (every box but the selected one and its real callers and callees) is drawn
+-- by a decoration provider on the lines being drawn, never stored on the page: a page of every box re-dimmed 1500
+-- boxes on each j, 55 ms a move, half a core in the pop-out (2026-11-19). faint_of: a buffer → its selection.
+M.faint_ns = api.nvim_create_namespace('desk_callgraph_faint')
+local faint_of = {}
+--- pure: the spans to dim on lines first..last (1-based) of selection s, { { line, col, end_col } }; none when nothing
+--- is selected on the page it shows (s.keep is the page's it was worked out on).
+function M.faint_spans(s, first, last)
+  local drawn = s and s.drawn
+  if not (drawn and s.keep and s.keep_for == drawn) then return {} end
+  local by_line = drawn.spans_by_line
+  if not by_line then
+    by_line = {}
+    for j, b in ipairs(drawn.boxes or {}) do
+      for _, span in ipairs(b.spans or {}) do
+        local row = by_line[span[1]]
+        if not row then row = {}; by_line[span[1]] = row end
+        row[#row + 1] = { j, span[2], span[3] }
+      end
+    end
+    drawn.spans_by_line = by_line
+  end
+  local out = {}
+  for line = first, last do
+    for _, sp in ipairs(by_line[line] or {}) do
+      if not s.keep[sp[1]] then out[#out + 1] = { line, sp[2], sp[3] } end
+    end
+  end
+  return out
+end
+api.nvim_set_decoration_provider(M.faint_ns, {
+  on_win = function(_, _, buf) return faint_of[buf] ~= nil end,
+  on_line = function(_, _, buf, row)
+    for _, sp in ipairs(M.faint_spans(faint_of[buf], row + 1, row + 1)) do
+      pcall(api.nvim_buf_set_extmark, buf, M.faint_ns, row, sp[2], { end_col = sp[3], hl_group = 'DeskCallGraphFaint', priority = 250, ephemeral = true })
+    end
+  end,
+})
+api.nvim_create_autocmd('BufWipeout', { group = api.nvim_create_augroup('desk_callgraph_faint', { clear = true }),
+  callback = function(a) faint_of[a.buf] = nil end })
+
 local function paint(s)
   if not api.nvim_buf_is_valid(s.buf) then return end
   -- Its colour, when no graph has been opened yet to define it (the map paints its boxes with it too).
@@ -710,18 +790,16 @@ local function paint(s)
   for _, span in ipairs(box and box.spans or {}) do
     pcall(api.nvim_buf_set_extmark, s.buf, M.sel_ns, span[1] - 1, span[2], { end_col = span[3], hl_group = 'DeskCallGraphSelected', priority = 300 })
   end
-  -- A wide graph: the selected box's real callers and callees stay lit, every other box dims.
+  -- A wide graph: the selected box's real callers and callees stay lit, every other box dims (drawn by the provider).
   if box and type(box.near) == 'table' then
     local keep = { [s.index] = true }
     for _, j in ipairs(box.near) do keep[j] = true end
-    for j, other in ipairs(s.drawn.boxes) do
-      if not keep[j] then
-        for _, span in ipairs(other.spans or {}) do
-          pcall(api.nvim_buf_set_extmark, s.buf, M.sel_ns, span[1] - 1, span[2], { end_col = span[3], hl_group = 'DeskCallGraphFaint', priority = 250 })
-        end
-      end
-    end
+    s.keep, s.keep_for, faint_of[s.buf] = keep, s.drawn, s
+  else
+    s.keep, s.keep_for = nil, nil
+    if faint_of[s.buf] == s then faint_of[s.buf] = nil end
   end
+  pcall(api.nvim__redraw, { buf = s.buf, valid = false })
   if box and box.gauge then
     if M.retro() then
       local band = box.gauge_band or { box.line, box.line }

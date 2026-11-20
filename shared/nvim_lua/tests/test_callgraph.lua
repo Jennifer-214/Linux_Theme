@@ -1073,9 +1073,7 @@ do
   local s = { buf = buf, drawn = d }
   G.select(s, idx['Risk::limit'])
   local faint = {}
-  for _, m in ipairs(api.nvim_buf_get_extmarks(buf, G.sel_ns, 0, -1, { details = true })) do
-    if m[4].hl_group == 'DeskCallGraphFaint' then faint[(m[2] + 1) .. ':' .. m[3]] = true end
-  end
+  for _, sp in ipairs(G.faint_spans(s, 1, #d.lines)) do faint[sp[1] .. ':' .. sp[2]] = true end
   local function dimmed(name) local sp = d.boxes[idx[name]].spans[2]; return faint[sp[1] .. ':' .. sp[2]] == true end
   eq({ dimmed('Book::insert'), dimmed('Book::apply'), dimmed('Engine::tick'), dimmed('Risk::check'), dimmed('Risk::limit') },
     { true, true, true, false, false }, 'Risk::limit selected: its caller stays lit, the others dim')

@@ -1322,14 +1322,6 @@ function M.card_collect(root, rel, line, done, opts)
     end)
   end)
 end
-function M.card_at(path, line)
-  local root, rel, why = rel_of(path)
-  if not root then return tell(why) end
-  M.card_collect(root, rel, line, function(card)
-    if not card then return tell('The map has no function at ' .. rel .. ':' .. line .. ' (R rebuilds it).') end
-    push(map_for(root), { kind = 'card', card = card })
-  end)
-end
 
 --- A test run's coverage on a page (Codex's E5, 2026-11-19): each function box from a file the run covered says
 --- whether the run ran it, from its recorded functions (FN/FNDA: by its line, else by its name), "ran 3×" or "not run"
@@ -3467,6 +3459,16 @@ function M.walk_at(q, path, line, opts)
   local view = map_for(root)
   view.pending_note = opts and opts.note or nil
   query(view, { '--q', q, '--file', rel, '--line', tostring(line), '--from', '', '--depth', '3' })
+end
+-- Space i i (I3): the card of the function at line `line` of `path`, on this checkout's map. Below rel_of, map_for and
+-- push, which it calls: above them Lua reads those names as globals (Space i i failed so, 2026-11-19).
+function M.card_at(path, line)
+  local root, rel, why = rel_of(path)
+  if not root then return tell(why) end
+  M.card_collect(root, rel, line, function(card)
+    if not card then return tell('The map has no function at ' .. rel .. ':' .. line .. ' (R rebuilds it).') end
+    push(map_for(root), { kind = 'card', card = card })
+  end)
 end
 -- The functions a commit changed, on the map (the review's M on a commit).
 function M.touched_on_map(root, sha)

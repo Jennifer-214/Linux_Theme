@@ -3047,7 +3047,9 @@ function M.client_state()
     win = view and view.win or (C.empty and C.empty.win) or 0, current_win = win, buf = buf, mode = api.nvim_get_mode().mode,
     received = C.received or 0, pinned = view and view.pinned == true, views = vim.tbl_keys(C.views),
     tabs = #api.nvim_list_tabpages(), tab = vim.fn.tabpagenr(), tiles = vim.deepcopy(C.tiles),
-    header = M.header(), keyline = rendered(vim.wo[win].statusline, { winid = win }) }
+    header = M.header(), keyline = rendered(vim.wo[win].statusline, { winid = win }),
+    -- what the dimming draws on the lines on screen (the provider draws no others)
+    faint = s.drawn and graphs().faint_spans(s, vim.fn.line('w0', win), vim.fn.line('w$', win)) or {} }
 end
 
 -- ─── the keys ──────────────────────────────────────────────────────────────────────────────────────────────────

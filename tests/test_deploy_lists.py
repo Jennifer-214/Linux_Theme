@@ -64,6 +64,8 @@ ONE_SIDED = {
         "native-only screen question drawn as a map of the screens; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/desk/map.lua", "~/.config/nvim/lua/desk/map.lua"):
         "native-only project map view and desk-work's syntax reader; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "nvim_lua/desk/tags.lua", "~/.config/nvim/lua/desk/tags.lua"):
+        "native-only tag-comment colours, each line's marks kept until its buffer changes; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "kitty/crt-glow.pipeline", "~/.config/kitty/shaders/crt-glow.pipeline"):
         "native-only kitty glow and scanline pipeline that retro-amber turns on; AGENT.md freezes mappings.sh",
     ("TEMPLATE_MAPPINGS", "hyprlock/boot-label.sh", "~/.config/hypr/scripts/boot-label.sh"):

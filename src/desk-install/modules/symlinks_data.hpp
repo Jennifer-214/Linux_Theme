@@ -165,6 +165,7 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "nvim_lua/desk/codeview.lua",  "~/.config/nvim/lua/desk/codeview.lua" },
     { "nvim_lua/desk/map.lua",       "~/.config/nvim/lua/desk/map.lua" },
     { "nvim_lua/desk/screens.lua",   "~/.config/nvim/lua/desk/screens.lua" },
+    { "nvim_lua/desk/tags.lua",      "~/.config/nvim/lua/desk/tags.lua" },
 
     // Rofi config
 

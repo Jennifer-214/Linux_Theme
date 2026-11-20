@@ -3330,63 +3330,9 @@ vim.api.nvim_create_autocmd({ "ModeChanged", "ColorScheme" }, {
   end,
 })
 
--- Tag-comment markers: colour the [KEY]_[value] grammar inside // comments by shape (keys, [END_*]
--- closers, values, nested [CHIPS]), never by vocabulary, so it works in any project using the format.
--- Ephemeral extmarks on visible lines only; priority above treesitter (100) and LSP tokens (125).
-do
-  local ns = vim.api.nvim_create_namespace("foxml_tag_markers")
-  local tag_fts = { c = true, cpp = true, cuda = true, objc = true, objcpp = true }
-  local KEY = "%[[A-Z][A-Z0-9_]+%]"
-  local function paint(buf, row, s, e, group, prio)
-    vim.api.nvim_buf_set_extmark(buf, ns, row, s - 1, { end_col = e, hl_group = group, ephemeral = true, priority = prio or 140 })
-  end
-  -- A section banner is a //---- rule line, or a // title line sandwiched between two of them.
-  local section_headers = {{NVIM_SECTION_HEADERS}}
-  local RULE = "^%s*//%s*[-=]+%s*$"
-  local function is_rule(l) return l ~= nil and #l >= 10 and l:match(RULE) ~= nil end
-  vim.api.nvim_set_decoration_provider(ns, {
-    on_win = function(_, _, buf) return tag_fts[vim.bo[buf].filetype] == true end,
-    on_line = function(_, _, buf, row)
-      local line = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1]
-      local pos = line and line:find("//", 1, true)
-      if not pos then return end
-      if section_headers and line:match("^%s*//") then
-        local around = vim.api.nvim_buf_get_lines(buf, math.max(row - 1, 0), row + 2, false)
-        local above = row > 0 and around[1] or nil
-        local below = around[row > 0 and 3 or 2]
-        if is_rule(line) or (is_rule(above) and is_rule(below)) then
-          paint(buf, row, pos, #line, "FoxSectionRule", 139)
-        end
-      end
-      if not line:find("[", pos, true) then return end
-      while true do
-        local s, e = line:find(KEY, pos)
-        if not s then return end
-        pos = e + 1
-        if not line:sub(s - 1, s - 1):match("[%w_]") then -- arr[IDX] is code, not a tag
-          local closer = line:sub(s + 1, s + 4) == "END_"
-          paint(buf, row, s, e, closer and "FoxTagEnd" or "FoxTagKey")
-          while line:sub(pos, pos + 1) == "_[" do -- _[value], chained: [ASSERT]_[LAYOUT_LOCK]_[expr]
-            local vs, ve = line:find("^%b[]", pos + 1)
-            if not vs then break end
-            paint(buf, row, pos, pos, "FoxTagSep")
-            local chained = line:sub(ve + 1, ve + 2) == "_["
-            local subcat = chained and line:sub(vs, ve):match("^" .. KEY .. "$") ~= nil
-            paint(buf, row, vs, ve, closer and "FoxTagEnd" or (subcat and "FoxTagChip" or "FoxTagValue"))
-            if not closer and not subcat then -- nested chips: [TAG]_[[ENGINE] [ML_INFERENCE]]
-              local cs, ce = line:find(KEY, vs + 1)
-              while cs and ce < ve do
-                paint(buf, row, cs, ce, "FoxTagChip")
-                cs, ce = line:find(KEY, ce + 1)
-              end
-            end
-            pos = ve + 1
-          end
-        end
-      end
-    end,
-  })
-end
+-- Tag-comment markers ([KEY]_[value] in // comments, by shape): desk.tags, each line's marks kept until the buffer
+-- changes, so scrolling scans nothing (it was 19% of Neovim's time, 2026-11-19).
+pcall(function() require("desk.tags").setup({ section_headers = {{NVIM_SECTION_HEADERS}} }) end)
 
 -- Override devicon colors to match Linux_Theme palette (peach only in file tree)
 vim.defer_fn(function()

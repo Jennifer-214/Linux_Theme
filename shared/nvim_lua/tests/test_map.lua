@@ -429,8 +429,30 @@ do
   local sel = { buf = buf, drawn = page }
   Gr.select(sel, idx.a)
   local faint = {}
-  for _, m in ipairs(api.nvim_buf_get_extmarks(buf, Gr.sel_ns, 0, -1, { details = true })) do
-    if m[4].hl_group == "DeskCallGraphFaint" then faint[api.nvim_buf_get_lines(buf, m[2], m[2] + 1, false)[1]:sub(m[3] + 1, m[4].end_col):match("[%w_]+") or "?"] = true end
+  for _, sp in ipairs(Gr.faint_spans(sel, 1, #page.lines)) do
+    faint[page.lines[sp[1]]:sub(sp[2] + 1, sp[3]):match("[%w_]+") or "?"] = true
+  end
+  -- on a page of every box (2026-11-19: 1500 boxes re-dimmed on each j, 55 ms a move, half a core in the pop-out): the
+  -- dimming is drawn only on the lines on screen, as they are drawn, never stored on the whole page
+  do
+    local nodes, edges = {}, {}
+    for i = 1, 1500 do nodes[i] = { id = "f" .. i, label = "fn_" .. i, file = "a.cpp", line = i, kind = "function", at = i % 9, lane = i <= 12 } end
+    for i = 2, 1500 do edges[#edges + 1] = { from = "f" .. math.floor(i / 2), to = "f" .. i } end
+    local big = Map.layout(Map.level_query({ ok = true, q = "flow", focus = "f6", nodes = nodes, edges = edges, lane = { "f1", "f2", "f3" } }), 160, false)
+    local bbuf = api.nvim_create_buf(false, true)
+    api.nvim_buf_set_lines(bbuf, 0, -1, false, big.lines)
+    local bsel = { buf = bbuf, drawn = big }
+    Gr.select(bsel, 5)
+    Gr.select(bsel, 6)
+    local stored = 0
+    for _, m in ipairs(api.nvim_buf_get_extmarks(bbuf, Gr.sel_ns, 0, -1, { details = true })) do if m[4].hl_group == "DeskCallGraphFaint" then stored = stored + 1 end end
+    eq(stored, 0, "a page of 1500 boxes: no dimming stored on the page (" .. #big.boxes .. " boxes)")
+    ok(#Gr.faint_spans(bsel, 1, 40) > 0 and #Gr.faint_spans(bsel, 1, 40) < 400, "… the 40 lines on screen: their boxes dim, and only theirs")
+    local before = { Gr.faint_spans(bsel, 1, #big.lines) }
+    bsel.drawn = Map.layout(Map.level_query({ ok = true, q = "flow", focus = "f1", nodes = { nodes[1], nodes[2] }, edges = { edges[1] }, lane = { "f1" } }), 160, false)
+    eq(Gr.faint_spans(bsel, 1, 10), {}, "… a page drawn again under it: nothing dims until a box is selected there (no stale dimming)")
+    ok(#before[1] > 1000, "… (the big page did dim its unconnected boxes)")
+    api.nvim_buf_delete(bbuf, { force = true })
   end
   ok(faint["end"] and not faint.F and not faint.g, "selecting a: what it is not connected to dims (end), its callees do not")
   Gr.along(sel, "down")
@@ -549,6 +571,21 @@ do
     done({ { name = "test_e", lines = { [2] = 1, [3] = 1 }, mapped = { [2] = true, [3] = true, [4] = true } } })
   end })
   ok(vim.wait(3000, function() return got ~= nil end), "the card collected")
+  -- pressed for real (Codex, 2026-11-19: Space i i failed with "attempt to call global 'rel_of'": card_at was written
+  -- above the helpers it calls, so Lua read them as globals): the registered row, from the source file
+  local A = require("desk.actions")
+  vim.cmd("tabnew " .. vim.fn.fnameescape(dir .. "/e.cpp"))
+  api.nvim_win_set_cursor(0, { 3, 0 })
+  local pressed, err = pcall(A.get("investigate.card").run, A.context())
+  local card_view
+  ok(pressed and vim.wait(3000, function()
+    for _, v in pairs(Map.views) do
+      local top = v.stack and v.stack[#v.stack]
+      if top and top.kind == "card" then card_view = v; return true end
+    end
+  end), "Space i i from the source file: its card opens (" .. tostring(err) .. ")")
+  eq(card_view and card_view.stack[#card_view.stack].card.node.id, "e.cpp::tick", "… the card of the function under the cursor")
+  pcall(vim.cmd, "tabonly!")
   Map.desk_work = inner
   eq(got and { got.node.id, got.callers, got.calls, got.ran, got.commit and got.commit.subject },
     { "e.cpp::tick", 3, 2, "ran by test_e 2 of 2", "a faster tick" }, "… its callers and callees one level away, the run, the last commit over its lines")

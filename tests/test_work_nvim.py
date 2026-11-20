@@ -355,6 +355,22 @@ assert(shown(true, ''))
 local idle = calls
 for _ = 1, 50 do W.tests_status(true) end
 assert(calls == idle, 'the status line part ran desk-work while drawing')
+-- Nor does it search the disk (2026-11-19, her "nvim is still laggy": three vim.fs.root walks on every draw, and
+-- lualine draws on every cursor move): the root is kept per buffer while its name stays the same.
+local root_fn, walks = vim.fs.root, 0
+vim.fs.root = function(...) walks = walks + 1; return root_fn(...) end
+for _ = 1, 50 do W.tests_status(true); W.tests_state(); W.status() end
+assert(walks == 0, 'the status line searched the disk for the root ' .. walks .. ' times in 50 draws')
+local other = vim.fn.tempname()
+vim.fn.mkdir(other .. '/.git', 'p')
+vim.fn.writefile({ 'int b;' }, other .. '/b.c')
+vim.cmd('edit ' .. vim.fn.fnameescape(other .. '/b.c'))
+for _ = 1, 5 do W.tests_status(true) end
+assert(walks == 1, 'another file: its root found once, not ' .. walks .. ' times')
+vim.cmd('buffer #')
+for _ = 1, 5 do W.tests_status(true) end
+assert(walks == 1, 'back on the first: its root still known (' .. walks .. ' walks)')
+vim.fs.root = root_fn
 -- The other themes' marks, padded to one width.
 local function label(run) return W.test_label(run, false) end
 assert(label({ state = 'passed', tests = { passed = 128, failed = 0 } }) == '       ✓ 128')

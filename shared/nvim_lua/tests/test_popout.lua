@@ -582,17 +582,17 @@ do
     '… / lists every box and selects the last: ' .. #found.names .. ' names, selected ' .. tostring(state().selected))
   host("_G.popout_test.extra = 2")
   press('r')
-  ok(wait(20000, function() return popped():find('extra_2', 1, true) ~= nil and not popped():find('extra_2500', 1, true) end), '… back to two')
+  -- settled: drawn with two, and not still reading (the find below lists what is drawn; during a read only the centre)
+  ok(wait(20000, function() local t = popped(); return t:find('extra_2', 1, true) ~= nil and not t:find('extra_2500', 1, true)
+    and not t:find('reading the call hierarchy', 1, true) end), '… back to two')
   found = find(nil)
   local last = found.names[#found.names]
   ok(last and wait(4000, function() return state().selected == last end), '/ selects the last box, a callee: ' .. tostring(last))
   -- three callees on one level: a wide graph; the selected callee's real neighbour (the centre) lit, the caller dimmed
   ok(wait(2000, function()
-    return pop([[local G = require('desk.callgraph'); local n = 0
-      for _, m in ipairs(vim.api.nvim_buf_get_extmarks(0, G.sel_ns, 0, -1, { details = true })) do
-        if m[4].hl_group == 'DeskCallGraphFaint' and vim.api.nvim_buf_get_lines(0, m[2], m[2] + 1, false)[1]:find('caller_of_gamma', 1, true) then n = n + 1 end
-      end
-      return n]]) > 0
+    local s, n = state(), 0
+    for _, sp in ipairs(s.faint or {}) do if (s.lines[sp[1]] or ''):find('caller_of_gamma', 1, true) then n = n + 1 end end
+    return n > 0
   end), 'in the pop-out too: a wide graph dims what the selected box does not call or get called by')
   host("_G.popout_test.extra = 0")
   press('r')
