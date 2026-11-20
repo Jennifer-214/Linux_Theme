@@ -704,6 +704,7 @@ which-key its words.
 | `Space cc`, `:CallGraph` | Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected. One tab: pressed again anywhere, it brings that tab back on the function under the cursor |
 | `Space co`, `:CallGraphPanel` | Live call graph panel: a narrow split on the right that follows the cursor and redraws when the function under it changes. It never takes the focus (`Ctrl+w l` goes into it); `p` in it pins it to the graph it shows (`PINNED`), `p` again follows the cursor |
 | `Space ic` | The call graph of the function: in a tab here, in the pop-out from there |
+| `Space ii` | What each view says about the function, a line each: its callers and what it calls, the test that ran it, the last commit over its lines, symdeps; `Enter` on a line opens that view |
 | `Space it` | One lane through the function: up to where it starts, down to where it ends (the map's `t`) |
 | `Space iT` | Every way through the function in one picture: what leads to it, what it leads to (the map's `T`) |
 | `Space iu` | Who calls the function, up the calls, on the project map (the map's `U`) |
@@ -813,6 +814,7 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `q` (diff) / `Space bd`, `:q` in a diff, `Space Cq` | Close the whole review and return to your editor |
 | `?` | The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list |
 | `Space ic` | The call graph of the function: in a tab here, in the pop-out from there |
+| `Space ii` | What each view says about the function, a line each: its callers and what it calls, the test that ran it, the last commit over its lines, symdeps; `Enter` on a line opens that view |
 | `Space it` | One lane through the function: up to where it starts, down to where it ends (the map's `t`) |
 | `Space iT` | Every way through the function in one picture: what leads to it, what it leads to (the map's `T`) |
 | `Space iu` | Who calls the function, up the calls, on the project map (the map's `U`) |

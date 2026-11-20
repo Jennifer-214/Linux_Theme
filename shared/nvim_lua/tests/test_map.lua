@@ -498,6 +498,64 @@ do
   eq(lane and lane.target and { lane.target.kind, lane.target.which }, { "route", "a" }, "… a route's own part opens its trace")
   ok(not text:find("from Replay: Restore", 1, true) or text:find("from Replay: Restore", 1, true) < text:find("both reach", 1, true), "… in order")
 end
+do
+  -- A function's card (I3, 2026-11-19): what each view would say about it, one line each, Enter on a line its view.
+  local node = { id = "e.cpp::tick", label = "tt::tick", file = "e.cpp", line = 11, lines = 6, kind = "function" }
+  local card = { node = node, callers = 3, calls = 2, ran = "ran by test_e 8 of 11", commit = { sha = "abc1234", subject = "a faster tick", when = "2 days ago" },
+    symdeps = "requires symdeps" }
+  local page = Map.layout(Map.level_card({ card = card }), 110, false)
+  local text = table.concat(page.lines, "\n")
+  ok(text:find("tt::tick · e.cpp:11", 1, true) and text:find("called from 3 places", 1, true) and text:find("calls 2", 1, true)
+    and text:find("ran by test_e 8 of 11", 1, true) and text:find("last changed abc1234 a faster tick · 2 days ago", 1, true)
+    and text:find("symdeps: requires symdeps", 1, true), "the card: each view's line\n" .. text)
+  local function target_on(part)
+    local row, l = line_with(page.lines, part)
+    local it = row and Map.item_at(page, row, l:find(part, 1, true) - 1)
+    return it and it.target
+  end
+  eq({ target_on("called from 3").kind, target_on("called from 3").id, target_on("called from 3").node.id }, { "row", "investigate.callers", "e.cpp::tick" },
+    "Enter on its callers: the callers view (Space i u's row), on this function")
+  eq(target_on("calls 2").id, "investigate.reach", "… what it calls: Space i d's")
+  eq(target_on("ran by test_e").id, "investigate.coverage", "… the run: Space i r's")
+  eq({ target_on("last changed").kind, target_on("last changed").sha }, { "commit", "abc1234" }, "… the commit: what it changed, on the map")
+  eq({ target_on("whole trace").id, target_on("trace ·").id }, { "investigate.trace-all", "investigate.trace" }, "… t and T")
+  eq(target_on("symdeps:"), nil, "… symdeps not here: said, nothing to open")
+  local bare = table.concat(Map.layout(Map.level_card({ card = { node = node, callers = 0, calls = 0 } }), 110, false).lines, "\n")
+  ok(bare:find("nothing on the map calls it", 1, true) and bare:find("no test run with coverage has its file", 1, true) and bare:find("no commit has touched it", 1, true),
+    "… what is not known said\n" .. bare)
+  -- the card collected: the map's answers (its callers and what it calls, one level), git's last commit over its lines,
+  -- the runs with coverage
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  local function git(...) return vim.system({ "git", "-C", dir, ... }, { text = true }):wait() end
+  git("init", "-q")
+  vim.fn.writefile({ "int a;", "int tick() {", "  return 1;", "}" }, dir .. "/e.cpp")
+  git("add", "e.cpp")
+  git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "first")
+  vim.fn.writefile({ "int a;", "int tick() {", "  return 2;", "}" }, dir .. "/e.cpp")
+  git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qam", "a faster tick")
+  local inner, asked = Map.desk_work, {}
+  local from = { id = "e.cpp::tick", label = "tick", file = "e.cpp", line = 2, lines = 3, kind = "function" }
+  Map.desk_work = function(args, done)
+    asked[#asked + 1] = table.concat(args, " ")
+    local q = args[vim.fn.index(args, "--q") + 2]
+    local nodes = { from }
+    for k = 1, q == "callers" and 3 or 2 do nodes[#nodes + 1] = { id = q .. k, label = q .. k, depth = 1 } end
+    nodes[#nodes + 1] = { id = "far", label = "far", depth = 2 }
+    vim.defer_fn(function() done({ ok = true, q = q, from = from, nodes = nodes, edges = {} }, { code = 0 }) end, 5)
+  end
+  local got
+  Map.card_collect(dir, "e.cpp", 3, function(c) got = c end, { runs = function(root, rel, today, done)
+    done({ { name = "test_e", lines = { [2] = 1, [3] = 1 }, mapped = { [2] = true, [3] = true, [4] = true } } })
+  end })
+  ok(vim.wait(3000, function() return got ~= nil end), "the card collected")
+  Map.desk_work = inner
+  eq(got and { got.node.id, got.callers, got.calls, got.ran, got.commit and got.commit.subject },
+    { "e.cpp::tick", 3, 2, "ran by test_e 2 of 2", "a faster tick" }, "… its callers and callees one level away, the run, the last commit over its lines")
+  ok(asked[1] and asked[1]:find("--q callers --file e.cpp --line 3", 1, true) and asked[1]:find("--depth 1", 1, true), "… asked of the map one level: " .. tostring(asked[1]))
+  eq(require("desk.actions").key("investigate.card"), "<leader>ii", "Space i i opens it")
+  vim.fn.delete(dir, "rf")
+end
 local reach = { ok = true, q = "reach", depth = 2, from = contents.nodes[5],
   nodes = { vim.tbl_extend("force", contents.nodes[5], { depth = 0 }), vim.tbl_extend("force", contents.nodes[1], { depth = 1 }), vim.tbl_extend("force", contents.nodes[2], { depth = 2 }) },
   steps = { { from = "lua/other.lua::use", to = "lua/mod.lua::M.alpha", depth = 1, mark = "follow" },
@@ -1337,7 +1395,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "T", "x", "a", "F", "K", "y", "gs", "P", "gP", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "gc", "]u", "[u", "gj", "gk", "k", "h", "l", "<leader>ic", "<leader>it", "<leader>iT", "<leader>iu", "<leader>id", "<leader>ik", "<leader>ir" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "+", "D", "U", "c", "t", "e", "S", "T", "x", "a", "F", "K", "y", "gs", "P", "gP", "M", "z", "Z", "gb", "W", "i", "r", "R", "B", "q", "o", "j", "gc", "]u", "[u", "gj", "gk", "k", "h", "l", "<leader>ic", "<leader>ii", "<leader>it", "<leader>iT", "<leader>iu", "<leader>id", "<leader>ik", "<leader>ir" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -2373,6 +2431,24 @@ do
   ok(vim.wait(1000, function() return asked[#asked] and asked[#asked]:find("--start run.cpp::ProducerThreadBody", 1, true) ~= nil end),
     "Enter on one: the trace again from there, the end she chose kept: " .. tostring(asked[#asked]))
   ok(asked[#asked] and asked[#asked]:find("--to e.cpp::submit", 1, true), "… (--to kept)")
+  pv.stack, Map.desk_work, P.host.history = stack, inner, history
+  pv.pinned = false
+end
+-- Enter on a card's line (I3): that view's row, on the card's function.
+do
+  local stack, inner, asked, history = pv.stack, Map.desk_work, {}, vim.deepcopy(P.host.history)
+  local node = { id = "e.cpp::tick", label = "tick", file = "e.cpp", line = 11, kind = "function" }
+  pv.stack = { { kind = "modules" }, { kind = "card", card = { node = node, callers = 3, calls = 2 } } }
+  local page = Map.layout(Map.level_card(pv.stack[2]), 110, false)
+  local row, l = line_with(page.lines, "called from 3")
+  local hit = row and Map.item_at(page, row, l:find("called from 3", 1, true) - 1)
+  Map.desk_work = function(args, done)
+    asked[#asked + 1] = table.concat(args, " ")
+    return inner(args, done)
+  end
+  act("map.in", { ref = hit })
+  ok(vim.wait(1000, function() return asked[#asked] and asked[#asked]:find("--q callers --file e.cpp --line 11", 1, true) ~= nil end),
+    "Enter on its callers line: the callers of tick asked: " .. tostring(asked[#asked]))
   pv.stack, Map.desk_work, P.host.history = stack, inner, history
   pv.pinned = false
 end

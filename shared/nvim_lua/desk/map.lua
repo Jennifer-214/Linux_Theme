@@ -1262,6 +1262,75 @@ function M.routes_page(answer)
   return { crumbs = { 'two routes' }, sections = sections }
 end
 
+--- A function's card (I3, 2026-11-19): what each view says about it, a line each, Enter on a line that view (its Space i
+--- row, on this function). card: { node, callers, calls (one level, on the map), ran (the review's "ran by …"),
+--- commit = { sha, subject, when } (the last over its lines), symdeps = true or why not }.
+function M.level_card(level)
+  local card = level.card or {}
+  local node = card.node or {}
+  local function to(id) return { name = tostring(node.label), key = 'card:' .. id, target = { kind = 'row', id = id, node = node } } end
+  local sections = { { head = tostring(node.label) .. ' · ' .. tostring(node.file or '?') .. (node.line and (':' .. node.line) or '') } }
+  local rows = {}
+  local callers, calls = tonumber(card.callers) or 0, tonumber(card.calls) or 0
+  rows[#rows + 1] = {
+    callers > 0 and { 'called from ' .. callers .. (callers == 1 and ' place' or ' places'), to('investigate.callers') } or { 'nothing on the map calls it', nil, true, 'DeskMapDim' },
+    { ' · ', nil, nil, 'DeskMapDim' },
+    calls > 0 and { 'calls ' .. calls, to('investigate.reach') } or { 'it calls nothing on the map', nil, true, 'DeskMapDim' } }
+  rows[#rows + 1] = { card.ran and { card.ran, to('investigate.coverage') } or { 'no test run with coverage has its file', nil, true, 'DeskMapDim' } }
+  local c = card.commit
+  rows[#rows + 1] = { c and { 'last changed ' .. tostring(c.sha) .. ' ' .. tostring(c.subject) .. ' · ' .. tostring(c.when),
+      { name = tostring(c.sha), key = 'card:commit', target = { kind = 'commit', sha = c.sha } } }
+    or { 'no commit has touched it (new, or not committed)', nil, true, 'DeskMapDim' } }
+  rows[#rows + 1] = { { 't ', nil, true, 'DeskMapDim' }, { 'trace', to('investigate.trace') }, { ' · T ', nil, true, 'DeskMapDim' }, { 'whole trace', to('investigate.trace-all') } }
+  rows[#rows + 1] = { card.symdeps == true and { 'symdeps: gs shows it there', to('map.symdeps') }
+    or { 'symdeps: ' .. tostring(card.symdeps or 'requires symdeps'), nil, true, 'DeskMapDim' } }
+  sections[#sections + 1] = { block = rows }
+  return { crumbs = { 'card' }, sections = sections }
+end
+--- The card of the function at line `line` of `rel` (I3), collected: its node and callers from the map (one level),
+--- what it calls, then the last commit over its lines (git log -L) and the runs with coverage (opts.runs: work's
+--- coverage_runs, a test's own). → done(card), or done(nil) when the map has no function there.
+function M.card_collect(root, rel, line, done, opts)
+  opts = opts or {}
+  local card = { symdeps = actions.symdeps() and true or 'requires symdeps' }
+  local function ask(q, cb)
+    M.desk_work({ 'map', 'query', '--root', root, '--q', q, '--file', rel, '--line', tostring(line), '--from', '', '--depth', '1' }, function(answer)
+      local n = 0
+      for _, x in ipairs(answer and answer.ok ~= false and answer.nodes or {}) do if (tonumber(x.depth) or 0) == 1 then n = n + 1 end end
+      cb(answer and answer.ok ~= false and answer or nil, n)
+    end)
+  end
+  ask('callers', function(answer, n)
+    if not (answer and type(answer.from) == 'table') then return done(nil) end
+    card.node, card.callers = answer.from, n
+    local a = tonumber(answer.from.line) or line
+    local b = a + math.max(1, tonumber(answer.from.lines) or 1) - 1
+    local left = 3
+    local function one() left = left - 1; if left == 0 then done(card) end end
+    ask('reach', function(_, k) card.calls = k; one() end)
+    vim.system({ 'git', '--no-optional-locks', '-C', root, 'log', '-1', '--format=%h%x1f%s%x1f%cr', '-s', '-L', a .. ',' .. b .. ':' .. rel },
+      { text = true, timeout = 10000 }, vim.schedule_wrap(function(out)
+        local sha, subject, when = vim.trim(out.stdout or ''):match('^([^\31]+)\31([^\31]*)\31(.*)$')
+        if out.code == 0 and sha then card.commit = { sha = sha, subject = subject, when = when } end
+        one()
+      end))
+    local runs = opts.runs or function(r, p, today, cb) require('desk.work').coverage_runs(r, p, today, cb) end
+    local ok_read, text = pcall(vim.fn.readfile, root .. '/' .. rel)
+    runs(root, rel, ok_read and table.concat(text, '\n') or '', function(list)
+      card.ran = require('desk.work').ran_by_said(list, a, b)
+      one()
+    end)
+  end)
+end
+function M.card_at(path, line)
+  local root, rel, why = rel_of(path)
+  if not root then return tell(why) end
+  M.card_collect(root, rel, line, function(card)
+    if not card then return tell('The map has no function at ' .. rel .. ':' .. line .. ' (R rebuilds it).') end
+    push(map_for(root), { kind = 'card', card = card })
+  end)
+end
+
 --- A test run's coverage on a page (Codex's E5, 2026-11-19): each function box from a file the run covered says
 --- whether the run ran it, from its recorded functions (FN/FNDA: by its line, else by its name), "ran 3×" or "not run"
 --- (warn, and unrun for ]u); a file the run did not cover, nothing. Calls keep their style: lcov says which lines ran,
@@ -2490,6 +2559,7 @@ local function page_of(view)
   end
   if level.kind == 'pick' then return M.level_pick(level) end
   if level.kind == 'findings' then return M.level_findings(level) end
+  if level.kind == 'card' then return M.level_card(level) end
   if level.kind == 'stack' then return M.level_stack(level) end
   if level.kind == 'sanitizer' then return M.level_sanitizer(level) end
   if level.kind == 'regression' then return M.level_regression(level) end
@@ -2893,6 +2963,15 @@ local function enter(view, ctx)
     ctx = ctx or {}
     ctx.stayed = nil
     M.open_change(view.root, t, ctx.origin or (not view.out and view.origin) or nil)
+  elseif t.kind == 'row' then
+    -- A card's line (I3): that view's own row, on the card's function.
+    local row = actions.get(t.id)
+    if row then
+      local c = vim.tbl_extend('force', ctx or {}, { map = view, surface = 'map', item = item })
+      local why = row.available and row.available(c)
+      if why ~= nil and why ~= true then return tell(tostring(why)) end
+      row.run(c)
+    end
   elseif t.kind == 'route' then
     -- One of two routes compared (E6): its trace, a page of its own.
     local top = view.stack[#view.stack]
@@ -4509,6 +4588,9 @@ function M.strip_text(item, G)
     return { tostring(item.name), line('zoom into', keys({ { 'back', 'out' } }), tostring(item.name)) }
   elseif t.kind == 'start' then
     return { G.said('another start · ') .. tostring(item.name), line('trace from here', tostring(item.name)) }
+  elseif t.kind == 'row' then
+    local row = actions.get(t.id)
+    return { tostring(row and row.name or t.id) .. ' · ' .. tostring(item.name), line('open it', tostring(item.name)) }
   elseif t.kind == 'route' then
     return { G.said('one route · ') .. tostring(item.name), line('open it as its trace', tostring(item.name)) }
   elseif t.kind == 'change' then
@@ -4738,6 +4820,8 @@ local INVESTIGATE = actions.add({
     if ctx.view then return pop().show('graph', { target = target }, { pop = ctx.view.pop or 1 }) end
     G.open(target)
   end),
+  investigate('card', 'i', 'Its card', 'What each view says about the function, a line each: its callers and what it calls, the test that ran it, the last commit over its lines, symdeps; `Enter` on a line opens that view',
+    function(f) M.card_at(f.path, f.line) end),
   investigate('trace', 't', 'Trace a possible path through it', 'One lane through the function: up to where it starts, down to where it ends (the map\'s `t`)',
     function(f, ctx) M.trace_at(f.path, f.line, { pop = ctx.view and ctx.view.pop }) end),
   investigate('trace-all', 'T', 'Its whole trace', 'Every way through the function in one picture: what leads to it, what it leads to (the map\'s `T`)',

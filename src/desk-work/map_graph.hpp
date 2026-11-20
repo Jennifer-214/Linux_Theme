@@ -852,6 +852,14 @@ inline std::vector<long> cycles(const Graph& g) {
 // node shows at its nearest depth. Every step says what is at its end: follow (read further), leaf (calls nothing),
 // seen (already in the answer), capped (the depth limit; it calls more); cycle marks a call that is part of
 // recursion. At most `cap` steps; `more` counts the ones left out.
+// How many lines a function has, from the reader's spans (first and last line); 0 when the reader gave none.
+inline long long lines_of(const Graph& g, size_t v) {
+    const auto spans = g.doc.find("spans");
+    if (spans == g.doc.end() || !spans->is_object()) return 0;
+    const auto span = spans->find(text(g.nodes[v], "id"));
+    if (span == spans->end() || !span->is_array() || span->size() != 2 || !(*span)[0].is_number_integer() || !(*span)[1].is_number_integer()) return 0;
+    return (*span)[1].get<long long>() - (*span)[0].get<long long>() + 1;
+}
 inline J walk(const Graph& g, size_t start, int depth, bool backwards, size_t cap) {
     const auto part = cycles(g);
     const auto& next = backwards ? g.in : g.out;
@@ -883,7 +891,9 @@ inline J walk(const Graph& g, size_t start, int depth, bool backwards, size_t ca
     }
     J nodes = J::array();
     for (auto i : order) { auto n = g.node(i); n["depth"] = level[i]; nodes.push_back(n); }
-    return J{{"ok", true}, {"q", backwards ? "callers" : "reach"}, {"from", g.node(start)}, {"depth", depth},
+    J from = g.node(start);
+    if (const auto n = lines_of(g, start); n > 0) from["lines"] = n;
+    return J{{"ok", true}, {"q", backwards ? "callers" : "reach"}, {"from", from}, {"depth", depth},
              {"nodes", nodes}, {"steps", steps}, {"more", more}, {"capped", more > 0}};
 }
 
@@ -975,12 +985,7 @@ inline J trace(const Graph& g, size_t focus, int depth, long to = -1, long start
         const auto v = lane[k];
         J step = g.node(v);
         // How big it is: its lines, from the reader's spans (first and last line).
-        const auto spans = g.doc.find("spans");
-        if (spans != g.doc.end() && spans->is_object()) {
-            const auto span = spans->find(text(g.nodes[v], "id"));
-            if (span != spans->end() && span->is_array() && span->size() == 2 && (*span)[0].is_number_integer() && (*span)[1].is_number_integer())
-                step["lines"] = (*span)[1].get<long long>() - (*span)[0].get<long long>() + 1;
-        }
+        if (const auto n = lines_of(g, v); n > 0) step["lines"] = n;
         // How many come before it (functions that reach it, up its callers) and after (functions it reaches), within depth.
         const auto reach_count = [&](bool backwards) {
             std::vector<char> seen(g.nodes.size(), 0);

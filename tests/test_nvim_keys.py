@@ -57,7 +57,7 @@ REVIEW_OVER_GLOBAL = {
 # Space i, investigate this function (I1, 2026-11-19): the same action as in code, about the review's selected
 # changed function instead of the cursor's (map.function_here) — the point, not a clash.
 REVIEW_OVER_GLOBAL.update({key: 'Space i asks about the selected changed function, as it asks about the cursor\'s in code'
-                           for key in ('<leader>ic', '<leader>it', '<leader>iT', '<leader>iu', '<leader>id', '<leader>ik', '<leader>ir')})
+                           for key in ('<leader>ic', '<leader>ii', '<leader>it', '<leader>iT', '<leader>iu', '<leader>id', '<leader>ik', '<leader>ir')})
 
 
 def entry(row, on):

@@ -171,6 +171,7 @@ int main(int, char** argv) {
     const desk_map::Graph g(doc);
     const auto at = [&](const std::string& id) { return g.at.at(id); };
     auto reach = desk_map::walk(g, at("m/a.lua::a"), 3, false, 100);
+    CHECK(reach["from"].value("lines", 0) == 4, "the function asked about: how big it is, from its span (I3's card: its lines for git and coverage)");
     CHECK(reach["q"] == "reach" && reach["from"]["id"] == "m/a.lua::a", "reach names where it starts");
     const auto* back = step(reach, "m/b.lua::c", "m/a.lua::a");
     CHECK(back && (*back)["mark"] == "seen" && back->value("cycle", false) && (*back)["kind"] == "call", "the call back to the start is marked as a cycle");
