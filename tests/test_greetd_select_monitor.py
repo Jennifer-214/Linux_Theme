@@ -30,12 +30,12 @@ case "$1" in
     case "$2" in
       "return 1") echo ok ;;
       *window.move*)
-        echo "$2" >> "$dir/evals"
+        printf '%s\n' "$2" >> "$dir/evals"
         i=0; for m in $(cat "$dir/outputs"); do case "$2" in *"\"$m\""*) echo "$i" > "$dir/regreet_on" ;; esac; i=$((i + 1)); done
         [ -f "$dir/yank_once" ] && { rm "$dir/yank_once"; echo 0 > "$dir/yank_next"; } ;;
-      *) echo "$2" >> "$dir/evals" ;;
+      *) printf '%s\n' "$2" >> "$dir/evals" ;;
     esac ;;
-  dispatch|keyword) echo "$*" >> "$dir/evals" ;;
+  dispatch|keyword) printf '%s\n' "$*" >> "$dir/evals" ;;
   clients)
     n=$(cat "$dir/client_calls" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$dir/client_calls"
     [ -f "$dir/no_regreet" ] || [ "$n" -lt 3 ] && exit 0
@@ -47,7 +47,7 @@ esac
 # The picker logs to the journal; the stand-in keeps the lines in the test folder instead.
 LOGGER = r'''#!/bin/sh
 shift 2
-echo "$*" >> "$(dirname "$0")/journal"
+printf '%s\n' "$*" >> "$(dirname "$0")/journal"
 '''
 
 
