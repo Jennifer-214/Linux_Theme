@@ -1,8 +1,8 @@
 -- Minimal Hyprland config for the greetd greeter (Hyprland 0.57+ reads only Lua)
 -- Runs regreet inside Hyprland instead of cage — no TTY flash
 
--- select-monitor.sh prunes external outputs when a laptop panel is present,
--- so regreet lands on the built-in display regardless of monitor names. On
+-- select-monitor.sh moves regreet's window to the laptop panel when there is
+-- one (every screen stays on), whatever the external monitors are called. On
 -- desktops it's a no-op. Installed alongside this config by the greetd module.
 -- GTK_THEME=Adwaita:dark: GTK4 renders its first frames BEFORE regreet's
 -- settings/custom CSS apply — with light Adwaita base that's the white

@@ -39,6 +39,8 @@ std::vector<std::string> deps_probe_argv();
 
 // True when the deployed login stylesheet isn't this palette's current render.
 bool greeter_theme_stale(const Context& ctx, const std::filesystem::path& deployed_css);
+// True when a greeter script in etc_dir differs from the repo's shared/ copy, or is missing.
+bool greeter_scripts_stale(const Context& ctx, const std::filesystem::path& etc_dir);
 
 // True when the folders on disk were coloured for a different palette.
 bool folders_stale(const Context& ctx);

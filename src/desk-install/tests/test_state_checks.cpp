@@ -299,6 +299,39 @@ int main() {
         fs::remove_all(root);
     }
 
+    // The greeter scripts are copied unchanged: any difference from the repo's copy, or a missing one, needs the step.
+    {
+        char pattern[] = "/tmp/fox-greeter-scripts-XXXXXX";
+        EXPECT(::mkdtemp(pattern) != nullptr);
+        const fs::path root(pattern);
+        Context c;
+        c.script_dir = root / "repo";
+        const fs::path etc = root / "etc";
+        fs::create_directories(c.script_dir / "shared");
+        fs::create_directories(etc);
+        const std::pair<const char*, const char*> files[] = {
+            {"greetd_hyprland.conf", "hyprland.conf"},
+            {"greetd_hyprland.lua", "hyprland.lua"},
+            {"greetd_select_monitor.sh", "select-monitor.sh"},
+            {"greetd_start.sh", "start-greeter.sh"},
+        };
+        for (const auto& [src, dst] : files) {
+            std::ofstream(c.script_dir / "shared" / src) << src << '\n';
+            std::ofstream(etc / dst) << src << '\n';
+        }
+        EXPECT(!state::greeter_scripts_stale(c, etc));
+        for (const auto& [src, dst] : files) {
+            std::ofstream(etc / dst) << "old\n";
+            EXPECT(state::greeter_scripts_stale(c, etc));
+            std::ofstream(etc / dst) << src << '\n';
+            fs::remove(etc / dst);
+            EXPECT(state::greeter_scripts_stale(c, etc));
+            std::ofstream(etc / dst) << src << '\n';
+        }
+        EXPECT(!state::greeter_scripts_stale(c, etc));
+        fs::remove_all(root);
+    }
+
     if (failures == 0) {
         std::cout << "state_checks tests: OK\n";
         return 0;

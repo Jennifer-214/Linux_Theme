@@ -15,6 +15,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -287,11 +288,33 @@ bool greeter_theme_stale(const Context& ctx, const fs::path& deployed_css) {
     return hash_file(rendered_css) != hash_file(deployed_css);
 }
 
+bool greeter_scripts_stale(const Context& ctx, const fs::path& etc_dir) {
+    // The files the greetd step copies unchanged from shared/ (specials stages them, greetd installs them).
+    static const std::pair<const char*, const char*> files[] = {
+        {"greetd_hyprland.conf", "hyprland.conf"},
+        {"greetd_hyprland.lua", "hyprland.lua"},
+        {"greetd_select_monitor.sh", "select-monitor.sh"},
+        {"greetd_start.sh", "start-greeter.sh"},
+    };
+    for (const auto& [src_name, dst_name] : files) {
+        const fs::path src = ctx.script_dir / "shared" / src_name;
+        if (!fs::exists(src)) continue;
+        try {
+            if (hash_file(src) != hash_file(etc_dir / dst_name)) return true;
+        } catch (const std::exception&) {
+            return true;  // missing or unreadable deployed copy
+        }
+    }
+    return false;
+}
+
 Classification check_greetd(const Context& ctx, const Manifest& manifest) {
     Classification unit = unit_check(manifest, "greetd", "greetd.service", /*user=*/false);
-    // An enabled service says nothing about which theme the login screen shows.
+    // An enabled service says nothing about which theme the login screen shows, or which greeter scripts it runs.
     if (unit.status == Status::Noop && greeter_theme_stale(ctx, "/etc/greetd/regreet.css"))
         return {Status::Update, "login screen theme is out of date"};
+    if (unit.status == Status::Noop && greeter_scripts_stale(ctx, "/etc/greetd"))
+        return {Status::Update, "login screen scripts are out of date"};
     return unit;
 }
 
