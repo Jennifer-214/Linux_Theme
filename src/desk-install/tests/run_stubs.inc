@@ -13,6 +13,7 @@ void run_deps        (Context&) {}
 void run_privacy     (Context&) {}
 void run_perf            (Context&) {}
 void run_clock_sync      (Context&) {}
+void run_zram            (Context&) {}
 void run_arch_audit      (Context&) {}
 void run_no_coredumps    (Context&) {}
 void run_hidepid         (Context&) {}

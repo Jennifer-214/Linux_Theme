@@ -13,6 +13,7 @@
 
 #include "checks.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <cstdio>
@@ -96,6 +97,12 @@ CheckResult skip(const char* id, std::string detail) {
     r.id     = id;
     r.status = Status::Skip;
     r.detail = std::move(detail);
+    return r;
+}
+
+CheckResult warn(const char* id, std::string detail, std::string fix = {}) {
+    CheckResult r = fail(id, std::move(detail), std::move(fix));
+    r.status = Status::Warn;
     return r;
 }
 
@@ -408,4 +415,69 @@ CheckResult a7_arch_conf_no_dupes() {
     return pass("A7");
 }
 
+// A21 — a second kernel to boot when the main one breaks (an nvidia/DKMS or lockdown failure). Warn only: one kernel
+// is a valid choice, it just leaves no recovery boot.
+CheckResult a21_verdict(const std::vector<std::string>& kernels, bool entries_known,
+                        const std::vector<std::string>& kernels_with_entry) {
+    if (kernels.empty()) return skip("A21", "no pacman kernel packages under /usr/lib/modules");
+    if (kernels.size() == 1)
+        return warn("A21", "only " + kernels[0] + " is installed: no fallback kernel to boot if it breaks",
+                    "sudo pacman -S linux-lts linux-lts-headers, then add a boot entry for it");
+    if (!entries_known) return pass("A21");
+    std::vector<std::string> bootable, missing;
+    for (const auto& k : kernels) {
+        const bool has = std::find(kernels_with_entry.begin(), kernels_with_entry.end(), k) != kernels_with_entry.end();
+        (has ? bootable : missing).push_back(k);
+    }
+    if (bootable.size() >= 2) return pass("A21");
+    std::string names;
+    for (const auto& k : missing) names += (names.empty() ? "" : ", ") + k;
+    return warn("A21", "installed but no boot entry loads it: " + names,
+                "copy /boot/loader/entries/arch.conf to a new .conf and point its linux/initrd lines at that kernel");
+}
+
+CheckResult a21_fallback_kernel() {
+    const auto kernels = installed_kernels();
+    const fs::path entries = "/boot/loader/entries";
+    std::error_code ec;
+    std::vector<std::string> with_entry;
+    fs::directory_iterator listing;
+    bool entries_known = fs::is_directory(entries, ec) && !ec;
+    if (entries_known) listing = fs::directory_iterator(entries, ec);
+    entries_known = entries_known && !ec;
+    if (entries_known) {
+        for (auto& e : listing) {
+            if (e.path().extension() != ".conf") continue;
+            std::ifstream f(e.path());
+            for (std::string line; std::getline(f, line);) {
+                std::istringstream is(line);
+                std::string key, image;
+                if (!(is >> key >> image) || key != "linux") continue;
+                const auto name = fs::path(image).filename().string();
+                if (name.rfind("vmlinuz-", 0) == 0) with_entry.push_back(name.substr(8));
+            }
+        }
+    }
+    return a21_verdict(kernels, entries_known, with_entry);
+}
+
 }  // namespace desk_health::checks
+
+namespace desk_health {
+
+std::vector<std::string> installed_kernels(const std::string& modules_root) {
+    std::vector<std::string> kernels;
+    std::error_code ec;
+    fs::directory_iterator trees(modules_root, ec);
+    if (ec) return kernels;
+    for (auto& tree : trees) {
+        std::ifstream f(tree.path() / "pkgbase");
+        std::string name;
+        if (std::getline(f, name) && !name.empty()) kernels.push_back(name);
+    }
+    std::sort(kernels.begin(), kernels.end());
+    kernels.erase(std::unique(kernels.begin(), kernels.end()), kernels.end());
+    return kernels;
+}
+
+}  // namespace desk_health

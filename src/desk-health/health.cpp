@@ -2,6 +2,7 @@
 
 #include "checks.hpp"
 
+#include <cctype>
 #include <exception>
 
 namespace desk_health {
@@ -41,6 +42,8 @@ const std::vector<CheckEntry>& all_checks() {
           Severity::Critical, /*runtime*/ false, /*slow*/ false, &checks::a4_esp_matches_boot },
         { "A7", "systemd-boot entry has no duplicated kernel args",
           Severity::Critical, /*runtime*/ false, /*slow*/ false, &checks::a7_arch_conf_no_dupes },
+        { "A21", "a fallback kernel is installed with a boot entry",
+          Severity::Medium,   /*runtime*/ false, /*slow*/ false, &checks::a21_fallback_kernel },
 
         // ── B. Auth stack (can't get past login) ──────────────────
         { "B1", "/etc/pam.d/sudo PAM-header position correct",
@@ -58,8 +61,10 @@ namespace {
 bool id_matches_any_prefix(const std::string& id,
                            const std::vector<std::string>& prefixes) {
     if (prefixes.empty()) return false;
+    // "A" is the whole category; "A2" is A2 alone, not A21 (or A1 every A1x the catalog plans).
     for (auto& p : prefixes) {
-        if (id.rfind(p, 0) == 0) return true;
+        if (p.empty() || id.rfind(p, 0) != 0) continue;
+        if (id.size() == p.size() || !std::isdigit(static_cast<unsigned char>(p.back()))) return true;
     }
     return false;
 }

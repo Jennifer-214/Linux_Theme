@@ -154,8 +154,7 @@ void run_preflight(Context& ctx) {
         if (is_blocking) {
             ui::err(std::string(glyph) + " [" + r.id + "] " + r.title);
             ++blocking_fails;
-        } else if (r.severity == desk_health::Severity::Critical
-                || r.severity == desk_health::Severity::High) {
+        } else if (r.severity != desk_health::Severity::Low) {   // medium prints too (A21: no fallback kernel)
             ui::warn(std::string(glyph) + " [" + r.id + "] " + r.title);
         } else {
             continue;

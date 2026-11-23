@@ -14,11 +14,12 @@
 //      shared/hyprland_modules/nvidia.conf, substituting AQ_DRM_DEVICES.
 //      Append a `source =` line to hyprland.conf if not already there.
 //
-//   4. Install nvidia-open-dkms + linux-headers + libva-nvidia-driver.
+//   4. Install nvidia-open-dkms + the headers of every installed kernel
+//      (linux-headers, linux-lts-headers, …) + libva-nvidia-driver.
 //
 //   5. Edit /etc/mkinitcpio.conf MODULES=(...) to early-load nvidia
-//      modules. Refuses if /boot has under 80 MB free (nvidia-bearing
-//      initramfs grows to ~135 MB and a half-written .img bricks boot).
+//      modules. Refuses if /boot has under 80 MB free per initramfs image
+//      (each grows with nvidia in it and a half-written .img bricks boot).
 //
 //   6. Append nvidia_drm.modeset=1 to systemd-boot entry kernel cmdline.
 
@@ -29,6 +30,7 @@
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
+#include "../../desk-health/health.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -38,6 +40,7 @@
 #include <string>
 #include <vector>
 #include <sys/statvfs.h>
+#include <sys/utsname.h>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -97,6 +100,22 @@ long boot_free_mb() {
     struct statvfs vfs{};
     if (::statvfs("/boot", &vfs) != 0) return -1;
     return static_cast<long>((vfs.f_bavail * vfs.f_bsize) / (1024 * 1024));
+}
+
+std::size_t boot_initramfs_images() {
+    std::size_t images = 0;
+    std::error_code ec;
+    for (const auto& e : fs::directory_iterator("/boot", ec)) {
+        const auto name = e.path().filename().string();
+        if (name.rfind("initramfs-", 0) == 0 && e.path().extension() == ".img") ++images;
+    }
+    return images;
+}
+
+std::string running_kernel_package() {
+    struct utsname u{};
+    if (::uname(&u) != 0) return {};
+    return read_first_line(fs::path("/usr/lib/modules") / u.release / "pkgbase");
 }
 
 // Read template, sub `AQ_DRM_DEVICES, .*` → `AQ_DRM_DEVICES, <value>`,
@@ -177,14 +196,31 @@ void run_nvidia(Context& ctx) {
         return;
     }
 
-    // 1. Driver packages.
-    if (sh::run({"sh", "-c",
-                 "pacman -Qi nvidia-open-dkms linux-headers libva-nvidia-driver "
-                 ">/dev/null 2>&1"}) == 0
-        && !ctx.force_reapply) {
+    // 1. Driver packages, with the headers of every installed kernel so DKMS builds for each.
+    // Each kernel DKMS builds for gets nvidia in its initramfs at the next rebuild. Without room on /boot for every
+    // image to grow, only the running kernel's headers: a full /boot mid-rebuild leaves a half image.
+    std::vector<std::string> kernels = desk_health::installed_kernels();
+    const long boot_free = boot_free_mb();
+    const long boot_needed = boot_space_needed_mb(boot_initramfs_images());
+    const std::string running = running_kernel_package();
+    if (kernels.size() > 1 && boot_free >= 0 && boot_free < boot_needed && !running.empty()) {
+        ui::warn("/boot has " + std::to_string(boot_free) + " MB free, ~" + std::to_string(boot_needed) +
+                 " MB needed for nvidia in every kernel's initramfs — headers for " + running + " only");
+        ui::substep("free space in /boot, then re-run `--nvidia` to build nvidia for the other kernels too");
+        kernels = {running};
+    }
+    std::vector<std::string> unknown_kernels;
+    std::vector<std::string> driver = kernel_header_packages(kernels, &unknown_kernels);
+    driver.insert(driver.begin(), "nvidia-open-dkms");
+    driver.push_back("libva-nvidia-driver");
+    for (const auto& k : unknown_kernels)
+        ui::warn("kernel " + k + ": no known headers package — install its headers yourself so DKMS builds nvidia for it");
+    std::vector<std::string> query = {"pacman", "-Qi"};
+    query.insert(query.end(), driver.begin(), driver.end());
+    std::string ignored;
+    if (sh::probe(query, ignored) == 0 && !ctx.force_reapply) {
         ui::skipped("NVIDIA driver packages already installed");
-    } else if (sh::pacman({"nvidia-open-dkms", "linux-headers",
-                           "libva-nvidia-driver"}) != 0) {
+    } else if (sh::pacman(driver) != 0) {
         // Driver install failed → the nvidia modules won't exist. Skip the
         // rest of the module (incl. the mkinitcpio edit) so we never bake a
         // MODULES line referencing absent .ko files. Not fatal to the whole
@@ -299,9 +335,12 @@ void run_nvidia(Context& ctx) {
     fs::path mkinit = "/etc/mkinitcpio.conf";
     if (fs::exists(mkinit) && !file_contains(mkinit, "nvidia_drm")) {
         long free = boot_free_mb();
-        if (free >= 0 && free < 80) {
-            ui::warn("/boot has only " + std::to_string(free) +
-                     " MB free (need ~135 MB for nvidia initramfs) — skipping mkinitcpio edit");
+        const std::size_t images = boot_initramfs_images();
+        const long needed = boot_space_needed_mb(images);
+        if (free >= 0 && free < needed) {
+            ui::warn("/boot has only " + std::to_string(free) + " MB free; rebuilding its " +
+                     std::to_string(std::max<std::size_t>(images, 1)) + " initramfs image(s) with nvidia needs ~" +
+                     std::to_string(needed) + " MB — skipping mkinitcpio edit");
             ui::substep("free space in /boot, then re-run `--nvidia`, or accept udev-load fallback");
         } else if (sh::dry_run()) {
             // Preview the merge result — read-only, no writes (brick-safety

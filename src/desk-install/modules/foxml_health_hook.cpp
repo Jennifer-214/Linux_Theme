@@ -51,7 +51,10 @@ constexpr const char* PACMAN_HOOK =
     "# --no-slow keeps the hook fast (skips pacman -Qkk linux which is\n"
     "# ~1s); the worst-case install of a kernel triggers boot_sync's\n"
     "# 95- hook AND this 99- hook, total under 200ms on a working host.\n"
-    "Exec = /usr/local/bin/sec-health --only A,B --no-slow\n"
+    "# A21 (no fallback kernel) is a standing choice, not a transaction's\n"
+    "# damage: left to the installer and the daily probe, so a one-kernel\n"
+    "# machine does not get pacman's hook error on every kernel update.\n"
+    "Exec = /usr/local/bin/sec-health --only A,B --exclude A21 --no-slow\n"
     "Depends = bash\n";
 // No AbortOnFail: alpm-hooks(5) honours it only on PreTransaction hooks — on this
 // PostTransaction one pacman ignored it and warned twice per transaction. Nothing is

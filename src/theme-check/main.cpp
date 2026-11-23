@@ -11,10 +11,12 @@
 #include "../desk-common/shell.hpp"
 #include "../desk-health/health.hpp"
 #include "../desk-install/core/built_tools.hpp"
+#include "../desk-install/core/deps_list.hpp"
 #include <cstddef>
 #include "../desk-install/modules/arch_audit_units.hpp"
 #include "../desk-install/modules/etcwatch_units.hpp"
 #include "../desk-install/modules/firefox_appearance.hpp"
+#include "../desk-install/modules/private_extras.hpp"
 #include "../desk-install/modules/stale_services.hpp"
 #include "../desk-install/modules/symlinks_data.hpp"
 #include "../desk-install/modules/workflow_assets.hpp"
@@ -121,7 +123,7 @@ desk_theme_check::Kind kind_for(const fs::path& dest) {
     return desk_theme_check::Kind::Plain;
 }
 
-struct Tally { int same = 0, yours = 0; std::vector<std::string> drift, missing; };
+struct Tally { int same = 0; std::vector<std::string> yours, drift, missing; };
 
 void compare_one(const Env& env, const fs::path& shipped, const fs::path& dest, Tally& tally) {
     std::error_code ec;
@@ -130,7 +132,7 @@ void compare_one(const Env& env, const fs::path& shipped, const fs::path& dest, 
     if (!fs::exists(dest, ec)) { tally.missing.push_back("~/" + shown); return; }
     switch (desk_theme_check::compare(read_file(shipped), read_file(dest), kind_for(dest))) {
         case desk_theme_check::Verdict::Same:  ++tally.same; break;
-        case desk_theme_check::Verdict::Yours: ++tally.yours; break;
+        case desk_theme_check::Verdict::Yours: tally.yours.push_back("~/" + shown); break;
         case desk_theme_check::Verdict::Drift: tally.drift.push_back("~/" + shown); break;
     }
 }
@@ -155,7 +157,7 @@ fs::path firefox_profile(const Env& env) {
     return desk_install::firefox_appearance::profile(ctx);
 }
 
-CheckResult check_drift(const Env& env) {
+CheckResult compare_deployed(const Env& env, Tally& tally) {
     const auto renderer = env.repo / "src/desk-render/desk-render-fast";
     const auto palette = env.repo / "themes" / env.theme / "palette.sh";
     std::error_code ec;
@@ -165,13 +167,16 @@ CheckResult check_drift(const Env& env) {
     if (!fs::exists(palette, ec))
         return result("D1", "deployed files match the theme", Severity::Medium, Status::Skip,
                       "no palette for the active theme '" + env.theme + "'");
-    const auto rendered = fs::temp_directory_path() / ("fox-theme-check-" + std::to_string(::getpid()));
+    auto pattern = (fs::temp_directory_path() / "desk-theme-check-XXXXXX").string();
+    if (!::mkdtemp(pattern.data()))
+        return result("D1", "deployed files match the theme", Severity::Medium, Status::Fail,
+                      "unable to create a temporary render directory");
+    const fs::path rendered(pattern);
     struct Cleanup { fs::path dir; ~Cleanup() { std::error_code e; fs::remove_all(dir, e); } } cleanup{rendered};
     if (run_bounded(60, {renderer.string(), palette.string(), (env.repo / "templates").string(), rendered.string()}).code != 0)
         return result("D1", "deployed files match the theme", Severity::Medium, Status::Fail,
                       "the renderer failed for " + env.theme, "render it by hand to see the error");
 
-    Tally tally;
     namespace map = desk_install::symlinks;
     const auto profile = firefox_profile(env);
     for (const auto& m : map::TEMPLATE_MAPPINGS) {
@@ -202,7 +207,7 @@ CheckResult check_drift(const Env& env) {
 
     std::ostringstream detail;
     detail << tally.same << " match";
-    if (tally.yours) detail << ", " << tally.yours << " match with lines of your own added";
+    if (!tally.yours.empty()) detail << ", " << tally.yours.size() << " match with lines of your own added";
     if (profile.empty()) detail << "; Firefox profile not found, its files not compared";
     for (const auto& path : tally.drift) detail << "\n  differs: " << path;
     for (const auto& path : tally.missing) detail << "\n  missing: " << path;
@@ -213,6 +218,146 @@ CheckResult check_drift(const Env& env) {
                      + " from the theme";
     return result("D1", title, Severity::Medium, Status::Warn, detail.str(),
                   "re-render: ./install.sh --render-only " + env.theme + "  (the installer backs up what it replaces)");
+}
+
+CheckResult check_drift(const Env& env) {
+    Tally tally;
+    return compare_deployed(env, tally);
+}
+
+// A source reference is a lead for review: the associated module can be disabled or hardware-specific.
+std::map<std::string, std::vector<std::string>> package_references(
+        const Env& env, const std::set<std::string>& candidates) {
+    std::map<std::string, std::vector<std::string>> refs;
+    namespace extras = desk_install::private_extras;
+    const auto script = env.home / "code" / extras::WORKSPACE_REPO / extras::SCRIPT;
+    if (fs::is_regular_file(script)) {
+        const std::string source = read_file(script);
+        const std::regex word("[a-zA-Z0-9@_.+:-]+");
+        std::set<std::string> found;
+        for (std::sregex_iterator it(source.begin(), source.end(), word), end; it != end; ++it)
+            if (candidates.count(it->str())) found.insert(it->str());
+        for (const auto& name : found) refs[name].push_back(extras::SCRIPT);
+    }
+    if (env.repo.empty()) return refs;
+    std::ifstream iso(env.repo / "distro/packages.x86_64");
+    for (std::string line; std::getline(iso, line);) {
+        const auto name = trim(line.substr(0, line.find('#')));
+        if (candidates.count(name)) refs[name].push_back("ISO package list");
+    }
+    const auto modules = env.repo / "src/desk-install/modules";
+    if (!fs::is_directory(modules)) return refs;
+    for (const auto& entry : fs::directory_iterator(modules)) {
+        if (entry.path().extension() != ".cpp") continue;
+        const auto source = read_file(entry.path());
+        for (const auto& pkg : candidates)
+            if (source.find("\"" + pkg + "\"") != std::string::npos)
+                refs[pkg].push_back(entry.path().filename().string());
+    }
+    return refs;
+}
+
+void report_personal_settings(const Env& env) {
+    std::puts("Personal settings to locate in your backup");
+    const auto menu = env.config / "quickshell/desk/menus.json";
+    std::map<fs::path, std::string> personal;
+    if (fs::is_regular_file(menu)) {
+        const auto live = json::parse(read_file(menu), nullptr, false);
+        const auto defaults = env.repo.empty() ? json(nullptr) :
+            json::parse(read_file(env.repo / "shared/quickshell/desk/menus.json"), nullptr, false);
+        if (!live.is_object() || !defaults.is_object()) {
+            personal[menu] = "Drawer settings (could not compare with shipped defaults)";
+        } else if (live != defaults) {
+            std::string fields;
+            for (const char* key : {"groups", "favorites", "project_roots", "project_editor"}) {
+                if (live.contains(key) != defaults.contains(key) ||
+                    (live.contains(key) && live.at(key) != defaults.at(key)))
+                    fields += std::string(fields.empty() ? "" : ", ") + key;
+            }
+            personal[menu] = fields.empty() ? "Drawer settings" : "Drawer settings (" + fields + ")";
+            const auto offered = env.home / ".local/state/foxml/menu-offered.json";
+            if (fs::is_regular_file(offered)) personal[offered] = "Drawer menu upgrade history";
+        }
+    }
+    const auto layout = env.home / ".config/foxml/monitor-layout.conf";
+    if (fs::is_regular_file(layout)) personal[layout] = "Display placement and rotation";
+    for (const auto& dir : {env.config / "foxml/presets", env.config / "foxml/desk.d"}) {
+        if (!fs::is_directory(dir)) continue;
+        const bool presets = dir.filename() == "presets";
+        for (const auto& entry : fs::directory_iterator(dir)) {
+            if (!entry.is_regular_file() || entry.path().extension() != (presets ? ".preset" : ".json")) continue;
+            personal[entry.path()] = presets ? "Personal installer preset" : "Desk command declarations";
+            if (presets) {
+                const auto copy = env.home / "code" / desk_install::private_extras::WORKSPACE_REPO / entry.path().filename();
+                std::error_code ec;
+                if (fs::is_regular_file(copy, ec) && std::ifstream(copy) && std::ifstream(entry.path()) &&
+                    read_file(copy) == read_file(entry.path()))
+                    personal[entry.path()] += " (matches local private workspace copy)";
+            }
+        }
+    }
+    for (const auto& [path, why] : personal) std::printf("  %s  %s\n", path.c_str(), why.c_str());
+    if (personal.empty()) std::puts("  No local choices found in the drawer, display, preset and desk command locations.");
+}
+
+bool report_deployed_changes(const Env& env) {
+    std::puts("\nChanges to deployed files to review");
+    if (env.repo.empty()) {
+        std::puts("  Comparison unavailable. Set FOXML_REPO to the theme checkout.");
+        return false;
+    }
+    Tally files;
+    const auto compared = compare_deployed(env, files);
+    if (compared.status == Status::Skip || compared.status == Status::Fail) {
+        std::printf("  Comparison unavailable. %s %s\n", compared.detail.c_str(), compared.fix_hint.c_str());
+        return false;
+    }
+    std::set<std::string> changed(files.drift.begin(), files.drift.end());
+    changed.insert(files.yours.begin(), files.yours.end());
+    for (const auto& path : changed) std::printf("  %s\n", path.c_str());
+    if (changed.empty()) std::puts("  No local edits found among the compared files.");
+    else std::puts("  Save intentional edits. Differences can also come from installer-generated settings or an older deployment.");
+    return true;
+}
+
+bool report_packages(const Env& env) {
+    std::puts("\nExplicitly installed pacman packages outside the installer base list");
+    const auto packages = run_bounded(20, {"pacman", "-Qqe"});
+    if (packages.code != 0) {
+        std::puts("  Package list unavailable. Check that pacman -Qqe succeeds.");
+        return false;
+    }
+    const auto& base = desk_install::deps_packages();
+    const std::set<std::string> covered(base.begin(), base.end());
+    std::set<std::string> extra;
+    std::istringstream names(packages.out);
+    for (std::string name; names >> name;) if (!covered.count(name)) extra.insert(name);
+    auto refs = package_references(env, extra);
+    std::puts("  Review for your personal install list");
+    for (const auto& name : extra)
+        if (!refs.count(name)) std::printf("    %s\n", name.c_str());
+    if (extra.size() == refs.size()) std::puts("    None");
+    if (!refs.empty()) {
+        std::puts("  Also mentioned in installer sources, the ISO or private extras (check your selected modules)");
+        for (auto& [name, locations] : refs) {
+            std::sort(locations.begin(), locations.end());
+            std::printf("    %s  ", name.c_str());
+            for (std::size_t i = 0; i < locations.size(); ++i)
+                std::printf("%s%s", i ? ", " : "", locations[i].c_str());
+            std::puts("");
+        }
+    }
+    std::printf("  %zu to review. Your OS, optional modules or private setup may provide some of these.\n", extra.size());
+    return true;
+}
+
+int reinstall_report(const Env& env) {
+    std::printf("Reinstall review for %s\n\n", env.theme.c_str());
+    report_personal_settings(env);
+    const bool compared_files = report_deployed_changes(env);
+    const bool compared_packages = report_packages(env);
+    std::puts("\nCoverage is limited to these packages and desktop settings. Check personal files, account sign-ins and backups separately.");
+    return compared_files && compared_packages ? 0 : 1;
 }
 
 // ─── D2–D9 ───────────────────────────────────────────────────────────────────────────────────────────
@@ -1068,16 +1213,19 @@ int main(int argc, char** argv) {
     bool quiet = false, verbose = false, scheduled = false, list = false, only_given = false;
     std::vector<std::string> only;
     std::string theme;
+    bool reinstall = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--theme" && i + 1 < argc) theme = argv[++i];
         else if (arg == "--quiet" || arg == "-q") quiet = true;
         else if (arg == "--verbose" || arg == "-v") verbose = true;
         else if (arg == "--only" && i + 1 < argc) { only = split_csv(argv[++i]); only_given = true; }
+        else if (arg == "--reinstall-report") reinstall = true;
         else if (arg == "--scheduled") scheduled = true;
         else if (arg == "--list") list = true;
         else if (arg == "-h" || arg == "--help") {
             std::printf("usage: desk theme check [--verbose] [--quiet] [--only D1,D4] [--scheduled] [--list] [--theme NAME]\n\n"
+                        "       desk theme check --reinstall-report [--theme NAME]\n\n"
                         "Checks that the desktop the theme set up is deployed and working. Read-only.\n"
                         "--theme compares against another theme than the active one (after a swap, say).\n"
                         "--scheduled runs only the checks the weekly timer runs (no live session, nothing heavy);\n"
@@ -1093,6 +1241,10 @@ int main(int argc, char** argv) {
                         "exit codes: 0 ok  1 warnings  2 critical  3 high\n");
             return 0;
         } else { std::fprintf(stderr, "desk theme check: unknown option %s (see --help)\n", arg.c_str()); return 64; }
+    }
+    if (reinstall && (list || scheduled || only_given || quiet || verbose)) {
+        std::fprintf(stderr, "--reinstall-report can only be combined with --theme NAME\n");
+        return 64;
     }
     // A run that checks nothing must not look like a clean one: an unknown id, an empty --only, or filters that leave
     // nothing are refused instead of exiting 0.
@@ -1123,6 +1275,14 @@ int main(int argc, char** argv) {
         return 64;
     }
 
+    if (reinstall) {
+        try {
+            return reinstall_report(env);
+        } catch (const fs::filesystem_error& error) {
+            std::fprintf(stderr, "Reinstall review incomplete: %s\n", error.what());
+            return 1;
+        }
+    }
     std::vector<CheckResult> results;
     for (const auto& check : CHECKS) {
         if (!selected(check)) continue;

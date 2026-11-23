@@ -16,9 +16,13 @@ CheckResult a2_pacman_qkk_linux();
 CheckResult a3_vmlinuz_matches_kver();
 CheckResult a4_esp_matches_boot();
 CheckResult a7_arch_conf_no_dupes();
+CheckResult a21_fallback_kernel();
 
 // A3 pure verdict (kernel-currency by module-tree ownership), exposed for unit tests.
 Status a3_verdict(bool owned, bool tree_exists);
+// A21 pure verdict: the installed kernels, whether the loader entries could be read, the kernels an entry loads.
+CheckResult a21_verdict(const std::vector<std::string>& kernels, bool entries_known,
+                        const std::vector<std::string>& kernels_with_entry);
 
 // Category B: auth stack
 CheckResult b1_sudo_header_first();

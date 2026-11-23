@@ -69,6 +69,36 @@ class ThemeCheck(unittest.TestCase):
         self.assertIn("missing: ", out.stdout, "files the fake home never got are listed")
         self.assertEqual(list(scratch.iterdir()), [], "nothing left behind")
 
+    def test_reinstall_report_distinguishes_personal_changes_and_package_candidates(self):
+        self.shim("pacman", '[ "$*" = "-Qqe" ] || exit 9; printf "%s\\n" kitty hand-installed hand-installed steam private-tool')
+        self.deploy("kitty/kitty.conf", ".config/kitty/kitty.conf")
+        self.deploy("", ".zshrc", (self.rendered / "zsh/.zshrc").read_text() + "\n# private fixture value\n")
+        self.deploy("", ".config/quickshell/desk/menus.json", '{"favorites":[]}')
+        self.deploy("", ".config/foxml/presets/work.preset", "gaming = on")
+        self.deploy("", "code/linux-theme-workspace/work.preset", "gaming = on")
+        self.deploy("", "code/linux-theme-workspace/private-extras.sh", "exit 1 # private-tool")
+        out = self.run_check("--reinstall-report")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("menus.json", out.stdout)
+        self.assertIn("foxml/presets", out.stdout)
+        self.assertIn("~/.zshrc", out.stdout)
+        self.assertNotIn("private fixture value", out.stdout)
+        self.assertNotIn("kitty", out.stdout)
+        self.assertNotIn(".tmux.conf", out.stdout)
+        self.assertEqual(out.stdout.count("hand-installed"), 1)
+        self.assertIn("steam  gaming.cpp", out.stdout)
+        self.assertIn("private-tool  private-extras.sh", out.stdout)
+        self.assertIn("matches local private workspace copy", out.stdout)
+        self.assertIn("3 to review", out.stdout)
+        self.deploy("", ".config/quickshell/desk/menus.json",
+                    json.dumps(json.loads((ROOT / "shared/quickshell/desk/menus.json").read_text())))
+        self.shim("pacman", "exit 1")
+        out = self.run_check("--reinstall-report")
+        self.assertEqual(out.returncode, 1)
+        self.assertNotIn("menus.json", out.stdout)
+        self.assertIn("Package list unavailable", out.stdout)
+        self.assertIn("~/.zshrc", out.stdout)
+
     def test_claude_status_line_in_retro_capitals_is_usable(self):
         # retro-amber's status line says the model as CLAUDE; the check once looked for "Claude" only and warned on
         # every retro machine (found on a fresh install in the test VM).

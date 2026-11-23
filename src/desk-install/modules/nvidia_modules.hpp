@@ -262,6 +262,30 @@ inline bool ensure_nvidia_conf_placeholder(const std::filesystem::path& dest) {
     return !ec;
 }
 
+// The headers package DKMS needs for each installed kernel, so nvidia-open-dkms builds for the fallback kernel too
+// (without it a linux-lts boot renders in software). Only Arch's own kernels have a known package; any other kernel
+// goes to `unknown` for the caller to name, never into the pacman call (an unknown name fails the whole transaction
+// and the driver with it). No known kernel at all (a container) → linux-headers, as before.
+inline std::vector<std::string> kernel_header_packages(const std::vector<std::string>& kernels,
+                                                       std::vector<std::string>* unknown = nullptr) {
+    static const std::vector<std::string> known = {
+        "linux", "linux-lts", "linux-zen", "linux-hardened", "linux-rt", "linux-rt-lts"};
+    std::vector<std::string> headers;
+    for (const auto& k : kernels) {
+        if (std::find(known.begin(), known.end(), k) != known.end()) headers.push_back(k + "-headers");
+        else if (unknown) unknown->push_back(k);
+    }
+    if (headers.empty()) headers.push_back("linux-headers");
+    return headers;
+}
+
+// /boot space the MODULES edit needs: every initramfs on /boot (each kernel's default and fallback image) is rebuilt
+// with the nvidia modules in it and grows. 80 MB per image is the single-image margin this guard has always used; a
+// second kernel doubles what the rebuild writes, and a /boot that fills mid-write leaves a half image.
+inline long boot_space_needed_mb(std::size_t initramfs_images) {
+    return 80L * static_cast<long>(std::max<std::size_t>(initramfs_images, 1));
+}
+
 }  // namespace desk_install
 
 #endif  // FOX_INSTALL_NVIDIA_MODULES_HPP

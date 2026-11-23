@@ -121,7 +121,27 @@ Running sessions keep their loaded code until the app reloads it. Deployment nev
   The wrapper installs `base-devel` if the compiler or Make is missing.
 - Allow room for kernel updates: a 1 GiB boot partition is recommended, with
   at least 256 MiB free. The wrapper stops below 128 MiB free.
+- A fallback kernel to boot when the main one breaks. In archinstall's
+  Kernels menu, select both `linux` and `linux-lts`; archinstall creates a
+  boot entry for each. The install preflight and `desk sec health` (check
+  A21) warn when only one kernel is installed or the second has no entry.
 - Additional disk space for the applications and optional local models.
+
+## Review your current machine before reinstalling
+
+Run `desk theme check --reinstall-report` on the machine you want to recreate.
+It lists local drawer and display settings, personal presets and desk commands,
+and deployed files whose contents differ from this checkout's active theme.
+Review those paths and save the changes you want to carry over.
+
+The package section compares explicitly installed pacman packages with the
+installer's base dependency list. Your Arch installation, hardware modules and
+private setup may already provide some candidates. Entries with an exact name in
+the ISO list, a quoted reference in an installer module, or a mention in your
+local private-extras script appear separately
+so you can check whether your install path provides them. The report prints names and
+paths only. It exits 0 after a completed review and 1 for an incomplete scan.
+Personal documents, credentials and account sign-ins need their own recovery plan.
 
 ## Choose an install path
 
@@ -209,9 +229,10 @@ install, use `install.sh` so the other native tools are built and installed too.
 | `--secure` | Configure kernel sysctls, UFW, Fail2ban, Auditd, USBGuard and AppArmor |
 | `--ssh-harden` | Run the SSH hardening wizard (`FOXML_SSH_PORT=<port>` answers it for an unattended run) |
 | `--perf` | Configure Chrony time synchronization |
+| `--zram` | Compressed swap in RAM, up to 8 GiB, zstd (on by default; leaves an existing zram setup alone) |
 | `--privacy` | Configure DNS-over-HTTPS |
 | `--vault` | Install the in-memory `desk-vault` secret-store service |
-| `--nvidia` | nvidia-open-dkms + Hyprland on dGPU (Optimus laptops) |
+| `--nvidia` | nvidia-open-dkms, the headers of every installed kernel, + Hyprland on dGPU (Optimus laptops) |
 | `--render` | Apply the theme everywhere: render, deploy, scripts, drawer, cursor and banner, then restart waybar/mako/dunst. Folder colours can need sudo, so it warns and leaves them to `--only papirus_icons` |
 | `--private-extras` | The repo owner's own extras, from a script in her private `linux-theme-workspace` (off by default) |
 

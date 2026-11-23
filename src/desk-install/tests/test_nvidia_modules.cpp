@@ -42,6 +42,24 @@ int main() {
     const std::vector<std::string> NV =
         {"nvidia", "nvidia_modeset", "nvidia_uvm", "nvidia_drm"};
 
+    // ── 0. headers for every installed kernel; /boot space per image ──
+    {
+        using V = std::vector<std::string>;
+        // This machine: linux + linux-lts → both headers, so DKMS builds nvidia for the fallback too.
+        EXPECT((kernel_header_packages(V{"linux", "linux-lts"}) == V{"linux-headers", "linux-lts-headers"}));
+        EXPECT((kernel_header_packages(V{"linux-zen"}) == V{"linux-zen-headers"}));
+        // A custom kernel is named back to the caller and kept out of the pacman call.
+        V unknown;
+        EXPECT((kernel_header_packages(V{"linux", "linux-custom"}, &unknown) == V{"linux-headers"}));
+        EXPECT((unknown == V{"linux-custom"}));
+        // No pacman kernel (a container) → linux-headers, as before.
+        EXPECT((kernel_header_packages(V{}) == V{"linux-headers"}));
+        // One image keeps the old 80 MB margin; two kernels with fallback images need four times it.
+        EXPECT(boot_space_needed_mb(0) == 80);
+        EXPECT(boot_space_needed_mb(1) == 80);
+        EXPECT(boot_space_needed_mb(4) == 320);
+    }
+
     // ── 1. empty MODULES=() → all four nvidia, nothing else ────────────
     {
         auto t = parse_modules(merge_modules("MODULES=()\n"));

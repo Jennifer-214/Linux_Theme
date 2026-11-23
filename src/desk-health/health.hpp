@@ -62,6 +62,9 @@ std::vector<CheckResult> run_all(const CheckOptions& opts = {});
 //   3  = ≥1 High Fail
 int worst_exit(const std::vector<CheckResult>& results);
 
+// The kernel packages installed here (each module tree's pkgbase: linux, linux-lts, …), sorted and unique.
+std::vector<std::string> installed_kernels(const std::string& modules_root = "/usr/lib/modules");
+
 }  // namespace desk_health
 
 #endif

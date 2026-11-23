@@ -19,6 +19,8 @@ inline const std::vector<std::string>& deps_packages() {
 
         // Compositor, lock, wallpaper, idle
         "hyprland", "hyprlock", "awww", "hypridle", "hyprpolkitagent",
+        "xdg-desktop-portal-hyprland", // screen sharing and file pickers; hyprland does not depend on it
+        "xdg-user-dirs", // ~/Downloads, ~/Pictures, … that apps and the screenshot tools expect
         "qt6-base", // includes the GTK platform theme bridge used by desktop dialogs
         // Themed login
         "greetd", "greetd-regreet",
@@ -74,6 +76,7 @@ inline const std::vector<std::string>& deps_packages() {
 
         // Networking, audio, power telemetry
         "networkmanager", "wireplumber", "libnotify", "upower", "lm_sensors",
+        "sof-firmware", // laptop audio (Intel Sound Open Firmware); harmless where unused
 
         // misc utilities install.sh's later sections rely on
         "unzip",

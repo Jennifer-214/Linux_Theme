@@ -25,6 +25,8 @@ DESK_MODULE_FULL( deps,    run_deps,          "--deps",        "Install pacman b
 DESK_MODULE( privacy,     run_privacy,       "--privacy",     "DNS-over-HTTPS via systemd-resolved",              true  )
 DESK_MODULE( perf,            run_perf,             "--perf",         "Performance tuning (chrony over timesyncd)",       false )
 DESK_MODULE( clock_sync,      run_clock_sync,       "--clock-sync",   "One-shot NTP correction at install time",          true  )
+//   zram — leaves a machine's own zram config or active zram swap alone (zram_conf.hpp).
+DESK_MODULE( zram,            run_zram,             "--zram",         "Compressed swap in RAM (zram-generator, up to 8 GiB)", true  )
 //   ssh_harden — before ufw, security and endlessh: they follow the port sshd listens on (ssh_port.hpp), so one run
 //   leaves the firewall, fail2ban and the tarpit on the port it chose. Asks, or FOXML_SSH_PORT=<port> unattended.
 DESK_MODULE( ssh_harden,  run_ssh_harden,    "--ssh-harden",  "SSH wizard: one port for sshd, keys-only once your key logs in", false )
