@@ -318,6 +318,15 @@ assert.deepEqual(plain(logic.retroEmptyState('earlier-notes', false, true, "mako
   { title: 'General failure reading drawer', detail: logic.retroText("mako's history is unavailable") + '\n\nAbort, Retry, Ignore?' });
 assert.equal(logic.retroEmptyState('jobs', false, true, '').detail, 'Abort, Retry, Ignore?');
 assert.equal(logic.retroHints('failed'), 'A Abort  R Retry  I Ignore');
+// said once: DIR's count only for files and folders; the detail line drops a path its words already give
+assert.equal(logic.retroCount([{ presentation: 'download' }, { presentation: 'download' }, {}]), '2 File(s)');
+assert.equal(logic.retroCount([{ presentation: 'project' }]), '1 Dir(s)');
+assert.equal(logic.retroCount([{ id: 'volume' }, { presentation: 'claude' }]), '');
+assert.equal(logic.retroDetailWith('Git project · ~/code/notebook', '/srv/you/code/notebook', '/srv/you'), 'Git project · ~/code/notebook');
+assert.equal(logic.retroDetailWith('mounted at /run/media/x', '/run/media/x', '/srv/you'), 'mounted at /run/media/x');
+assert.equal(logic.retroDetailWith('PDF · 2.4 MiB', '/srv/you/Downloads/a.pdf', '/srv/you'), 'PDF · 2.4 MiB  /srv/you/Downloads/a.pdf');
+assert.equal(logic.retroDetailWith('', '/x', ''), '/x');
+assert.equal(logic.retroDetailWith('words', '', ''), 'words');
 assert.ok(logic.retroHints('items', 'project').startsWith('b Ribbon'));
 const crtRow = menus.groups.flatMap(group => group.items).find(item => item.id === 'crt');
 assert.equal(crtRow.label, 'Screen CRT effect', 'other themes read the plain label');

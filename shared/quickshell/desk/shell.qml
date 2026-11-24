@@ -122,10 +122,18 @@ ShellRoot {
         var item = entries[itemIndex];
         if (!item) return "";
         if (editing && Logic.hasStops(item)) return Logic.retroText(Logic.stopDetail(item, draftValue));
-        var path = Logic.focusDetail(item);
-        var detail = Logic.retroDetail(item);
-        return path && detail ? detail + "  " + path : path || detail;
+        // Today's row would repeat the date the page opens with.
+        if (page === "root" && item.id === "today") return "";
+        return Logic.retroDetailWith(Logic.retroDetail(item), Logic.focusDetail(item), Quickshell.env("HOME") || "");
     }
+    // Retro: the row under the prompt, in place of a heading that repeated the frame's title. A group's own page gives
+    // its summary (Sound: "42% · speakers"); file and folder lists their count; else the row is not drawn.
+    readonly property string retroHeadline: {
+        if (!retro || searching || pickerLayout || page === "root") return "";
+        var group = groups.find(function(g) { return (g.page || g.id) === page; });
+        return group ? Logic.retroText(group.summary || "") : "";
+    }
+    readonly property string retroCount: retro && !searching && !pickerLayout ? Logic.retroCount(entries) : ""
     // The theme's glyph set (retro: blocks for flowers), chosen as the shell is made, before any page reads one.
     readonly property bool glyphsStyled: Logic.useStyle(theme.style)
     // The light slip belongs on the screen whose backlight it changed; sound and songs follow the focus.
@@ -1292,7 +1300,8 @@ ShellRoot {
                         }
                         TermText {
                             theme: root.paperTheme
-                            text: root.actionBusy ? "WORKING" : root.pageLoading ? "OPENING" : root.pickerLayout && root.pickerPrompt ? "WRITE" : root.searching && !root.searchBrowse ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"
+                            // Only while something is going on: an idle drawer said NORMAL on every page.
+                            text: root.actionBusy ? "WORKING" : root.pageLoading ? "OPENING" : root.pickerLayout && root.pickerPrompt ? "WRITE" : root.searching && !root.searchBrowse ? "SEARCH" : root.editing ? "ADJUST" : ""
                             color: theme.muted
                         }
                         TermText {
@@ -1444,7 +1453,8 @@ ShellRoot {
 
                             Rectangle {
                                 Layout.fillWidth: true
-                                implicitHeight: root.retro ? 2 * theme.cell : theme.paperDetails ? 38 : 28
+                                visible: !root.retro || root.retroHeadline.length > 0 || root.retroCount.length > 0
+                                implicitHeight: root.retro ? theme.cell : theme.paperDetails ? 38 : 28
                                 color: theme.paperDetails ? Qt.alpha(theme.highlight, .55) : "transparent"
                                 radius: 3
                                 border.width: theme.paperDetails ? 1 : 0
@@ -1456,11 +1466,11 @@ ShellRoot {
                                 Text {
                                     id: pageHeading
                                     textFormat: Text.PlainText
-                                    text: root.retro ? Logic.retroTitle(Logic.retroWord(root.searching && !root.pickerLayout ? "find anything" : root.pageTitle))
+                                    text: root.retro ? root.retroHeadline
                                         : Logic.pageHeading(root.searching && !root.pickerLayout ? "find anything" : root.pageTitle, theme.paperDetails)
                                     color: theme.ink; font.family: root.retro ? theme.fontFamily : theme.headingFont; font.italic: !root.retro; Layout.fillWidth: true; elide: Text.ElideRight
                                     // Retro: the double-height cell when the title fits on the line, the single one when it doesn't.
-                                    font.pixelSize: root.retro ? (Logic.cells(text) * 2 * theme.cellW <= parent.width - (Logic.cells(pageCount.text) + 2) * theme.cellW ? 2 * theme.cell : theme.cell) : 20
+                                    font.pixelSize: root.retro ? theme.cell : 20
                                     renderType: theme.textRender
                                     PaperFlourish {
                                         theme: root.paperTheme
@@ -1475,7 +1485,7 @@ ShellRoot {
                                     id: pageCount
                                     // Retro counts a page the way DIR does.
                                     textFormat: Text.PlainText; text: root.page === "root" || (root.pickerLayout && root.pickerPrompt) ? ""
-                                        : root.retro ? (root.gardenLayout || root.scrapbookLayout ? "" : Logic.rowCount(root.entries) + " File(s)") : String(Logic.rowCount(root.entries)).padStart(2, "0")
+                                        : root.retro ? root.retroCount : String(Logic.rowCount(root.entries)).padStart(2, "0")
                                     color: theme.muted; font.family: theme.fontFamily; font.pixelSize: theme.px(10); renderType: theme.textRender
                                     PaperFlourish {
                                         theme: root.paperTheme; kind: "circle"
@@ -1994,28 +2004,33 @@ ShellRoot {
                                     objectName: "retro-confirm"
                                     visible: root.retro && root.pendingConfirm !== null
                                     readonly property int boxCells: Math.min(Math.floor(parent.width / theme.cellW), 56)
+                                    // An action with a question of its own asks only that ("Eject this drive?"), not its name first.
+                                    readonly property bool asks: root.pendingConfirm !== null && typeof root.pendingConfirm.confirm === "string" && root.pendingConfirm.confirm.length > 0
+                                    readonly property int textRow: asks ? 2 : 3
                                     width: boxCells * theme.cellW
-                                    height: (retroConfirmText.lineCount + 6) * theme.cell
+                                    height: (retroConfirmText.lineCount + textRow + 3) * theme.cell
                                     x: Math.floor((parent.width - width) / 2 / theme.cellW) * theme.cellW
                                     y: Math.floor((parent.height - height) / 2 / theme.cell) * theme.cell
                                     Rectangle { width: parent.width; height: parent.height; color: theme.background }
                                     TextFrame { anchors.fill: parent; theme: root.paperTheme; title: "CONFIRM"; shadow: true }
                                     TermText {
+                                        objectName: "retro-confirm-label"
+                                        visible: !retroConfirm.asks
                                         theme: root.paperTheme
                                         x: 2 * theme.cellW; y: theme.cell * 2; width: parent.width - 4 * theme.cellW
                                         text: root.pendingConfirm ? Logic.retroText(root.pendingConfirm.label || "").toUpperCase() + "?" : ""
                                     }
                                     Text {
                                         id: retroConfirmText
-                                        x: 2 * theme.cellW; y: theme.cell * 3; width: parent.width - 4 * theme.cellW
+                                        x: 2 * theme.cellW; y: theme.cell * retroConfirm.textRow; width: parent.width - 4 * theme.cellW
                                         textFormat: Text.PlainText; wrapMode: Text.WordWrap
                                         text: Logic.retroWord(root.pendingConfirm && typeof root.pendingConfirm.confirm === "string" ? root.pendingConfirm.confirm : "one moment before you go.\nthis action needs your confirmation.")
-                                        color: theme.muted; font.family: theme.fontFamily; font.pixelSize: theme.cell; renderType: Text.NativeRendering
+                                        color: retroConfirm.asks ? theme.ink : theme.muted; font.family: theme.fontFamily; font.pixelSize: theme.cell; renderType: Text.NativeRendering
                                         lineHeightMode: Text.FixedHeight; lineHeight: theme.cell
                                     }
                                     Row {
                                         anchors.horizontalCenter: parent.horizontalCenter
-                                        y: (retroConfirmText.lineCount + 4) * theme.cell
+                                        y: (retroConfirmText.lineCount + retroConfirm.textRow + 1) * theme.cell
                                         spacing: 2 * theme.cellW
                                         Repeater {
                                             model: ["[CANCEL]", "[ OK ]"]

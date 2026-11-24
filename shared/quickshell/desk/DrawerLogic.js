@@ -457,6 +457,25 @@ function confirmationLabel(item) {
     return labels[item.action || item.id] || item.label || "Confirm";
 }
 
+// Retro says each thing once (2026-11-24). The page's name is in the frame's top edge, so the row under the prompt
+// counts only what DIR would: files and folders, nothing on a page of settings or sessions.
+function retroCount(entries) {
+    var files = 0, dirs = 0;
+    (entries || []).forEach(function(row) {
+        var kind = row ? String(row.presentation || "") : "";
+        if (kind === "download" || kind === "screenshot") files++;
+        else if (kind === "project") dirs++;
+    });
+    return files ? files + " File(s)" : dirs ? dirs + " Dir(s)" : "";
+}
+// The detail line: the row's words, then its path unless the words already give it (as ~/… or in full).
+function retroDetailWith(detail, path, home) {
+    if (!path) return detail;
+    if (!detail) return path;
+    var short = home && path.indexOf(home + "/") === 0 ? "~" + path.slice(home.length) : "";
+    return detail.indexOf(path) >= 0 || (short && detail.indexOf(short) >= 0) ? detail : detail + "  " + path;
+}
+
 function focusDetail(item) {
     if (!item) return "";
     var path = String(item.argument || "");

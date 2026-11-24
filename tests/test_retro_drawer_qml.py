@@ -56,6 +56,9 @@ EXERCISE = STEPS + r'''
         if (testFind(retroFrame, "text-frame-top").edge.indexOf("╔═[ SOUND ]═") !== 0) throw new Error("frame title: " + testFind(retroFrame, "text-frame-top").edge);
         if (!testFind(retroFrame, "text-frame-divider").visible) throw new Error("no │ between the groups and the page");
         if (retroPrompt.text !== "C:\\DESK\\SOUND>") throw new Error("prompt: " + retroPrompt.text);
+        // Said once: the name in the frame only; under the prompt the group's summary, no count of settings as files.
+        if (pageHeading.text !== Logic.retroText("42% · speakers") || pageCount.text !== "")
+            throw new Error("the row under the prompt: " + JSON.stringify([pageHeading.text, pageCount.text]));
         if (root.entries.length !== 3) throw new Error("sound page did not load");
         var volume = testRowText(0);
         if (!/^Volume \.+ \[█+░+\]  42%$/.test(volume)) throw new Error("slider row: " + volume);
@@ -87,6 +90,8 @@ EXERCISE = STEPS + r'''
         var shade = testFind(retroConfirm, "text-frame-shadow"), box = testFind(retroConfirm, "text-frame-top");
         if (!shade || !shade.visible || shade.rightText !== "▓▓" || shade.bottomText !== "▓".repeat(retroConfirm.boxCells))
             throw new Error("the confirm box casts no DOS shadow: " + (shade ? shade.visible + " " + shade.bottomText.length : "none"));
+        if (testFind(retroConfirm, "retro-confirm-label").visible || retroConfirmText.text !== "Eject this drive?")
+            throw new Error("a question of its own is asked once: " + retroConfirmText.text);
         root.step(1);
         if (!root.confirmYes) throw new Error("confirmation choice did not move");
         root.goBack();
