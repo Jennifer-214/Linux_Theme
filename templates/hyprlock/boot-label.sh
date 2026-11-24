@@ -7,7 +7,7 @@
 escape() { sed 's/&/\&amp;/g; s/</\&lt;/g'; }
 
 if [ "${1:-}" = status ]; then
-    line='ENTER UNLOCK'
+    line='◄┘ UNLOCK'
     fp=$(printf '%s' "${2:-}" | LC_ALL=C tr '[:lower:]' '[:upper:]')
     [ -n "$fp" ] && line="$line   $fp"
     if [ -n "$(sh "$(dirname "$0")/capslock-label.sh" ${3:+"$3"})" ]; then

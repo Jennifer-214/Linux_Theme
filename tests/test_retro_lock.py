@@ -152,11 +152,11 @@ class RetroLock(unittest.TestCase):
         def bar(prompt=''):
             return subprocess.run(['sh', str(out / 'boot-label.sh'), 'status', prompt, str(leds), str(power)],
                                   capture_output=True, text=True, check=True).stdout
-        self.assertEqual(bar(), '<span foreground="#0c0a06">ENTER UNLOCK   CAPS LOCK OFF</span>')
+        self.assertEqual(bar(), '<span foreground="#0c0a06">◄┘ UNLOCK   CAPS LOCK OFF</span>')
         (leds / 'input3::capslock/brightness').write_text('1\n')
         (power / 'BAT0').mkdir(); (power / 'BAT0/capacity').write_text('87\n')
         self.assertEqual(bar('Finger reader ready'),
-                         '<span foreground="#0c0a06">ENTER UNLOCK   FINGER READER READY   CAPS LOCK ON   BATTERY 87%</span>')
+                         '<span foreground="#0c0a06">◄┘ UNLOCK   FINGER READER READY   CAPS LOCK ON   BATTERY 87%</span>')
         self.assertIn('A &amp; B', bar('a & b'))
 
 
