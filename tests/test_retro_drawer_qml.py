@@ -84,6 +84,9 @@ EXERCISE = STEPS + r'''
       run: function() {
         root.activate({id: "drive-eject", label: "Eject drive", kind: "action", confirm: "Eject this drive?"});
         if (!retroConfirm.visible || root.confirmYes) throw new Error("retro confirmation missing");
+        var shade = testFind(retroConfirm, "text-frame-shadow"), box = testFind(retroConfirm, "text-frame-top");
+        if (!shade || !shade.visible || shade.rightText !== "▓▓" || shade.bottomText !== "▓".repeat(retroConfirm.boxCells))
+            throw new Error("the confirm box casts no DOS shadow: " + (shade ? shade.visible + " " + shade.bottomText.length : "none"));
         root.step(1);
         if (!root.confirmYes) throw new Error("confirmation choice did not move");
         root.goBack();
@@ -133,7 +136,7 @@ EXERCISE = STEPS + r'''
       run: function() {
         root.entries = [];
         root.note("mako's history is unavailable", true);
-        if (root.retroMode !== "failed" || retroFrame.footer !== " A Abort  R Retry  I Ignore")
+        if (root.retroMode !== "failed" || retroFrame.footer !== " A Abort  R Retry  I Ignore" || retroFrame.footerAlert)
             throw new Error("failed page status line: " + root.retroMode + " " + JSON.stringify(retroFrame.footer));
         if (!emptyNote.visible || emptyNote.note.detail.indexOf("Abort, Retry, Ignore?") < 0 || emptyNote.note.detail.indexOf(Logic.retroText("mako's history")) !== 0)
             throw new Error("failed page body: " + emptyNote.visible + " " + JSON.stringify(emptyNote.note));

@@ -1245,7 +1245,7 @@ ShellRoot {
                     // The │ between the groups and the page, in the cell the spacer after the group list leaves.
                     divider: groupList.visible && !root.calendarLayout ? 2 + root.retroGroupCells : -1
                     footer: " " + root.retroStatus
-                    footerAlert: root.failed && root.message.length > 0
+                    footerAlert: root.failed && root.message.length > 0 && !root.pageFailed
                 }
 
                 ColumnLayout {
@@ -1999,7 +1999,7 @@ ShellRoot {
                                     x: Math.floor((parent.width - width) / 2 / theme.cellW) * theme.cellW
                                     y: Math.floor((parent.height - height) / 2 / theme.cell) * theme.cell
                                     Rectangle { width: parent.width; height: parent.height; color: theme.background }
-                                    TextFrame { anchors.fill: parent; theme: root.paperTheme; title: "CONFIRM" }
+                                    TextFrame { anchors.fill: parent; theme: root.paperTheme; title: "CONFIRM"; shadow: true }
                                     TermText {
                                         theme: root.paperTheme
                                         x: 2 * theme.cellW; y: theme.cell * 2; width: parent.width - 4 * theme.cellW

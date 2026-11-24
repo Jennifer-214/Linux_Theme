@@ -17,6 +17,8 @@ Item {
     property int divider: -1
     property string footer: ""
     property bool footerAlert: false
+    // A box over the page casts a DOS shadow outside its edge: ▓ two cells wide down the right, a row along the bottom.
+    property bool shadow: false
     readonly property int cols: Math.max(8, Math.floor(width / theme.cellW))
     readonly property int rows: Math.max(4, Math.floor(height / theme.cell))
     readonly property real frameWidth: cols * theme.cellW
@@ -110,5 +112,18 @@ Item {
             text: Logic.clip(frame.footer, frame.cols - 4)
             color: frame.footerAlert ? frame.theme.error : frame.theme.background
         }
+    }
+    Item {
+        objectName: "text-frame-shadow"
+        visible: frame.shadow
+        readonly property string rightText: "▓▓"
+        readonly property string bottomText: "▓".repeat(frame.cols)
+        Rectangle { x: frame.frameWidth; y: frame.theme.cell; width: 2 * frame.theme.cellW; height: frame.rows * frame.theme.cell; color: frame.theme.background }
+        Rectangle { x: 2 * frame.theme.cellW; y: frame.frameHeight; width: frame.cols * frame.theme.cellW; height: frame.theme.cell; color: frame.theme.background }
+        Repeater {
+            model: frame.shadow ? frame.rows : 0
+            TermText { required property int index; theme: frame.theme; x: frame.frameWidth; y: (index + 1) * frame.theme.cell; text: parent.rightText; color: frame.theme.muted }
+        }
+        TermText { theme: frame.theme; x: 2 * frame.theme.cellW; y: frame.frameHeight; text: parent.bottomText; color: frame.theme.muted }
     }
 }
