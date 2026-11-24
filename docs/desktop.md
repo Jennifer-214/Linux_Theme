@@ -118,8 +118,9 @@ half-year beds: empty days are pencil outlines and busier days deepen through fo
 shades of the palette's accent, set by the quarters of your own busy days. Your three
 busiest days wear a leaf and today is outlined. It counts commits you wrote (by your
 `user.email`, by author date, so a rebase or a second branch counts once) across the
-project index cards. `h`/`l` move a week, `j`/`k` a day, `t` returns to today, and the
-"active days" line on Today opens it, as do `garden ›` and `g` on the calendar.
+project index cards. The line under the beds gives today and this week; point at a day to
+read its count. `h` or Escape goes back. The "active days" line on Today opens it, as do
+`garden ›` and `g` on the calendar.
 
 ### Downloads
 

@@ -293,21 +293,26 @@ EXERCISE = r'''
         { at: 5900, ready: function() { return root.page === "garden" && root.gardenLayout && gardenSheet.visible; }, run: function() {
         if (root.page !== "garden" || !root.gardenLayout || !gardenSheet.visible || itemList.visible || emptyNote.visible)
             throw new Error("the hearts line did not open the garden sheet: " + root.page + " " + root.gardenLayout + " " + gardenSheet.visible + " " + itemList.visible + " " + emptyNote.visible);
-        if (gardenSheet.counts.length !== 371 || root.gardenIndex !== 370) throw new Error("the garden did not start on today");
+        if (gardenSheet.counts.length !== 371) throw new Error("the garden did not read its year: " + gardenSheet.counts.length);
         if (testFind(gardenSheet, "garden-summary").text !== "· 35 commits this year · longest streak 4 days · busiest nov 2 (9)")
             throw new Error("garden summary: " + testFind(gardenSheet, "garden-summary").text);
-        if (testFind(gardenSheet, "garden-readout").text !== "today · 2 commits") throw new Error("the readout does not start on today");
+        if (testFind(gardenSheet, "garden-readout").text !== "today · 2 commits · 27 this week")
+            throw new Error("the readout is not today and this week: " + testFind(gardenSheet, "garden-readout").text);
         var today = testFind(gardenSheet, "garden-day-370"), heart = testFind(gardenSheet, "garden-day-365");
         if (!today || today.level !== 1 || !heart || !heart.heart || testFind(gardenSheet, "garden-day-363").level !== 3)
             throw new Error("garden shades or hearts are wrong");
-        root.key({key: Qt.Key_H, modifiers: 0, accepted: false});
+        // A picture, not a list (2026-11-24): j / k / l move nothing, and one h goes back, wherever the garden opened.
+        root.key({key: Qt.Key_J, modifiers: 0, accepted: false});
         root.key({key: Qt.Key_K, modifiers: 0, accepted: false});
-        if (root.gardenIndex !== 362 || testFind(gardenSheet, "garden-readout").text !== "fri, oct 30 · no commits")
-            throw new Error("h / k did not move a week and a day: " + root.gardenIndex + " " + testFind(gardenSheet, "garden-readout").text);
-        root.key({key: Qt.Key_T, modifiers: 0, accepted: false});
-        if (root.gardenIndex !== 370) throw new Error("t did not return to today");
-        root.key({key: Qt.Key_Escape, modifiers: 0, accepted: false});
-        if (root.page !== "root" || !root.opened) throw new Error("Esc did not take the garden back to Today, where it opened from");
+        root.key({key: Qt.Key_L, modifiers: 0, accepted: false});
+        if (root.page !== "garden" || testFind(gardenSheet, "garden-readout").text !== "today · 2 commits · 27 this week")
+            throw new Error("j / k / l changed the garden: " + root.page + " " + testFind(gardenSheet, "garden-readout").text);
+        gardenSheet.hoveredIndex = 362;
+        if (testFind(gardenSheet, "garden-readout").text !== "fri, oct 30 · no commits")
+            throw new Error("the mouse on a day did not read it out: " + testFind(gardenSheet, "garden-readout").text);
+        gardenSheet.hoveredIndex = -1;
+        root.key({key: Qt.Key_H, modifiers: 0, accepted: false});
+        if (root.page !== "root" || !root.opened) throw new Error("one h did not take the garden back to Today, where it opened from: " + root.page);
         root.hide();
         } },
         { at: 6000, run: function() { root.show("agents");} },

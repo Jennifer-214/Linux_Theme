@@ -56,6 +56,10 @@ assert.equal(logic.gardenSummary('2025-11-02', [0, 1234]), '· 1,234 commits thi
 assert.equal(logic.gardenReadout('2025-11-02', gardenCounts, 1, 9), 'mon, nov 3 · 1 commit');
 assert.equal(logic.gardenReadout('2025-11-02', gardenCounts, 9, 9), 'today · no commits');
 assert.equal(logic.gardenReadout('2025-11-02', gardenCounts, 12, 9), '');
+// today and this week so far: the counts start on a Sunday, so day 7 opens the second week
+assert.equal(logic.gardenToday(gardenCounts), 'today · no commits · 18 this week');
+assert.equal(logic.gardenToday([0, 0, 0, 0, 0, 0, 0, 1]), 'today · 1 commit · 1 this week');
+assert.equal(logic.gardenToday([]), '');
 assert.equal(logic.gardenDate('2025-12-28', 7).getFullYear(), 2026, 'days roll across the new year');
 assert.deepEqual(plain(logic.gardenMonths('2025-11-02', 0, 10)), [{ week: 0, text: 'nov' }, { week: 5, text: 'dec' }, { week: 9, text: 'jan' }]);
 assert.equal(logic.sinceLine(0), '');

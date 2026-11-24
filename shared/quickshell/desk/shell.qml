@@ -48,7 +48,6 @@ ShellRoot {
     readonly property bool scrapbookLayout: page === "screenshots" && !pickerLayout
     readonly property bool gardenLayout: page === "garden" && !pickerLayout
     property var garden: null
-    property int gardenIndex: -1
     property bool viewFailed: false
     property var pendingConfirm: null
     property bool confirmYes: false
@@ -360,8 +359,6 @@ ShellRoot {
             itemIndex = Logic.restoreIndex(entries, samePage ? oldKey : (saved ? saved.key : ""), samePage ? oldIndex : undefined);
             if (requestedPage === "garden") {
                 garden = data.garden || null;
-                var planted = garden && Array.isArray(garden.counts) ? garden.counts.length : 0;
-                if (!samePage || gardenIndex >= planted) gardenIndex = planted - 1;
             }
             itemList.viewPage = requestedPage;
             if (scrapbookLayout) Qt.callLater(function() { scrapbookSheet.reveal(root.itemIndex); });
@@ -855,16 +852,10 @@ ShellRoot {
             return;
         }
         if (gardenLayout && focusArea === "items" && !searching && !pendingConfirm) {
-            var planted = garden && Array.isArray(garden.counts) ? garden.counts.length : 0;
             if (k === Qt.Key_Q) hide();
-            else if (k === Qt.Key_Escape) goBack();
+            else if (k === Qt.Key_Escape || k === Qt.Key_Left || k === Qt.Key_H) goBack();
             else if (k === Qt.Key_Slash) startSearch();
             else if (k === Qt.Key_F) show("root");
-            else if (k === Qt.Key_Left || k === Qt.Key_H) { if (gardenIndex < 7) goBack(); else gardenIndex -= 7; }
-            else if (k === Qt.Key_Right || k === Qt.Key_L) gardenIndex = Math.min(planted - 1, gardenIndex + 7);
-            else if (k === Qt.Key_Up || k === Qt.Key_K) gardenIndex = Math.max(0, gardenIndex - 1);
-            else if (k === Qt.Key_Down || k === Qt.Key_J) gardenIndex = Math.min(planted - 1, gardenIndex + 1);
-            else if (k === Qt.Key_T || k === Qt.Key_Home) gardenIndex = planted - 1;
             else if (helpKey) showKeys();
             else if (digit >= 0) jumpToGroup(digit);
             else return;
@@ -1568,9 +1559,7 @@ ShellRoot {
                                     visible: root.gardenLayout && !root.searching
                                     theme: root.paperTheme
                                     garden: root.garden
-                                    selectedIndex: root.gardenIndex
                                     anchors.fill: parent
-                                    onChoose: index => { root.gardenIndex = index; root.focusArea = "items"; keyboard.forceActiveFocus(); }
                                 }
 
                                 ScrapbookSheet {

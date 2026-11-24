@@ -3,12 +3,13 @@ import QtQuick.Layouts
 import QtQuick.Shapes
 import "DrawerLogic.js" as Logic
 
-// A year of commits, one little square a day: two half-year beds, shaded deeper the more you wrote.
+// A year of commits, one little square a day: two half-year beds, shaded deeper the more you wrote. A picture, not a
+// list: no day is selected (moving a cursor through 365 of them was in the way of h Back, 2026-11-24); the mouse over a
+// day reads it out.
 ColumnLayout {
     id: sheet
     required property var theme
     property var garden: null
-    property int selectedIndex: -1
     property int hoveredIndex: -1
     readonly property var counts: garden && Array.isArray(garden.counts) ? garden.counts : []
     readonly property string start: garden ? String(garden.start || "") : ""
@@ -26,7 +27,6 @@ ColumnLayout {
     readonly property int dayW: retro ? Math.max(1, Math.min(2, Math.floor((width - 3 * theme.cellW) / Math.max(1, splitWeek) / theme.cellW))) * theme.cellW : cell
     readonly property int dayH: retro ? theme.cell : cell
     readonly property var retroShades: ["·", "░", "▒", "▓", "█"]
-    signal choose(int index)
     spacing: retro ? theme.cell : 9
 
     Text {
@@ -84,22 +84,21 @@ ColumnLayout {
                             readonly property int count: planted ? sheet.counts[day] : 0
                             readonly property int level: Logic.gardenLevel(count, sheet.thresholds)
                             readonly property bool heart: planted && sheet.hearts.indexOf(day) >= 0
-                            readonly property bool selected: day === sheet.selectedIndex
                             objectName: "garden-day-" + day
                             width: sheet.dayW; height: sheet.dayH
                             visible: planted
-                            // Retro: the selected day in inverse video, today on the highlight, its shade as a block.
+                            // Retro: today on the highlight, each day's shade as a block.
                             Rectangle {
-                                visible: sheet.retro && (plot.selected || plot.day === sheet.todayIndex)
+                                visible: sheet.retro && plot.day === sheet.todayIndex
                                 width: sheet.theme.cellW; height: sheet.theme.cell
-                                color: plot.selected ? sheet.theme.ink : sheet.theme.highlight
+                                color: sheet.theme.highlight
                             }
                             TermText {
                                 objectName: "garden-retro-day"
                                 visible: sheet.retro
                                 theme: sheet.theme
                                 text: visible ? (plot.heart ? "♦" : sheet.greens.indexOf(plot.day) >= 0 ? "*" : sheet.retroShades[plot.level]) : ""
-                                color: plot.selected ? sheet.theme.background : plot.level === 0 && !plot.heart ? sheet.theme.muted : sheet.theme.gardenShades[Math.max(plot.heart ? 4 : 2, plot.level)]
+                                color: plot.level === 0 && !plot.heart ? sheet.theme.muted : sheet.theme.gardenShades[Math.max(plot.heart ? 4 : 2, plot.level)]
                             }
                             Rectangle {
                                 anchors.fill: parent
@@ -107,8 +106,8 @@ ColumnLayout {
                                 radius: sheet.retro ? 0 : Math.max(2, sheet.cell / 4)
                                 color: sheet.theme.gardenShades[plot.heart && sheet.retro ? 4 : plot.level]
                                 // An empty day is a pencil outline, so even the palest bed reads on a bright screen.
-                                border.width: plot.selected || (plot.heart && sheet.retro) ? 1.6 : plot.day === sheet.todayIndex || plot.level === 0 ? 1 : 0
-                                border.color: plot.selected ? sheet.theme.ink : plot.day === sheet.todayIndex ? sheet.theme.detailAccent : Qt.alpha(sheet.theme.line, .7)
+                                border.width: plot.heart && sheet.retro ? 1.6 : plot.day === sheet.todayIndex || plot.level === 0 ? 1 : 0
+                                border.color: plot.day === sheet.todayIndex ? sheet.theme.detailAccent : Qt.alpha(sheet.theme.line, .7)
                             }
                             // A pressed flower: the day a failing test went green again.
                             Text {
@@ -130,8 +129,8 @@ ColumnLayout {
                                 preferredRendererType: Shape.CurveRenderer
                                 ShapePath {
                                     fillColor: sheet.theme.gardenShades[4]
-                                    strokeColor: plot.selected ? sheet.theme.ink : sheet.theme.gardenShades[4]
-                                    strokeWidth: plot.selected ? 2 : 1
+                                    strokeColor: sheet.theme.gardenShades[4]
+                                    strokeWidth: 1
                                     PathSvg { path: "M5 20C2 10 11 3 21 3C21 14 12 23 5 20ZM5 20L17 7" }
                                 }
                             }
@@ -139,7 +138,6 @@ ColumnLayout {
                                 anchors.fill: parent; hoverEnabled: true
                                 onEntered: sheet.hoveredIndex = plot.day
                                 onExited: if (sheet.hoveredIndex === plot.day) sheet.hoveredIndex = -1
-                                onClicked: sheet.choose(plot.day)
                             }
                             Accessible.role: Accessible.StaticText
                             Accessible.name: Logic.gardenReadout(sheet.start, sheet.counts, plot.day, sheet.todayIndex)
@@ -155,7 +153,7 @@ ColumnLayout {
         spacing: 5
         Text {
             objectName: "garden-readout"
-            text: Logic.gardenReadout(sheet.start, sheet.counts, sheet.hoveredIndex >= 0 ? sheet.hoveredIndex : sheet.selectedIndex, sheet.todayIndex)
+            text: sheet.hoveredIndex >= 0 ? Logic.gardenReadout(sheet.start, sheet.counts, sheet.hoveredIndex, sheet.todayIndex) : Logic.gardenToday(sheet.counts)
             textFormat: Text.PlainText; color: sheet.theme.ink; font.family: sheet.theme.fontFamily; font.pixelSize: sheet.theme.px(11); renderType: sheet.theme.textRender
             Layout.fillWidth: true; elide: Text.ElideRight
         }

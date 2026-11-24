@@ -200,6 +200,15 @@ function gardenReadout(start, counts, index, todayIndex) {
     return name + " · " + (count ? count + (count === 1 ? " commit" : " commits") : "no commits");
 }
 
+// The readout when the mouse is on no day: today, and this week so far (the counts start on a Sunday).
+function gardenToday(counts) {
+    if (!counts || !counts.length) return "";
+    var today = counts.length - 1, week = 0;
+    for (var day = today - today % 7; day <= today; day++) week += counts[day];
+    return "today · " + (counts[today] ? counts[today] + (counts[today] === 1 ? " commit" : " commits") : "no commits")
+        + " · " + gardenNumber(week) + " this week";
+}
+
 // Month names above the weeks where a new month begins, between weeks `from` and `to` (exclusive).
 function gardenMonths(start, from, to) {
     var labels = [], last = -1;
@@ -638,7 +647,7 @@ function retroHints(mode, presentation) {
         editing: "h/l Adjust  ◄┘ Done  Esc Back",
         confirm: "h/l Choose  ◄┘ Select  Esc Cancel",
         calendar: "h/l Month  t Today  g Garden  c Courses  Esc Close",
-        garden: "hjkl Move  t Today  h Back  q Close",
+        garden: "h Back  / Find  ? Help  q Close",
         scrapbook: "hjkl Move  ◄┘ Open  c Copy  h Back  q Close",
         tags: "h/l Move  ◄┘ Open  j Down  Tab Groups  q Close"
     };
