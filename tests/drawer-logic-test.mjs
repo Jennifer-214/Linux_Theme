@@ -313,6 +313,11 @@ assert.equal(logic.retroTitle('today.'), 'TODAY');
 assert.equal(logic.retroText('☐ to do … ✿'), '[ ] to do ... »');
 assert.equal(logic.retroWord('a little sound.'), 'VOLUME');
 assert.equal(logic.retroEmptyState('jobs', false, false).title, '0 File(s)');
+// a failed page: the error above the DOS question; its keys are on the status line
+assert.deepEqual(plain(logic.retroEmptyState('earlier-notes', false, true, "mako's history is unavailable")),
+  { title: 'General failure reading drawer', detail: logic.retroText("mako's history is unavailable") + '\n\nAbort, Retry, Ignore?' });
+assert.equal(logic.retroEmptyState('jobs', false, true, '').detail, 'Abort, Retry, Ignore?');
+assert.equal(logic.retroHints('failed'), 'A Abort  R Retry  I Ignore');
 assert.ok(logic.retroHints('items', 'project').startsWith('b Ribbon'));
 const crtRow = menus.groups.flatMap(group => group.items).find(item => item.id === 'crt');
 assert.equal(crtRow.label, 'Screen CRT effect', 'other themes read the plain label');

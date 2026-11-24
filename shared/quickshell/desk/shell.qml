@@ -108,9 +108,13 @@ ShellRoot {
         onTriggered: root.retroClock = Qt.formatTime(new Date(), "HH:mm")
     }
     readonly property string retroMode: pendingConfirm ? "confirm" : editing ? "editing" : calendarLayout ? "calendar"
-        : pickerLayout && pickerPrompt ? "prompt" : pickerLayout && !searching ? "picker" : searching ? (searchBrowse ? "results" : "search") : gardenLayout && focusArea === "items" ? "garden"
+        : pickerLayout && pickerPrompt ? "prompt" : pickerLayout && !searching ? "picker" : searching ? (searchBrowse ? "results" : "search")
+        : pageFailed ? "failed" : gardenLayout && focusArea === "items" ? "garden"
         : scrapbookLayout && focusArea === "items" ? "scrapbook" : focusArea
-    readonly property string retroStatus: message.length > 0 ? (failed ? "! " : "") + Logic.retroWord(message)
+    // A page that could not be read and shows nothing: the error is on the page, the keys that answer it on the status line.
+    readonly property bool pageFailed: failed && !entries.length && focusArea === "items" && page !== "root" && !pageLoading
+        && !gardenLayout && !scrapbookLayout && !pendingConfirm && !editing
+    readonly property string retroStatus: message.length > 0 && !pageFailed ? (failed ? "! " : "") + Logic.retroWord(message)
         : Logic.retroHints(retroMode, focusArea === "items" && entries[itemIndex] ? String(entries[itemIndex].presentation || "") : "")
     readonly property string retroDetailLine: {
         if (!retro) return "";
@@ -263,6 +267,12 @@ ShellRoot {
 
     function backendCommand(args) {
         return [backend].concat(["--config", Quickshell.shellPath("menus.json")]).concat(args);
+    }
+
+    // r on a page that failed (R Retry in retro): ask for it again now, not at the next background refresh.
+    function retryPage() {
+        pageLoading = true;
+        requestView();
     }
 
     function note(text, error) {
@@ -932,6 +942,12 @@ ShellRoot {
             else if (helpKey) showKeys();
             else if (digit >= 0) jumpToGroup(digit);
             else return;
+            event.accepted = true;
+            return;
+        }
+        // The failed page's question, "Abort, Retry, Ignore?": A closes, R reads it again, I goes back (as h and Esc do).
+        if (pageFailed && !searching && (k === Qt.Key_R || retro && (k === Qt.Key_A || k === Qt.Key_I))) {
+            if (k === Qt.Key_R) retryPage(); else if (k === Qt.Key_A) hide(); else goBack();
             event.accepted = true;
             return;
         }
@@ -1896,7 +1912,7 @@ ShellRoot {
 
                                 Column {
                                     id: emptyNote
-                                    readonly property var note: root.retro ? Logic.retroEmptyState(root.page, root.searching, root.failed) : Logic.emptyState(root.page, root.searching, root.failed)
+                                    readonly property var note: root.retro ? Logic.retroEmptyState(root.page, root.searching, root.failed, root.message) : Logic.emptyState(root.page, root.searching, root.failed)
                                     anchors.centerIn: parent
                                     width: parent.width - 28
                                     spacing: root.retro ? theme.cell : 15

@@ -516,7 +516,7 @@ var drawerKeysQuery = "quickshell drawers";
 
 // An empty page says whether that is good news, or how to fill it, naming the real key.
 function emptyState(page, searching, failed) {
-    if (failed) return {title: "this page needs a moment.", detail: "check the note below, or h to go back."};
+    if (failed) return {title: "this page needs a moment.", detail: "check the note below; r tries again, h goes back."};
     if (searching) return {title: "no matching notes.", detail: "try another search, or Esc to go back."};
     var pages = {
         root: ["everything in its little place.", "choose a group on the left\nor press / to find any action."],
@@ -648,6 +648,7 @@ function retroHints(mode, presentation) {
         confirm: "h/l Choose  ◄┘ Select  Esc Cancel",
         calendar: "h/l Month  t Today  g Garden  c Courses  Esc Close",
         garden: "h Back  / Find  ? Help  q Close",
+        failed: "A Abort  R Retry  I Ignore",
         scrapbook: "hjkl Move  ◄┘ Open  c Copy  h Back  q Close",
         tags: "h/l Move  ◄┘ Open  j Down  Tab Groups  q Close"
     };
@@ -701,8 +702,9 @@ function retroDetail(item) {
     return retroText(own || detailText(item, false));
 }
 
-function retroEmptyState(page, searching, failed) {
-    if (failed) return {title: "General failure reading drawer", detail: "Abort, Retry, Ignore?  h Back"};
+// A page that failed: what went wrong above the DOS question, whose three answers are keys (A, R, I).
+function retroEmptyState(page, searching, failed, message) {
+    if (failed) return {title: "General failure reading drawer", detail: (message ? retroText(message) + "\n\n" : "") + "Abort, Retry, Ignore?"};
     if (searching) return {title: "File not found", detail: "Esc Back"};
     var note = emptyState(page, false, false);
     var detail = note.detail.split("\n").map(function(line) { return line.charAt(0).toUpperCase() + line.slice(1); }).join("\n");

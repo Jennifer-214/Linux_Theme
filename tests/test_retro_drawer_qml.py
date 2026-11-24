@@ -126,6 +126,29 @@ EXERCISE = STEPS + r'''
         var mark = today ? testFind(today, "garden-retro-day") : null;
         if (!mark || !mark.visible || ["·", "░", "▒", "▓", "█", "♦", "*"].indexOf(mark.text) < 0) throw new Error("garden day: " + (mark ? mark.text : "none"));
         if (!gardenSheet.retroShades || gardenSheet.dayH !== 12) throw new Error("garden is off the cell grid");
+        root.show("sound");
+    }},
+    // A page that failed: the error and "Abort, Retry, Ignore?" on the page, the three answers working keys.
+    { ready: function() { return root.page === "sound" && !root.pageLoading && root.entries.length === 3; },
+      run: function() {
+        root.entries = [];
+        root.note("mako's history is unavailable", true);
+        if (root.retroMode !== "failed" || retroFrame.footer !== " A Abort  R Retry  I Ignore")
+            throw new Error("failed page status line: " + root.retroMode + " " + JSON.stringify(retroFrame.footer));
+        if (!emptyNote.visible || emptyNote.note.detail.indexOf("Abort, Retry, Ignore?") < 0 || emptyNote.note.detail.indexOf(Logic.retroText("mako's history")) !== 0)
+            throw new Error("failed page body: " + emptyNote.visible + " " + JSON.stringify(emptyNote.note));
+        root.key({key: Qt.Key_R, modifiers: 0, accepted: false});
+        if (!root.pageLoading || JSON.stringify(viewProcess.command.slice(-2)) !== JSON.stringify(["view", "sound"]))
+            throw new Error("R did not read the page again: " + root.pageLoading + " " + JSON.stringify(viewProcess.command));
+    }},
+    { ready: function() { return root.page === "sound" && !root.pageLoading && root.entries.length === 3; },
+      run: function() {
+        root.entries = [];
+        root.note("mako's history is unavailable", true);
+        root.key({key: Qt.Key_I, modifiers: 0, accepted: false});
+        // Opened with nothing behind it, back is the group list, as h and Esc go.
+        if (root.focusArea !== "groups" || root.retroMode === "failed" || !root.opened)
+            throw new Error("I did not go back: " + root.page + " " + root.focusArea + " " + root.retroMode);
         root.hide();
         polkitPrompt.testFlow = fakeFlow;
     }},
