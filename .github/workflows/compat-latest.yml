@@ -21,7 +21,7 @@ jobs:
       - name: Install the newest toolchain
         run: |
           pacman -Syu --noconfirm --needed base-devel git curl pkgconf openssl python python-yaml \
-            wayland wayland-protocols cairo pango glib2 gdk-pixbuf2 systemd-libs
+            wayland wayland-protocols cairo pango glib2 gdk-pixbuf2 systemd-libs jq
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
