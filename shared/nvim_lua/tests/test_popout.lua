@@ -1614,9 +1614,12 @@ do
   local second = connect(vim.trim(read('kitty.listen')))
   ok(wait(10000, function() return state_of(second).kind == 'rows' end), '… the rows are there now')
   ok(wait(3000, function() return vim.deep_equal(state().views, { 'graph' }) end), '… and gone from the first, which keeps its graph')
-  ok(wait(5000, function()
+  local placed = wait(5000, function()
     return log_since(mark):find("dispatch hl.dsp.window.move({ workspace = '7', follow = false, window = 'address:0xb2' })", 1, true)
-  end), '… placed on the screen chosen, HDMI-A-1')
+  end)
+  -- Failed once in CI (2026-11-24) and never here: what it was asked, and what the editor said, show why next time.
+  ok(placed, '… placed on the screen chosen, HDMI-A-1' .. (placed and '' or ('\n  hyprctl since: ' .. (log_since(mark):gsub('\n', ' | '))
+    .. '\n  the editor said: ' .. vim.inspect(host('return _G.heard')) .. '\n  kitty pids: ' .. (read('kitty.pids'):gsub('\n', ' ')))))
   eq(host("local P = require('desk.popout'); return { P.pops[2].chosen, P.chosen == ... }", chosen_before), { 'HDMI-A-1', true },
     "… chosen for that pop-out, the first's choice as it was")
   -- Asked for again from the editor, the rows go where she sent them.
