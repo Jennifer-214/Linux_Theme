@@ -855,13 +855,19 @@ M.PLACE_TRIES = 3
 function M.place(pid, screen, p)
   p = p or H
   if type(pid) ~= 'number' or not have('hyprctl') then return end
+  -- The newest placement is the one that counts: an older one still checking its move moved the window back and set
+  -- p.screen again (CI, 2026-11-23, the pop-out moved again before its last move was checked).
+  p.placing = (p.placing or 0) + 1
+  local placing = p.placing
   hyprctl({ 'monitors' }, function(monitors)
+    if p.placing ~= placing then return end
     screen = screen or chosen_screen(monitors, p) or M.target_screen(monitors, M.screens(), p.prefer)
     if not screen then return end
     local where, looked, tried = tostring(screen.workspace), 0, 0
     local function look()
       looked = looked + 1
       hyprctl({ 'clients' }, function(clients)
+        if p.placing ~= placing then return end
         local c
         for _, w in ipairs(type(clients) == 'table' and clients or {}) do
           if type(w) == 'table' and w.pid == pid and w.class == M.CLASS and type(w.address) == 'string' and w.address:match('^0x%x+$') then c = w end

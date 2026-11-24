@@ -1116,6 +1116,13 @@ ok(unsets >= 2 and vim.trim(read('pop.workspace')) == '7', '… checked in its l
   .. unsets .. ' unsets)')
 eq({ host("return require('desk.popout').host.screen"), host("return require('desk.popout').chosen") }, { 'HDMI-A-1', 'HDMI-A-1' },
   '… on HDMI-A-1 now, and chosen for this session')
+-- Placed again while the last placement still checks its move: the newer wins. The older one's checks moved the window
+-- back and set its screen again (CI, 2026-11-23: two runs failed on it).
+host("_G.heard = {}; vim.notify = function(text) table.insert(_G.heard, text) end")
+host("local P = require('desk.popout'); P.place(P.host.kitty, { name = 'DP-2', workspace = 5 }, P.host); P.place(P.host.kitty, { name = 'HDMI-A-1', workspace = 7 }, P.host)")
+vim.wait(1500 * PATIENCE, function() return false end, 50)
+eq({ host("return require('desk.popout').host.screen"), vim.trim(read('pop.workspace')), host('return _G.heard') }, { 'HDMI-A-1', '7', {} },
+  'placed twice at once: the second placement wins, on workspace 7, and nothing is said')
 host("vim.ui.select = function(items, _, done) done(items[1]) end")
 host("local A = require('desk.actions'); A.press(A.get('popout.screen'), A.context())")
 ok(wait(5000, function() return host("return require('desk.popout').host.screen") == 'DP-2' end), '… and back to DP-2')
