@@ -2190,7 +2190,8 @@ M.away_ns = away_ns
 function M.client_focus(here)
   C.focused = here
   if next(api.nvim_get_hl(away_ns, { name = 'DeskCallGraphSelected' })) == nil then
-    api.nvim_set_hl(away_ns, 'DeskCallGraphSelected', graphs().retro() and { underline = true, bold = true } or { link = 'CursorLine' })
+    -- Retro: bold, not underlined; kitty underlined the box's border rows too, and each border showed twice (2026-11-24).
+    api.nvim_set_hl(away_ns, 'DeskCallGraphSelected', graphs().retro() and { bold = true } or { link = 'CursorLine' })
   end
   for _, win in ipairs(api.nvim_list_wins()) do
     if api.nvim_win_get_config(win).relative == '' then pcall(api.nvim_win_set_hl_ns, win, here and 0 or away_ns) end

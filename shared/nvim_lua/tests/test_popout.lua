@@ -631,6 +631,12 @@ pop("vim.api.nvim_exec_autocmds('FocusGained', {})")
 eq(pop([[local P = require('desk.popout'); return { P.tabline():find('%#DeskPopoutTabSel#', 1, true) ~= nil,
   vim.api.nvim_get_hl_ns({ winid = vim.api.nvim_get_current_win() }) == P.away_ns }]]), { true, false },
   '… back: its tab filled, the selection full again')
+-- Retro, the keyboard elsewhere: bold, never underlined. kitty underlines every cell of the box, its ─ border rows too,
+-- which drew each border twice and a line under the box (seen 2026-11-24).
+pop("vim.g.desk_style = 'retro'; vim.api.nvim_set_hl(require('desk.popout').away_ns, 'DeskCallGraphSelected', {}); vim.api.nvim_exec_autocmds('FocusLost', {})")
+eq(pop([[local h = vim.api.nvim_get_hl(require('desk.popout').away_ns, { name = 'DeskCallGraphSelected' }); return { h.underline == true, h.bold == true }]]),
+  { false, true }, 'retro, the keyboard elsewhere: the selected box bold, not underlined')
+pop("vim.g.desk_style = 'paper'; vim.api.nvim_set_hl(require('desk.popout').away_ns, 'DeskCallGraphSelected', {}); vim.api.nvim_exec_autocmds('FocusGained', {})")
 
 -- ─── a gp pair names its partner (Codex's #6): the graph's header says where its preview is ─────────────────────
 host("local P = require('desk.popout'); P.preview_pop = 2; P.redraw(P.view_of('graph'))")
