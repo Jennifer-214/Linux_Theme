@@ -2,6 +2,7 @@
 #include "../modules/firefox_policies.hpp"
 
 #include <cstdio>
+#include <iterator>
 #include <string>
 
 using nlohmann::json;
@@ -37,16 +38,24 @@ int main() {
         json file = json::parse(odd), copy = file;
         check(add_extension(file, vimium) == Merge::Refused && file == copy, std::string("refused, untouched: ") + odd);
     }
-    // Dark Reader: added only when the theme asks for it (retro-amber's FF_DARK_READER=on), beside Vimium.
-    const auto plain = addons_for(false), amber = addons_for(true);
-    check(plain.size() == 1 && std::string(plain[0].id) == vimium.id, "a theme that does not ask: Vimium only");
-    check(amber.size() == 2 && std::string(amber[1].id) == "addon@darkreader.org" && std::string(amber[1].slug) == "darkreader",
-          "a theme that asks: Vimium and Dark Reader (addon@darkreader.org, AMO's darkreader)");
-    check(install_url(amber[1]) == "https://addons.mozilla.org/firefox/downloads/latest/darkreader/latest.xpi", "… from AMO's latest");
-    json both = hers;
-    for (const auto& addon : amber) add_extension(both, addon);
-    check(both["policies"]["ExtensionSettings"]["addon@darkreader.org"]["installation_mode"] == "normal_installed"
-          && both["policies"]["ExtensionSettings"]["uBlock0@raymondhill.net"]["install_url"] == "x", "… merged beside her own, switchable off");
+    // Dark Reader, retired: the entry an earlier install wrote comes out; her own entries, and one she wrote for it, stay.
+    const Addon& dark = RETIRED[0];
+    check(std::string(dark.id) == "addon@darkreader.org" && std::size(ADDONS) == 1, "Dark Reader retired, Vimium the only add-on");
+    json earlier = json::parse(R"({"policies":{"DisableTelemetry":true,"ExtensionSettings":{
+        "addon@darkreader.org":{"installation_mode":"normal_installed","install_url":"https://addons.mozilla.org/firefox/downloads/latest/darkreader/latest.xpi"},
+        "{d7742d87-e61d-4b78-b8a1-b469842139fa}":{"installation_mode":"normal_installed","install_url":"https://addons.mozilla.org/firefox/downloads/latest/vimium-ff/latest.xpi"}}}})");
+    check(remove_extension(earlier, dark) && !earlier["policies"]["ExtensionSettings"].contains(dark.id)
+          && earlier["policies"]["ExtensionSettings"].contains(vimium.id) && earlier["policies"]["DisableTelemetry"] == true,
+          "the earlier install's Dark Reader entry taken out, the rest kept");
+    json twice = earlier;
+    check(!remove_extension(twice, dark) && twice == earlier, "a second run changes nothing");
+    json own = json::parse(R"({"policies":{"ExtensionSettings":{"addon@darkreader.org":{"installation_mode":"force_installed","install_url":"x"}}}})");
+    const json own_before = own;
+    check(!remove_extension(own, dark) && own == own_before, "an entry she wrote for Dark Reader stays");
+    for (const char* odd : {R"([1,2])", R"({"policies":[]})", R"({"policies":{"ExtensionSettings":"no"}})", R"({})"}) {
+        json file = json::parse(odd), copy = file;
+        check(!remove_extension(file, dark) && file == copy, std::string("nothing to take out, untouched: ") + odd);
+    }
     std::printf("test_firefox_policies: %d passed\n", passes);
     return failures ? 1 : 0;
 }

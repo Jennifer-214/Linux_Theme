@@ -447,9 +447,6 @@ FF_SELECTION_FG=0c0a06
 # Websites are asked for their dark mode: Firefox's "Website appearance" (dark, light or auto), written to user.js by
 # the installer. Themes without this key leave Firefox's own choice alone.
 FF_WEBSITE_APPEARANCE=dark
-# Every site dark, its text amber (2026-11-19): Dark Reader, added through Firefox's policy file as Vimium is, and a
-# settings file from this palette (templates/firefox/darkreader.json) she imports once. Themes without this key leave it out.
-FF_DARK_READER=on
 
 # ─── Errors · warnings · syntax roles · Thunar · one sheet opacity ───
 NVIM_WARN=ffc640

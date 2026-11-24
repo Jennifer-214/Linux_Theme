@@ -205,50 +205,6 @@ class RenderedConfigsTest(unittest.TestCase):
             self.assertEqual(settings['save_dir'], '$HOME/Pictures/Screenshots')
             self.assertNotIn('{{', settings['text_font'])
 
-    def test_dark_reader_settings_pass_its_own_checks(self):
-        # Her ask (2026-11-19): website text in amber and every site dark. Dark Reader cannot take settings from Firefox's
-        # policy file, so the installer leaves this file for her to import once; Dark Reader replaces any value it does
-        # not accept with its default, so every key is written and checked here against its rules (darkreader
-        # src/utils/validation.ts and src/defaults.ts, read 2026-11-19).
-        hexcolour = re.compile(r"^#[0-9a-f]{6}$", re.I)
-        theme_rules = {
-            "mode": lambda v: v in (0, 1), "brightness": lambda v: 0 <= v <= 200, "contrast": lambda v: 0 <= v <= 200,
-            "grayscale": lambda v: 0 <= v <= 100, "sepia": lambda v: 0 <= v <= 100, "useFont": lambda v: isinstance(v, bool),
-            "fontFamily": lambda v: isinstance(v, str) and v != "", "textStroke": lambda v: 0 <= v <= 1,
-            "engine": lambda v: v in ("dynamicTheme", "staticTheme", "cssFilter", "svgFilter"), "stylesheet": lambda v: isinstance(v, str),
-            "darkSchemeBackgroundColor": hexcolour.match, "darkSchemeTextColor": hexcolour.match,
-            "lightSchemeBackgroundColor": hexcolour.match, "lightSchemeTextColor": hexcolour.match,
-            "scrollbarColor": lambda v: v == "" or re.match(r"^(auto)|(#[0-9a-f]{6})$", v, re.I),
-            "selectionColor": lambda v: re.match(r"^(auto)|(#[0-9a-f]{6})$", v, re.I),
-            "styleSystemControls": lambda v: isinstance(v, bool), "lightColorScheme": lambda v: isinstance(v, str) and v != "",
-            "darkColorScheme": lambda v: isinstance(v, str) and v != "", "immediateModify": lambda v: isinstance(v, bool),
-        }
-        top = {"schemeVersion", "enabled", "fetchNews", "theme", "presets", "customThemes", "enabledByDefault", "enabledFor",
-               "disabledFor", "changeBrowserTheme", "syncSettings", "syncSitesFixes", "automation", "time", "location",
-               "previewNewDesign", "previewNewestDesign", "enableForPDF", "enableForProtectedPages", "enableContextMenus",
-               "detectDarkTheme"}
-        for theme in THEMES:
-            path = self.out / theme / "firefox/darkreader.json"
-            settings = json.loads(path.read_text())
-            self.assertEqual(set(settings), top, theme)
-            for name, ok in theme_rules.items():
-                self.assertTrue(ok(settings["theme"][name]), (theme, name, settings["theme"][name]))
-            self.assertEqual(set(settings["theme"]), set(theme_rules), theme)
-            self.assertEqual([c["url"] for c in settings["customThemes"]],
-                             [["*.officeapps.live.com"], ["*.sharepoint.com"], ["docs.google.com"], ["onedrive.live.com"]],
-                             "Dark Reader's own built-in site rules kept")
-            for custom in settings["customThemes"]:
-                self.assertEqual(set(custom["theme"]), set(theme_rules), theme)
-            self.assertTrue(re.match(r"^((0?[0-9])|(1[0-9])|(2[0-3])):([0-5][0-9])$", settings["time"]["activation"]))
-            self.assertEqual(settings["automation"]["mode"], "", "no automation: always on")
-            # every site, the ones with a dark mode of their own too; no fetch of Dark Reader's news
-            self.assertEqual((settings["detectDarkTheme"], settings["fetchNews"], settings["enabledByDefault"]), (False, False, True))
-        amber = json.loads((self.out / "retro-amber/firefox/darkreader.json").read_text())["theme"]
-        self.assertEqual((amber["darkSchemeTextColor"], amber["darkSchemeBackgroundColor"]), ("#ffb000", "#0c0a06"),
-                         "retro-amber: amber text on the near-black")
-
-
-class SourcesTest(unittest.TestCase):
     def test_ide_base_theme_matches_the_palette(self):
         want = {"light": "vs", "dark": "vs-dark"}
         for theme in THEMES:
@@ -294,14 +250,11 @@ class SourcesTest(unittest.TestCase):
         text = (ROOT / "src/desk-install/modules/specials.cpp").read_text()
         self.assertIn('palette::get(ctx.palette_path, "FF_WEBSITE_APPEARANCE"', text)
 
-    def test_dark_reader_is_asked_for_by_retro_amber_only(self):
+    def test_no_theme_asks_for_dark_reader(self):
+        # Dark Reader was retro-amber's (2026-11-19) and taken out again (2026-11-24); the installer only removes it now.
         for theme in THEMES:
-            self.assertEqual(palette_has(theme, "FF_DARK_READER"), theme == "retro-amber", theme)
-        self.assertEqual(palette_value("retro-amber", "FF_DARK_READER"), "on")
-        text = (ROOT / "src/desk-install/modules/specials.cpp").read_text()
-        self.assertIn('palette::get(ctx.palette_path, "FF_DARK_READER"', text)
-        self.assertIn("darkreader-settings.json", text)
-
+            self.assertFalse(palette_has(theme, "FF_DARK_READER"), theme)
+        self.assertFalse((ROOT / "templates/firefox/darkreader.json").exists())
     def test_kitty_has_no_keys_it_ignores(self):
         text = (ROOT / "templates/kitty/kitty.conf").read_text()
         self.assertNotRegex(text, r"(?m)^(line|letter)_spacing\b")

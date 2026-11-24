@@ -123,15 +123,9 @@ and panel as a DOS screen: square, amber on near-black, the chosen row inverse, 
 bright 2 px ring on the focused control. Vertical tabs are a list of amber titles
 with the open tab inverse; horizontal tabs are an amber menu bar.
 
-Websites follow too in retro-amber: Firefox asks every site for its dark mode, and
-the installer adds Dark Reader beside Vimium, which turns every site dark with its
-text in amber (`#ffb000` on `#0c0a06`, sites with a dark mode of their own as well).
-Dark Reader takes no settings from the policy file, so the installer writes them to
-`~/.config/foxml/firefox/darkreader-settings.json`: import that file once in Dark
-Reader's settings ("Import settings"); Dark Reader keeps them (and syncs them with
-Firefox Sync) after that. Its toolbar button, or Alt+Shift+A, switches it off for
-one site and remembers that. Another theme leaves Dark Reader installed: switch it
-off with the same button.
+Websites follow too in retro-amber: Firefox asks every site for its dark mode.
+Earlier installs added Dark Reader for this theme; the installer now takes it out of
+Firefox's policy file, after which it can be removed in `about:addons`.
 
 ## Shared files
 

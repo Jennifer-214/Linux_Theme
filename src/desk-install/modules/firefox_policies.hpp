@@ -19,16 +19,11 @@ struct Addon { const char* id; const char* slug; const char* name; };
 inline constexpr Addon ADDONS[] = {
     {"{d7742d87-e61d-4b78-b8a1-b469842139fa}", "vimium-ff", "Vimium"},
 };
-// Dark Reader: every site dark, its text in the theme's colours (retro-amber, FF_DARK_READER=on). Its settings cannot
-// come through the policy file (it reads no managed storage), so the installer leaves them in a file to import once.
-inline constexpr Addon DARK_READER = {"addon@darkreader.org", "darkreader", "Dark Reader"};
-
-// The add-ons this theme expects: Vimium always, Dark Reader when the theme asks for it.
-inline std::vector<Addon> addons_for(bool dark_reader) {
-    std::vector<Addon> out(std::begin(ADDONS), std::end(ADDONS));
-    if (dark_reader) out.push_back(DARK_READER);
-    return out;
-}
+// Add-ons an earlier install put in the policy and this one takes out again. Dark Reader (retro-amber, 2026-11-19 to
+// 2026-11-24): more trouble than it was worth, her call. Out of the policy, Firefox lets her remove it in about:addons.
+inline constexpr Addon RETIRED[] = {
+    {"addon@darkreader.org", "darkreader", "Dark Reader"},
+};
 
 inline std::string install_url(const Addon& addon) {
     return std::string("https://addons.mozilla.org/firefox/downloads/latest/") + addon.slug + "/latest.xpi";
@@ -50,6 +45,19 @@ inline Merge add_extension(nlohmann::json& file, const Addon& addon) {
     if (settings.contains(addon.id)) return Merge::Present;
     settings[addon.id] = {{"installation_mode", "normal_installed"}, {"install_url", install_url(addon)}};
     return Merge::Added;
+}
+
+// Takes out `addon`'s entry when it is the one add_extension wrote (installed from AMO's latest, switchable off); an
+// entry she wrote herself, or any other shape, stays. true when it was taken out.
+inline bool remove_extension(nlohmann::json& file, const Addon& addon) {
+    if (!file.is_object() || !file.contains("policies") || !file["policies"].is_object()) return false;
+    auto& policies = file["policies"];
+    if (!policies.contains("ExtensionSettings") || !policies["ExtensionSettings"].is_object()) return false;
+    auto& settings = policies["ExtensionSettings"];
+    const nlohmann::json ours = {{"installation_mode", "normal_installed"}, {"install_url", install_url(addon)}};
+    if (!settings.contains(addon.id) || settings[addon.id] != ours) return false;
+    settings.erase(addon.id);
+    return true;
 }
 
 }  // namespace desk_install::firefox_policies
