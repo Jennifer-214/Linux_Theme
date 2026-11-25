@@ -4550,9 +4550,13 @@ local function render_view(view, width, style)
   end
   -- The key line says what the selected thing is and what its keys do there (the pop-out shows it while it is selected).
   for _, it in ipairs(items) do
-    local two = M.strip_text(it.ref, G)
+    local two, parts = M.strip_text(it.ref, G)
     -- Enter's slot first (Codex's #9: it never moves), what the thing is after it
-    if two then it.keys = two[2] .. '   ' .. two[1] end
+    if two then
+      it.keys = two[2] .. '   ' .. two[1]
+      it.detail = two[1] .. (parts.extra and (' · ' .. parts.extra) or '')
+      it.enter, it.pairs = parts.enter, parts.pairs
+    end
   end
   local footer = FOOTER
   view.follows = tracing(view) ~= nil
@@ -4584,16 +4588,25 @@ function M.enter_slot(G, words, code_part)
   end
   return text .. string.rep(' ', M.ENTER_SLOT - w)
 end
-function M.strip_text(item, G)
-  G = G or M.glyphs(false)
+-- parts (the second value): what retro's bar is built from: { enter = Enter's words, pairs = { { key, words } },
+-- extra = words that are no key list, already in the theme's voice }; Enter's words and the pairs' are not yet.
+local function strip_text(item, G, parts)
   local t = item and item.target
   if not t then return nil end
+  local listed
   local function keys(list)
     local out = {}
-    for _, k in ipairs(list) do out[#out + 1] = typed(k[1]) .. ' ' .. G.said(k[2]) end
-    return table.concat(out, ' · ')
+    parts.pairs = {}
+    for _, k in ipairs(list) do
+      out[#out + 1] = typed(k[1]) .. ' ' .. G.said(k[2])
+      parts.pairs[#parts.pairs + 1] = { typed(k[1]), k[2] }
+    end
+    listed = table.concat(out, ' · ')
+    return listed
   end
   local function line(enter, rest, code_part)
+    parts.enter = enter
+    if rest and rest ~= '' and rest ~= listed then parts.extra = rest end
     local slot = M.enter_slot(G, enter, code_part)
     return rest and rest ~= '' and (slot .. ' · ' .. rest) or vim.trim(slot)
   end
@@ -4640,6 +4653,11 @@ function M.strip_text(item, G)
   elseif t.kind == 'pick' then
     return { tostring(item.name), line('use this one') }
   end
+end
+function M.strip_text(item, G)
+  local parts = {}
+  local two = strip_text(item, G or M.glyphs(false), parts)
+  return two, two and parts or nil
 end
 
 -- The history's step back as it was (step); the layout record's { pinned, target } after a restart: that checkout's

@@ -30,9 +30,13 @@ A still screenshot of two pop-outs and the editor must say all four (Codex's #7,
 - **Focus: where typing goes.** The filled title (the pop-out's current tab). A pop-out without the keyboard draws
   its tab like the others.
 - **Selection: what the next key acts on.** The filled row or box. In a pop-out without the keyboard it is drawn
-  dimmer (underlined in retro), so it never reads as focus.
+  dimmer (bold in retro), so it never reads as focus.
 - **Origin: what a graph is about.** The double frame round its centre, never anything else.
 - **Pin: whether it follows.** The word `PINNED` in the header (`↻` / `»` while it follows), never a colour.
+
+In retro the pop-out uses the drawer's frame: the view in front named in a `═[ … ]═` rule across the top with the
+time at its end, the tabs on the line under it (on the right, what the selected thing is when its box does not say it
+all: the map's), and every key in one inverse bar along the bottom (`◄┘ Go to  f Go+Focus  …  ? Help`).
 
 ## A panel or menu
 

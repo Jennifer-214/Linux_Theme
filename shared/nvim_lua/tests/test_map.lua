@@ -2354,7 +2354,15 @@ end
   eq(Map.strip_text({ name = "tick ring", target = { kind = "handoff", by_hand = false } }, G)[2], "Enter open producer or consumer        · x drops it (it is wrong)", "a handoff: Enter either side, x drops it")
   eq(Map.strip_text({ name = "a → b", target = { kind = "call", caller = "a", callee = "b", sites = { { line = 3 }, { line = 9 } } } }, G),
     { "a → b — 2 calls", "Enter open call site (2: pick)" }, "a call with two sites: Enter lists them")
+  -- retro's bar is built from the parts (2026-11-24): Enter's words, then each key and its word, as data
+  local _, parts = Map.strip_text(fn, G)
+  eq(parts, { enter = "open", pairs = { { "t", "trace" }, { "c", "calls" }, { "D", "reach" }, { "U", "callers" }, { "gs", "inspect" } } },
+    "a function's parts for retro's bar: what Enter does, each key and its word")
+  local _, hand = Map.strip_text({ name = "tick ring", target = { kind = "handoff", by_hand = false } }, G)
+  eq(hand, { enter = "open producer or consumer", extra = "x drops it (it is wrong)" }, "words that are no key list go with what it is")
   local payload = P._payload(pv)
+  ok(vim.iter(payload.items):any(function(i) return type(i.enter) == "string" and type(i.detail) == "string" end),
+    "the pop-out's items carry Enter's words and what the thing is")
   ok(vim.iter(payload.items):any(function(i) return type(i.keys) == "string" and i.keys:find("^Enter ") ~= nil end), "the pop-out's items carry their line, Enter's slot first")
   local line = P._keyline({ id = "v", copy = { index = 1 }, items = { { keys = "Enter open tt::tick (e.cpp:11) · t trace   tt::tick · e.cpp:11" } }, footer = {} })
   ok(line:find("Enter open tt::tick (e.cpp:11)%< · t trace   tt::tick · e.cpp:11", 1, true) and line:find("?%#DeskPopoutWords# keys", 1, true),

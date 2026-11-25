@@ -32,6 +32,8 @@
 -- the editor, by act), beside its own rows (surface 'popout'); a row the editor keeps (remote = false) is not there.
 local M = {}
 local api, uv = vim.api, vim.uv or vim.loop
+-- retro's frame: the pop-out's header, tabs row and key bar drawn the drawer's way (one local: the file is near Lua's 200)
+local R = {}
 local actions = require('desk.actions')
 local bridge = require('desk.bridge')
 
@@ -421,8 +423,9 @@ end
 --                { line, from, to, group, priority }; hl: the Desk* and FoxSymdeps* groups it draws with (their
 --                definitions go along); items: { key (≤ 120: the same item keeps it from one drawing to the next),
 --                kind = 'box' or 'row', line (where the cursor goes), name_col, x, w, spans = { { line, from, to } }
---                (at most 8), centre (selected first), name, strip = { two lines }, ref (stays here; ctx_for gets
---                it) }; footer: { { ids = { row ids }, words } }, its key line (four or five keys); strip: the first of
+--                (at most 8), centre (selected first), name, strip = { two lines }, keys (its key line), detail (what
+--                it is, when the box does not say it all), enter and pairs (Enter's words and { { key, words } }:
+--                retro's bar), ref (stays here; ctx_for gets it) }; footer: { { ids = { row ids }, words } }, its key line (four or five keys); strip: the first of
 --                the two lines that show the selected item's strip; news: something new is in it (an answer, a
 --                failure): its name in the header is marked until she looks (view.news, cleared once sent)
 --   available(ctx) → true | why | false   may it open from ctx (ctx.remote: asked from the pop-out)        (optional)
@@ -573,6 +576,15 @@ local function plain_near(near)
   for _, j in ipairs(near) do if #out < M.MAX_ITEMS and type(j) == 'number' and j >= 1 and j <= M.MAX_ITEMS and j == math.floor(j) then out[#out + 1] = j end end
   return out
 end
+-- An item's keys for retro's bar, { { key, words } }, at most 8.
+function R.plain_pairs(raw)
+  if type(raw) ~= 'table' then return nil end
+  local out = {}
+  for _, pair in ipairs(raw) do
+    if #out < 8 and type(pair) == 'table' and type(pair[1]) == 'string' and type(pair[2]) == 'string' then out[#out + 1] = { pair[1]:sub(1, 16), pair[2]:sub(1, 40) } end
+  end
+  return out
+end
 local function payload(view)
   local kind = kinds[view.kind]
   local ok, drawn = pcall(kind.render, view, pop_of(view).width or 80, vim.g.desk_style or 'paper')
@@ -597,7 +609,7 @@ local function payload(view)
       gauge_band = gauge_band(item.gauge_band, item.line), gauge_col = num(item.gauge_col),
       name = tostring(item.name or ''):sub(1, 200), where = cut(item.where, 120), mark = cut(item.mark, 16),
       strip = type(item.strip) == 'table' and { cut(item.strip[1], 400) or '', cut(item.strip[2], 400) or '' } or nil,
-      keys = cut(item.keys, 300),
+      keys = cut(item.keys, 300), detail = cut(item.detail, 300), enter = cut(item.enter, 60), pairs = R.plain_pairs(item.pairs),
       near = plain_near(item.near),
       -- gj / gk's real calls (Codex's E7): the boxes it calls and that call it, and each call's place
       down = plain_near(item.down), up = plain_near(item.up), unrun = item.unrun == true or nil, open = item.open == true or nil,
@@ -1901,6 +1913,11 @@ local C = { views = {}, order = {}, tiles = {}, asked = 0, waiting = {}, answers
 local ns = api.nvim_create_namespace('desk_popout')
 
 local function say(text, level) vim.notify(sentence(text), level or vim.log.levels.INFO, { title = 'Pop-out' }) end
+-- The header again; in retro the tabs too, on each window's bar.
+function R.redraw_top()
+  vim.cmd('redrawtabline')
+  if graphs().retro() then vim.cmd('redrawstatus!') end
+end
 local function width() return api.nvim_win_get_width(0) end
 local function shown() return C.shown and C.views[C.shown] or nil end
 local function escape(s) return (tostring(s):gsub('%%', '%%%%')) end
@@ -2116,16 +2133,46 @@ local function header_groups()
   api.nvim_set_hl(0, 'DeskPopoutTabSel', { link = 'DeskCallGraphSelected', default = true })
   api.nvim_set_hl(0, 'DeskPopoutKey', { link = 'DeskCallGraphKey', default = true })
   api.nvim_set_hl(0, 'DeskPopoutWords', { link = 'StatusLine', default = true })
+  -- retro's key bar: the drawer's, ink turned over
+  local key = api.nvim_get_hl(0, { name = 'DeskCallGraphKey', link = false })
+  api.nvim_set_hl(0, 'DeskPopoutBar', { fg = key.fg, reverse = true, default = true })
 end
 
 -- A view's key line: its kind's footer, keys as typed here, words in the theme's voice.
 local BOARD_MENU = { id = 'popout.board-menu', key = 'm', name = "Symdeps' action menu", group = 'symdeps',
   on = ON, menu = false, run = function() M.client_home() end }
 
+-- Retro's bar, the drawer's way (2026-11-24): each key and its word, the word capitalised; the selected thing's own keys
+-- when it has some, its view's otherwise, then the keys that switch views, open the menu and list the keys.
+function R.title_case(words)
+  return (words:gsub('^%l', string.upper):gsub('([+/])(%l)', function(sep, ch) return sep .. ch:upper() end))
+end
+function R.views_key(view)
+  local next_key = view and view.displaced and view.displaced['popout.next-view']
+  return typed('popout.prev-view') .. '/' .. (next_key and actions.spell(next_key) or typed('popout.next-view'))
+end
+function R.retro_bar(view, selected)
+  local list, home = {}, typed('popout.home')
+  local function add(key, words) list[#list + 1] = (key == 'Enter' and '◄┘' or key) .. ' ' .. R.title_case(words) end
+  if selected and selected.enter then
+    add('◄┘', selected.enter)
+    for _, pair in ipairs(selected.pairs or {}) do add(pair[1], pair[2]) end
+  else
+    for _, pair in ipairs(M.key_pairs(view.footer or {}, view.rows)) do
+      if pair[1] ~= '?' and pair[1] ~= home then add(pair[1], pair[2]) end
+    end
+  end
+  if view.surface == 'symdeps' then add(BOARD_MENU.key, 'menu') end
+  add(R.views_key(view), 'views'); add(home, 'menu'); add('?', 'help')
+  -- a narrow window cuts after the first
+  return '%#DeskPopoutBar# ' .. escape(list[1]) .. '%<' .. escape('  ' .. table.concat(list, '  ', 2)) .. ' %='
+end
+
 local function keyline(view)
   local said, parts = actions.voice(graphs().retro()), {}
   -- The selected thing's own line (a map's function: what it is, Enter source · t trace …), its view's keys otherwise.
   local selected = view.copy and view.copy.index and view.items and view.items[view.copy.index]
+  if graphs().retro() and not vim.tbl_contains(C.tiles, view.id) then return R.retro_bar(view, selected) end
   if selected and selected.keys and not vim.tbl_contains(C.tiles, view.id) then
     -- cut at the end in a narrow window, never before Enter's slot (the first of its parts)
     local first, rest = selected.keys:match('^(.-)( · .*)$')
@@ -2148,8 +2195,13 @@ local function keyline(view)
   return '%#DeskPopoutWords# ' .. table.concat(parts, '%#DeskPopoutWords# · ') .. '%#DeskPopoutWords# '
 end
 M._keyline = keyline -- a view's key line, for tests
+-- Retro: the tabs on a line of their own under the title (each view's window bar; code panes keep none).
+R.WINBAR = "%!v:lua.require'desk.popout'.winbar()"
 set_keyline = function(view)
-  if view.win and api.nvim_win_is_valid(view.win) then pcall(function() vim.wo[view.win].statusline = keyline(view) end) end
+  if not (view.win and api.nvim_win_is_valid(view.win)) then return end
+  pcall(function() vim.wo[view.win].statusline = keyline(view) end)
+  local bar = graphs().retro() and not vim.tbl_contains(C.tiles, view.id) and R.WINBAR or ''
+  if vim.wo[view.win].winbar ~= bar then pcall(function() vim.wo[view.win].winbar = bar end) end
 end
 -- A status or tab line as Neovim draws it (opts: { use_tabline } or { winid }), its text only.
 local function rendered(line, opts)
@@ -2196,41 +2248,76 @@ function M.client_focus(here)
   for _, win in ipairs(api.nvim_list_wins()) do
     if api.nvim_win_get_config(win).relative == '' then pcall(api.nvim_win_set_hl_ns, win, here and 0 or away_ns) end
   end
-  vim.cmd('redrawtabline')
+  R.redraw_top()
 end
 --- pure: a gp pair's partner as the header says it: the words in the theme's voice, the function it names as typed.
 function M.partner_text(partner, said)
   local words, name = tostring(partner):match('^(.-: )(.+)$')
   return words and (said(words) .. name) or said(partner)
 end
+function R.tab_label(view)
+  if view and vim.tbl_contains(C.tiles, view.id) then return #C.tiles .. ' code panes' end
+  return view and (view.tab or (view.kind ~= '' and view.kind) or view.id) or 'pop-out'
+end
+-- A view as its tab names it, without its number: its word, its subject, pinned or following, its partner.
+function R.tab_words(view, retro, said)
+  local text = said(R.tab_label(view))
+  if view and view.subject and not vim.tbl_contains(C.tiles, view.id) then text = text .. ' · ' .. view.subject
+  elseif view and view.tick then
+    text = text .. ' · ' .. view.title
+    if view.loading then text = text .. ' · ' .. said('loading')
+    elseif view.state ~= '' then text = text .. ' · ' .. view.state end
+  end
+  -- Pinned or following, from the editor's own flags (any kind: the review's state is its progress, 2026-11-16).
+  if view and view.pinned then text = text .. (retro and '·' or ' · ') .. said('PINNED')
+  elseif view and view.follows then text = text .. ' ' .. (retro and '»' or '↻') end
+  if view and view.partner then text = text .. ' · ' .. M.partner_text(view.partner, said) end
+  return text
+end
+-- Retro's header (2026-11-24): the drawer's top border, the view in front named in it and the time at its end; the
+-- tabs are on the line under it (M.winbar), the keys in the bar along the bottom.
+function R.retro_title()
+  local said = actions.voice(true)
+  local right = (C.busy and (' ' .. said('editor busy') .. ' ═') or '') .. ' ' .. os.date('%H:%M') .. ' ═'
+  local room = vim.o.columns - vim.fn.strdisplaywidth(right) - 5
+  local text = R.tab_words(shown(), true, said)
+  if vim.fn.strdisplaywidth(text) > room then text = vim.fn.strcharpart(text, 0, math.max(0, room - 2)) .. '..' end
+  local left = '═[ ' .. text .. ' ]'
+  local fill = math.max(0, vim.o.columns - vim.fn.strdisplaywidth(left) - vim.fn.strdisplaywidth(right))
+  return '%#DeskPopoutKey#' .. escape(left .. string.rep('═', fill) .. right)
+end
+function M.winbar()
+  local ok, line = pcall(function()
+    local said, current, out = actions.voice(true), api.nvim_get_current_tabpage(), {}
+    for n, tab in ipairs(api.nvim_list_tabpages()) do
+      local view = view_in_tab(tab)
+      if not view and tab == current then view = shown() end
+      local filled = tab == current and C.focused ~= false
+      out[#out + 1] = (filled and '%#DeskPopoutTabSel#' or '%#DeskPopoutTab#') .. escape(' ' .. n .. ' ' .. said(R.tab_label(view)) .. (view and view.news and ' *' or '') .. ' ')
+    end
+    -- what the selected thing is, when its box does not say it all (the map's)
+    local here
+    for _, view in pairs(C.views) do if view.win == vim.g.statusline_winid then here = view end end
+    local item = here and here.copy and here.copy.index and here.items and here.items[here.copy.index]
+    local detail = item and item.detail and ('%#DeskCallGraphDim#' .. escape(item.detail) .. ' ') or ''
+    return table.concat(out, '%#DeskPopoutTabFill# ') .. '%#DeskPopoutTabFill#%=%<' .. detail
+  end)
+  return ok and line or ''
+end
 local function tabline()
   local retro = graphs().retro()
+  if retro then return R.retro_title() end
   local said, current, out = actions.voice(retro), api.nvim_get_current_tabpage(), {}
   for n, tab in ipairs(api.nvim_list_tabpages()) do
     local view = view_in_tab(tab)
     if not view and tab == current then view = shown() end
-    local label = view and (view.tab or (view.kind ~= '' and view.kind) or view.id) or 'pop-out'
-    if view and vim.tbl_contains(C.tiles, view.id) then label = #C.tiles .. ' code panes' end
-    local text = ' ' .. n .. ' ' .. said(label)
-    if view and view.subject and not vim.tbl_contains(C.tiles, view.id) then text = text .. ' · ' .. view.subject
-    elseif view and view.tick then
-      text = text .. ' · ' .. view.title
-      if view.loading then text = text .. ' · ' .. said('loading')
-      elseif view.state ~= '' then text = text .. ' · ' .. view.state end
-    end
-    -- Pinned or following, from the editor's own flags (any kind: the review's state is its progress, 2026-11-16).
-    if view and view.pinned then text = text .. (retro and '·' or ' · ') .. said('PINNED')
-    elseif view and view.follows then text = text .. ' ' .. (retro and '»' or '↻') end
-    if view and view.partner then text = text .. ' · ' .. M.partner_text(view.partner, said) end
+    local text = ' ' .. n .. ' ' .. R.tab_words(view, retro, said)
     if view and view.news then text = text .. ' ' .. (retro and '*' or '✱') end
     -- filled only where the keyboard is (Codex's #7): in a pop-out without it, its tab reads as any other
     local filled = tab == current and C.focused ~= false
     out[#out + 1] = '%' .. n .. 'T' .. (filled and '%#DeskPopoutTabSel#' or '%#DeskPopoutTab#') .. escape(text .. ' ')
   end
-  local view = shown()
-  local next_key = view and view.displaced and view.displaced['popout.next-view']
-  local right = ' ' .. typed('popout.prev-view') .. '/' .. (next_key and actions.spell(next_key) or typed('popout.next-view'))
-    .. ' ' .. said('views') .. ' · ' .. typed('popout.home') .. ' ' .. said('menu') .. ' '
+  local right = ' ' .. R.views_key(shown()) .. ' ' .. said('views') .. ' · ' .. typed('popout.home') .. ' ' .. said('menu') .. ' '
   if C.busy then right = ' ' .. said('editor busy') .. ' ·' .. right end
   return table.concat(out, retro and '%#DeskPopoutTab#│' or '%#DeskPopoutTab# ') .. '%#DeskPopoutTabFill#%T%=%#DeskPopoutTab#'
     .. (retro and '│' or '') .. escape(right)
@@ -2359,7 +2446,7 @@ local function layout_code()
   if current and tab_of(current) then api.nvim_set_current_win(current.win) end
   C.switching = false
   for _, view in pairs(C.views) do set_keyline(view) end
-  vim.cmd('redrawtabline')
+  R.redraw_top()
   if not ok then say('Could not arrange the code views: ' .. tostring(err), WARN) end
 end
 
@@ -2377,7 +2464,7 @@ local function show(view)
   C.shown, view.news = view.id, false
   tell_front(view, true)
   if view.copy.index then graphs().select(view.copy, view.copy.index, true) end
-  vim.cmd('redrawtabline')
+  R.redraw_top()
 end
 
 -- The empty buffer's words (its key line has the keys). force: put it in the current window even with views (the
@@ -2402,7 +2489,7 @@ local function show_empty(message, force)
     set_keyline(e)
     C.shown = nil
   end
-  vim.cmd('redrawtabline')
+  R.redraw_top()
 end
 local function nothing_shown() return 'nothing is shown here: `' .. typed('popout.home') .. '` › views opens one' end
 
@@ -2448,6 +2535,14 @@ local function valid_near(raw)
   for _, j in ipairs(raw) do if #out < M.MAX_ITEMS and type(j) == 'number' and j >= 1 and j <= M.MAX_ITEMS and j == math.floor(j) then out[#out + 1] = j end end
   return out
 end
+function R.valid_pairs(raw)
+  if type(raw) ~= 'table' then return nil end
+  local out = {}
+  for _, pair in ipairs(raw) do
+    if #out < 8 and type(pair) == 'table' and short(pair[1], 16) and short(pair[2], 40) then out[#out + 1] = { pair[1], pair[2] } end
+  end
+  return out
+end
 local function valid_items(raw)
   local items = {}
   for i, item in ipairs(type(raw) == 'table' and raw or {}) do
@@ -2461,6 +2556,7 @@ local function valid_items(raw)
       name = type(item.name) == 'string' and item.name:sub(1, 200) or '', where = short(item.where, 120), mark = short(item.mark, 16),
       strip = type(lines[1]) == 'string' and type(lines[2]) == 'string' and { lines[1]:sub(1, 400), lines[2]:sub(1, 400) } or nil,
       keys = type(item.keys) == 'string' and item.keys:sub(1, 300) or nil,
+      detail = short(item.detail, 300), enter = short(item.enter, 60), pairs = R.valid_pairs(item.pairs),
       near = valid_near(item.near),
       down = valid_near(item.down), up = valid_near(item.up), unrun = item.unrun == true or nil, open = item.open == true or nil,
       down_sites = valid_sites(item.down_sites), up_sites = valid_sites(item.up_sites),
@@ -2607,7 +2703,7 @@ local function receive_lines(msg)
   elseif msg.cursor then mirror_cursor(view) end
   watch_chunk(view)
   set_keyline(view)
-  vim.cmd('redrawtabline')
+  R.redraw_top()
 end
 
 -- Draws a view into its buffer. Its selection: the item the editor asks for (select), else the one selected before (by
@@ -2702,7 +2798,7 @@ local function drop(id)
   C.shown = now and now.id or nil
   if now then tell_front(now, true) elseif next(C.views) == nil then show_empty(nothing_shown()) end
   layout_code()
-  vim.cmd('redrawtabline')
+  R.redraw_top()
 end
 local function handle(msg)
   -- notice { text, level }: a warning the editor gave while running a key pressed here.
@@ -2741,7 +2837,7 @@ local function handle(msg)
     C.received = (C.received or 0) + 1
     draw(view, got.lines, got.select or (before and before.key), not got.select and held or nil)
     -- A view the editor sends anew, or asks to show, comes to the front; one drawn again behind another stays behind.
-    if (fresh and not got.behind) or got.front or not shown() then show(view) else vim.cmd('redrawtabline') end
+    if (fresh and not got.behind) or got.front or not shown() then show(view) else R.redraw_top() end
     if got.tick then
       view.drawn_at = view.saved_scroll and view.win and api.nvim_win_is_valid(view.win) and api.nvim_win_get_cursor(view.win) or nil
       finish_snapshot(view)
@@ -2986,6 +3082,9 @@ function M.client()
   header_groups()
   vim.o.showtabline, vim.o.laststatus = 2, 2
   vim.o.tabline = "%!v:lua.require'desk.popout'.tabline()"
+  -- retro's title has the time in it
+  C.clock = C.clock or uv.new_timer()
+  C.clock:start((60 - os.date('*t').sec) * 1000, 60000, vim.schedule_wrap(function() if graphs().retro() then vim.cmd('redrawtabline') end end))
   local group = api.nvim_create_augroup('desk_popout_client', { clear = true })
   api.nvim_create_autocmd({ 'WinEnter', 'TabEnter' }, { group = group, callback = function()
     if C.switching then return end
@@ -2997,7 +3096,7 @@ function M.client()
     elseif not view and api.nvim_win_get_config(0).relative == '' then
       C.shown = nil
     end
-    vim.cmd('redrawtabline')
+    R.redraw_top()
   end })
   -- Focus, selection, origin and pin each one look (Codex's #7): the filled title is where typing goes; in a pop-out
   -- without the keyboard the selection is drawn dimmer (its windows in a highlight namespace of their own).
@@ -3055,6 +3154,7 @@ function M.client_state()
     received = C.received or 0, pinned = view and view.pinned == true, views = vim.tbl_keys(C.views),
     tabs = #api.nvim_list_tabpages(), tab = vim.fn.tabpagenr(), tiles = vim.deepcopy(C.tiles),
     header = M.header(), keyline = rendered(vim.wo[win].statusline, { winid = win }),
+    winbar = rendered(vim.wo[win].winbar, { winid = win, use_winbar = true }),
     -- what the dimming draws on the lines on screen (the provider draws no others)
     faint = s.drawn and graphs().faint_spans(s, vim.fn.line('w0', win), vim.fn.line('w$', win)) or {} }
 end

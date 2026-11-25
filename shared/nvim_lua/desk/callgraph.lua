@@ -2494,6 +2494,7 @@ local function render_view(view, width, style)
     enter = vim.fn.strdisplaywidth(enter) > 38 and (fit(enter, 38, style == 'retro' and '..' or '…')) or (enter .. string.rep(' ', 38 - vim.fn.strdisplaywidth(enter)))
     items[i] = { key = box_key(box), kind = 'box', line = box.line, x = box.x, w = box.w, name_col = box.name_col, spans = box.spans, near = box.near,
       keys = enter .. ' · f ' .. said('go+focus') .. ' · t ' .. said('trace') .. ' · p ' .. said('pin'),
+      enter = 'go to', pairs = { { 'f', 'go+focus' }, { 't', 'trace' }, { 'p', 'pin' } },
       centre = box.centre, gauge = box.gauge, gauge_band = box.gauge_band, gauge_col = box.gauge_col, name = tostring(box.item.name or ''),
       where = box.item.detail ~= '' and box.item.detail or nil, ref = box.item,
       down = box.down, up = box.up, down_sites = box.down_sites, up_sites = box.up_sites }

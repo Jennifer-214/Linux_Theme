@@ -314,6 +314,15 @@ ok(pop([=[local G = require('desk.callgraph'); local a = vim.api.nvim_buf_get_ex
 pop("vim.g.desk_style = 'retro'")
 host("vim.g.desk_style = 'retro'; local P = require('desk.popout'); P.redraw(P.view_of('graph'))")
 ok(wait(3000, function() return popped():find('LAYERS -1 .. +2', 1, true) end), 'the pop-out draws the Retro graph')
+-- Retro wears the drawer's frame (2026-11-24): the view in front named in a ═ rule with the time at its end, the tabs on
+-- the line under it, and every key in one bar along the bottom, the selected box's name said once (in the box).
+s = state()
+ok(s.header:find('^═%[ CALLS · M%.alpha') and s.header:find(' %]═') and s.header:find(' %d%d:%d%d ═$')
+  and vim.fn.strdisplaywidth(s.header) == pop('return vim.o.columns'), 'retro: the title in a ═ rule across the top, the time at its end: ' .. s.header)
+ok(not s.header:find('VIEWS', 1, true), '… and no keys in it: ' .. s.header)
+ok(s.winbar:find('^ 1 CALLS ') and not s.winbar:find('callee_of', 1, true), 'retro: the tabs on the line under it, the box not named again: ' .. s.winbar)
+eq(s.keyline:match('^(.-)%s*$'), ' ◄┘ Go to  f Go+Focus  t Trace  p Pin  H/L Views  Space Space Menu  ? Help',
+  "retro: one bar of keys, the drawer's way: the key, then its word")
 ok(pop([=[
   local G = require('desk.callgraph')
   local marks = vim.api.nvim_buf_get_extmarks(0, G.gauge_ns, 0, -1, { details = true })
@@ -827,11 +836,13 @@ ok(wait(2000, function() return state().shown == 'rows' end), 'gt: the rows agai
 -- Something new in a view behind: the pinned graph's file saved, so it is read again; its name is marked until she looks.
 host("vim.api.nvim_set_current_win(_G.popout_test.code_win); vim.cmd('silent write')")
 ok(wait(3000, function() return state().header:find('calls · .- · PINNED ✱') end), 'the graph read again behind: ✱ after its name')
-pop("vim.g.desk_style = 'retro'; vim.cmd('redrawtabline')")
-s = state()
-ok(s.header:find(' 1 CALLS · M.alpha·PINNED %* │ 2 ROWS ') and s.header:find('│ H/L VIEWS · Space Space MENU ', 1, true),
-  'retro: capitals, │ between views, * for news; the keys as typed: ' .. s.header)
-pop("vim.g.desk_style = 'paper'; vim.cmd('redrawtabline')")
+-- (the rows drawn again in retro, as a pop-out started in it draws them)
+pop("vim.g.desk_style = 'retro'")
+host("vim.g.desk_style = 'retro'; local P = require('desk.popout'); P.redraw(P.view_of('rows'))")
+ok(wait(3000, function() return (state().winbar or ''):find('^ 1 CALLS %*   2 ROWS ') ~= nil end) and state().header:find('^═%[ ROWS'),
+  'retro: the tabs in capitals, * for news; the one in front named in the rule: ' .. tostring(state().winbar) .. ' / ' .. state().header)
+pop("vim.g.desk_style = 'paper'")
+host("vim.g.desk_style = 'paper'; local P = require('desk.popout'); P.redraw(P.view_of('rows'))")
 press('gT')
 ok(wait(2000, function() return state().shown == 'graph' and not state().header:find('✱', 1, true) end), 'looked at: the mark goes')
 press('gt')
