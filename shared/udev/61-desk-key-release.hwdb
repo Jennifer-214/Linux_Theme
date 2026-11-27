@@ -1,0 +1,6 @@
+# ThinkPads: Fn+S is SysRq (Print, scan code 0x54). Let go of Fn before S and the keyboard never sends its release,
+# so the key stays down until it is pressed again. Hyprland 0.57 drops the first key after every Shift, Ctrl or Alt
+# while a key with a keybind is held, and Print has the screenshot bind: every app then loses that key.
+# "!" makes the kernel send the release right after the press. Installed by the key_release install step.
+evdev:atkbd:dmi:*:svnLENOVO:*:pvrThinkPad*
+ KEYBOARD_KEY_54=!sysrq

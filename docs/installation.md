@@ -230,6 +230,7 @@ install, use `install.sh` so the other native tools are built and installed too.
 | `--ssh-harden` | Run the SSH hardening wizard (`FOXML_SSH_PORT=<port>` answers it for an unattended run) |
 | `--perf` | Configure Chrony time synchronization |
 | `--zram` | Compressed swap in RAM, up to 8 GiB, zstd (on by default; leaves an existing zram setup alone) |
+| `--key-release` | ThinkPads only: Fn+S (SysRq, the Print key) always sends its release (`/etc/udev/hwdb.d/61-desk-key-release.hwdb`). Without it, letting go of Fn first leaves Print held, and Hyprland 0.57 then drops the first key after every Shift, Ctrl or Alt |
 | `--privacy` | Configure DNS-over-HTTPS |
 | `--vault` | Install the in-memory `desk-vault` secret-store service |
 | `--soloist` | Start Soloist (Spotify Connect, downloaded to `/usr/local/bin/soloist`) at login as `soloist.service`, named after the computer. Asks once for the API key (`soloist setup-api-key`) and keeps it private. Skipped when Soloist is not installed |

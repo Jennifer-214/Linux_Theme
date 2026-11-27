@@ -27,6 +27,8 @@ DESK_MODULE( perf,            run_perf,             "--perf",         "Performan
 DESK_MODULE( clock_sync,      run_clock_sync,       "--clock-sync",   "One-shot NTP correction at install time",          true  )
 //   zram — leaves a machine's own zram config or active zram swap alone (zram_conf.hpp).
 DESK_MODULE( zram,            run_zram,             "--zram",         "Compressed swap in RAM (zram-generator, up to 8 GiB)", true  )
+//   key_release — ThinkPads only: a udev hwdb rule so Fn+S (SysRq) never stays held (key_release.hpp). Root.
+DESK_MODULE( key_release,     run_key_release,      "--key-release",  "ThinkPad Fn+S (SysRq) always sends its release, so no key stays held", true  )
 //   ssh_harden — before ufw, security and endlessh: they follow the port sshd listens on (ssh_port.hpp), so one run
 //   leaves the firewall, fail2ban and the tarpit on the port it chose. Asks, or FOXML_SSH_PORT=<port> unattended.
 DESK_MODULE( ssh_harden,  run_ssh_harden,    "--ssh-harden",  "SSH wizard: one port for sshd, keys-only once your key logs in", false )
