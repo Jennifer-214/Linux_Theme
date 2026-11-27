@@ -232,6 +232,7 @@ install, use `install.sh` so the other native tools are built and installed too.
 | `--zram` | Compressed swap in RAM, up to 8 GiB, zstd (on by default; leaves an existing zram setup alone) |
 | `--privacy` | Configure DNS-over-HTTPS |
 | `--vault` | Install the in-memory `desk-vault` secret-store service |
+| `--soloist` | Start Soloist (Spotify Connect, downloaded to `/usr/local/bin/soloist`) at login as `soloist.service`, named after the computer. Asks once for the API key (`soloist setup-api-key`) and keeps it private. Skipped when Soloist is not installed |
 | `--nvidia` | nvidia-open-dkms, the headers of every installed kernel, + Hyprland on dGPU (Optimus laptops) |
 | `--render` | Apply the theme everywhere: render, deploy, scripts, drawer, cursor and banner, then restart waybar/mako/dunst. Folder colours can need sudo, so it warns and leaves them to `--only papirus_icons` |
 | `--private-extras` | The repo owner's own extras, from a script in her private `linux-theme-workspace` (off by default) |

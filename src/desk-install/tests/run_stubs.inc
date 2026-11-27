@@ -63,6 +63,7 @@ void run_specials    (Context&) {}
 void run_drawer      (Context&) {}
 void run_integrations(Context&) {}
 void run_vault       (Context&) {}
+void run_soloist     (Context&) {}
 void run_ai              (Context&) {}
 void run_models      (Context&) {}
 void run_github      (Context&) {}

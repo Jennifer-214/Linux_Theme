@@ -150,6 +150,8 @@ DESK_MODULE_FULL( greetd,        run_greetd,             "--greetd",           "
 DESK_MODULE_FULL( vault,     run_vault,         "--vault",        "Install desk-vault systemd user service",           false,
                  /*root*/ false, /*gfx*/ false, /*net*/ false,
                  state::check_vault )
+//   soloist — a user unit; skips a machine without /usr/local/bin/soloist. No root; asks for the key only when interactive.
+DESK_MODULE( soloist,   run_soloist,       "--soloist",      "Soloist (Spotify Connect) at login, API key saved once and private", true )
 // github first: it clones ~/code, and what follows reads your repos there — models and the router your
 // private custom_models lists and roles, opencode the claude-skills folders. After them, a fresh install
 // found none of it.
