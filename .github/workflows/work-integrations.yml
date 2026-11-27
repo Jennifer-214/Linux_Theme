@@ -42,9 +42,15 @@ jobs:
         # changes when that file does.
         run: echo "Server = https://archive.archlinux.org/repos/$ARCH_SNAPSHOT/\$repo/os/\$arch" > /etc/pacman.d/mirrorlist
       - name: Install the native and offscreen test toolchain
+        # The archive is sometimes too slow for these runners ("Operation too slow"), for minutes at a time: three
+        # tries, two minutes apart. Files already downloaded stay in pacman's cache, so a retry only fetches the rest.
         run: |
-          pacman -Syyuu --noconfirm --needed base-devel ccache git openssl python python-msgpack \
-            neovim quickshell nodejs npm jq ttf-dejavu
+          for try in 1 2 3; do
+            pacman -Syyuu --noconfirm --needed base-devel ccache git openssl python python-msgpack \
+              neovim quickshell nodejs npm jq ttf-dejavu && exit 0
+            [ "$try" = 3 ] || { echo "::warning::archive download failed (try $try of 3); retrying in 2 minutes"; sleep 120; }
+          done
+          exit 1
       - name: Build the treesitter parsers the project map's test reads, at their pinned tags
         # Neovim ships no python or cpp parser and Arch packages no cpp one; tests/test_nvim_map.py fails in this run
         # without them (tests/required.py). They go where it looks: site/parser in Neovim's data folder.
