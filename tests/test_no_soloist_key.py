@@ -70,7 +70,8 @@ class NoSoloistKey(unittest.TestCase):
         self.assertEqual(self.check().returncode, 0)
 
     def test_this_repo_has_none(self):
-        run = subprocess.run(["bash", str(CHECK)], cwd=ROOT, env=ENV, capture_output=True, text=True)
+        # The real git settings: a CI container marks the checkout safe.directory there.
+        run = subprocess.run(["bash", str(CHECK)], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
 
