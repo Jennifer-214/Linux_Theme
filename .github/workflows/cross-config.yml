@@ -61,10 +61,16 @@ jobs:
         run: |
           # -Syu, never -Sy: installing against a fresh database without upgrading is a partial upgrade, and breaks
           # the day a library (systemd-libs) moves ahead of the image's own package that pins it (systemd).
-          pacman -Syyuu --noconfirm --needed \
-            base-devel ccache git curl pkgconf openssl \
-            pacman-contrib coreutils sed gawk \
-            python python-yaml wayland wayland-protocols cairo pango glib2 gdk-pixbuf2 systemd-libs jq
+          # The archive is sometimes too slow for these runners ("Operation too slow"), for minutes at a time: three
+          # tries, two minutes apart. Files already downloaded stay in pacman's cache, so a retry only fetches the rest.
+          for try in 1 2 3; do
+            pacman -Syyuu --noconfirm --needed \
+              base-devel ccache git curl pkgconf openssl \
+              pacman-contrib coreutils sed gawk \
+              python python-yaml wayland wayland-protocols cairo pango glib2 gdk-pixbuf2 systemd-libs jq && exit 0
+            [ "$try" = 3 ] || { echo "::warning::archive download failed (try $try of 3); retrying in 2 minutes"; sleep 120; }
+          done
+          exit 1
 
       # After git is installed: without git in the container, checkout downloads the files with no .git, and the
       # tests that read git's index (script modes) fail.
